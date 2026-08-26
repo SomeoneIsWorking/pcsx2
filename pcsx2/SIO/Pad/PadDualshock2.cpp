@@ -5,10 +5,13 @@
 #include "SIO/Pad/Pad.h"
 #include "SIO/Sio.h"
 #include "SIO/Sio0.h"
+#include "AVPE/AVPE.h"
 
 #include "Common.h"
 #include "Input/InputManager.h"
 #include "Host.h"
+
+#include <lucent/log.h>
 
 #include "IconsPromptFont.h"
 
@@ -202,7 +205,22 @@ u8 PadDualshock2::ButtonQuery(u8 commandByte)
 
 u8 PadDualshock2::Poll(u8 commandByte)
 {
+	// AVPE diagnostic: prove transfers are occurring and show what we send.
+	static u32 pollCount = 0;
+	if ((++pollCount % 60) == 0)
+		lucent::info("avpe", "ds2 slot{} poll#{} buttons={:04x} injected={:04x}", unifiedSlot,
+			pollCount, buttons, AVPE::ActiveButtonMask());
+
 	const u32 buttons = GetButtons();
+	// AVPE diagnostic: the exact bytes handed to the wire while injecting.
+	if (AVPE::ActiveButtonMask() != 0 && commandBytesReceived >= 3 && commandBytesReceived <= 4)
+	{
+		static u32 diagCount = 0;
+		if ((++diagCount % 30) == 1)
+			lucent::info("avpe", "poll slot{} cbr={} buttons={:04x} ret={:02x}", unifiedSlot,
+				commandBytesReceived, buttons,
+				commandBytesReceived == 3 ? (buttons >> 8) & 0xff : buttons & 0xff);
+	}
 	u8 largeMotor = 0x00;
 	u8 smallMotor = 0x00;
 
@@ -829,7 +847,16 @@ std::tuple<u8, u8> PadDualshock2::GetRawRightAnalog() const
 
 u32 PadDualshock2::GetButtons() const
 {
-	return buttons;
+	// AVPE (fork-local): injected presses CLEAR their wire bits (DS2 reports
+	// are active-low: ff = released). Port 0 only.
+	const u32 avpe = AVPE::ActiveButtonMask();
+	static u32 avpeLast = 0;
+	if (avpe != avpeLast)
+	{
+		avpeLast = avpe;
+		lucent::info("avpe", "GetButtons injection wire={:04x}", avpe);
+	}
+	return buttons & ~avpe;
 }
 
 u8 PadDualshock2::GetPressure(u32 index) const

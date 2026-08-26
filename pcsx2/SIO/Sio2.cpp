@@ -13,6 +13,9 @@
 #include "SIO/Sio2.h"
 #include "SIO/SioTypes.h"
 #include "StateWrapper.h"
+#include "AVPE/AVPE.h"
+
+#include <lucent/log.h>
 
 #define SIO2LOG_ENABLE 0
 #define Sio2Log if (SIO2LOG_ENABLE) DevCon
@@ -193,6 +196,16 @@ void Sio2::Pad()
 	if (pad->ejectTicks)
 	{
 		pad->ejectTicks -= 1;
+	}
+
+	// AVPE diagnostic feed: count transfers and keep the last response bytes.
+	if (!g_Sio2FifoOut.empty())
+	{
+		char fifo_bytes[16];
+		const u32 n = static_cast<u32>(std::min<size_t>(g_Sio2FifoOut.size(), 16));
+		for (u32 i = 0; i < n; ++i)
+			fifo_bytes[i] = static_cast<char>(g_Sio2FifoOut[i]);
+		AVPE::NotePadTransfer(static_cast<int>(port), fifo_bytes, n);
 	}
 }
 

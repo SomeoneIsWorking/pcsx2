@@ -11,4 +11,15 @@ namespace AVPE
 	// AVPE_HTTP_PORT, default 28447). Returns false only on bind failure.
 	bool Start();
 	void Shutdown();
+
+	// Button injection in PadDualshock2::Inputs bit space (bit i = enum value i),
+	// consumed by PadDualshock2::GetButtons. Port 0 only. Mask expires after ms.
+	void PressButtons(u32 mask, u32 ms);
+	u32 ActiveButtonMask();
+
+	// Diagnostics fed by the SIO layer: cumulative pad-transfer count and the
+	// response bytes of the most recent transfer ("" if none yet).
+	void NotePadTransfer(int port, const char* fifo_bytes, u32 fifo_len);
+	u32 TransferCount();
+	std::string LastFifo();
 } // namespace AVPE
