@@ -2,6 +2,7 @@
 #include "AVPE/AVPE.h"
 #include "AVPE/EECallShuttle.h"
 #include "AVPE/NativeInput.h"
+#include "AVPE/NativeMenuInput.h"
 #include "Config.h"
 #include "Host.h"
 #include "Host/AudioStreamTypes.h"
@@ -488,6 +489,52 @@ namespace AVPE
 		return lucent::http::Response::json(200, "OK", response);
 	}
 
+	static lucent::http::Response handle_input_menu_action(const std::string& body)
+	{
+		const auto action_name = json_string_field(body, "action");
+		if (!action_name)
+			return lucent::http::Response::text(400, "Bad Request", "need action\n");
+
+		NativeMenuInput::Action action;
+		if (*action_name == "up")
+			action = NativeMenuInput::Action::Up;
+		else if (*action_name == "down")
+			action = NativeMenuInput::Action::Down;
+		else if (*action_name == "left")
+			action = NativeMenuInput::Action::Left;
+		else if (*action_name == "right")
+			action = NativeMenuInput::Action::Right;
+		else
+			return lucent::http::Response::text(
+				400, "Bad Request", "action must be up, down, left, or right\n");
+
+		const NativeMenuInput::Result result = NativeMenuInput::Apply(action);
+		if (!result.Succeeded())
+		{
+			int status = 500;
+			switch (result.status)
+			{
+				case NativeMenuInput::Status::MenuUnavailable:
+				case NativeMenuInput::Status::AmbiguousMenu:
+					status = 409;
+					break;
+				default:
+					break;
+			}
+			lucent::error("avpe-input", "menu {} failed: {}", *action_name, result.error);
+			return lucent::http::Response::text(
+				status, "Native Menu Input Failed", std::string(result.error) + "\n");
+		}
+
+		char response[512];
+		std::snprintf(response, sizeof(response),
+			R"({"action":"%s","menu":"0x%08X","callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"elapsed_cycles":%llu})",
+			action_name->c_str(), result.menu, result.callback_count, result.before.handle,
+			result.before.object, result.after.handle, result.after.object,
+			static_cast<unsigned long long>(result.elapsed_cycles));
+		return lucent::http::Response::json(200, "OK", response);
+	}
+
 	// POST /ee/call {"function":"0x00137b30","a0":0,"cycle_budget":3000000}
 	static lucent::http::Response handle_ee_call(const std::string& body)
 	{
@@ -673,6 +720,8 @@ namespace AVPE
 			return handle_input_move_absolute(req.body);
 		if (req.method == "POST" && path == "/input/mouse-button")
 			return handle_input_mouse_button(req.body);
+		if (req.method == "POST" && path == "/input/menu-action")
+			return handle_input_menu_action(req.body);
 		if (req.method == "POST" && path == "/ee/call")
 			return handle_ee_call(req.body);
 		if (req.method == "POST" && path == "/shutdown")
@@ -684,6 +733,7 @@ namespace AVPE
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /state/save\",\"POST /state/load\","
 			"\"POST /input/press\",\"POST /input/move-absolute\",\"POST /input/mouse-button\","
+			"\"POST /input/menu-action\","
 			"\"POST /ee/call\",\"POST /shutdown\"]}");
 	}
 

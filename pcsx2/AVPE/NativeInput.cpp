@@ -2,7 +2,7 @@
 
 #include "AVPE/NativeInput.h"
 
-#include "vtlb.h"
+#include "AVPE/GuestObjects.h"
 
 #include <array>
 #include <bit>
@@ -25,8 +25,6 @@ namespace AVPE::NativeInput
 	static constexpr u32 SELECTION_ARRAY_OFFSET = 0x1B0;
 	static constexpr u32 SELECTED_OBJECT_OFFSET = 0xA8;
 	static constexpr u32 CURRENT_COMMAND_ID_OFFSET = 0x460;
-	static constexpr u32 TARGET_STATIC_BEGIN = 0x00100000;
-	static constexpr u32 TARGET_STATIC_END = 0x00400000;
 	static constexpr s32 MAX_PLAUSIBLE_RESOLUTION = 8192;
 	static constexpr u32 MAX_SELECTION_COUNT = 32;
 
@@ -39,42 +37,18 @@ namespace AVPE::NativeInput
 		return {.status = status, .error = error};
 	}
 
-	static bool ReadWord(const u32 address, u32* value)
-	{
-		std::array<u8, 4> bytes{};
-		if (!vtlb_memSafeReadBytes(address, bytes.data(), bytes.size()))
-			return false;
-		*value = static_cast<u32>(bytes[0]) |
-		         (static_cast<u32>(bytes[1]) << 8) |
-		         (static_cast<u32>(bytes[2]) << 16) |
-		         (static_cast<u32>(bytes[3]) << 24);
-		return true;
-	}
-
 	static bool ReadFloat(const u32 address, float* value)
 	{
 		u32 bits = 0;
-		if (!ReadWord(address, &bits))
+		if (!GuestObjects::ReadWord(address, &bits))
 			return false;
 		*value = std::bit_cast<float>(bits);
 		return std::isfinite(*value);
 	}
 
-	static bool IsPlausibleAddress(const u32 address)
-	{
-		return address >= TARGET_STATIC_BEGIN && address < Ps2MemSize::ExposedRam && (address & 3) == 0;
-	}
-
-	static bool IsPlausibleObject(const u32 address)
-	{
-		u32 vtable = 0;
-		return IsPlausibleAddress(address) && ReadWord(address, &vtable) &&
-		       vtable >= TARGET_STATIC_BEGIN && vtable < TARGET_STATIC_END && (vtable & 3) == 0;
-	}
-
 	static bool ReadLivePointer(u32* pointer)
 	{
-		return ReadWord(POINTER_SINGLETON, pointer) && IsPlausibleObject(*pointer);
+		return GuestObjects::ReadWord(POINTER_SINGLETON, pointer) && GuestObjects::IsPlausibleObject(*pointer);
 	}
 
 	static bool ReadSelection(const u32 pointer, SelectionState* state)
@@ -82,22 +56,26 @@ namespace AVPE::NativeInput
 		*state = {};
 		u32 array = 0;
 		u32 data = 0;
-		if (!ReadWord(pointer + SELECTION_ARRAY_OFFSET, &array) || !IsPlausibleAddress(array) ||
-			!ReadWord(array, &data) || !ReadWord(array + sizeof(u32), &state->count) ||
+		if (!GuestObjects::ReadWord(pointer + SELECTION_ARRAY_OFFSET, &array) ||
+			!GuestObjects::IsPlausibleAddress(array) || !GuestObjects::ReadWord(array, &data) ||
+			!GuestObjects::ReadWord(array + sizeof(u32), &state->count) ||
 			state->count > MAX_SELECTION_COUNT)
 		{
 			return false;
 		}
-		if (state->count == 0 || !IsPlausibleAddress(data) ||
-			!ReadWord(data, &state->selected_mark) || !IsPlausibleObject(state->selected_mark) ||
-			!ReadWord(state->selected_mark + SELECTED_OBJECT_OFFSET, &state->selected_object) ||
-			!IsPlausibleObject(state->selected_object))
+		if (state->count == 0 || !GuestObjects::IsPlausibleAddress(data) ||
+			!GuestObjects::ReadWord(data, &state->selected_mark) ||
+			!GuestObjects::IsPlausibleObject(state->selected_mark) ||
+			!GuestObjects::ReadWord(state->selected_mark + SELECTED_OBJECT_OFFSET,
+				&state->selected_object) ||
+			!GuestObjects::IsPlausibleObject(state->selected_object))
 		{
 			state->selected_mark = 0;
 			state->selected_object = 0;
 			return true;
 		}
-		return ReadWord(state->selected_object + CURRENT_COMMAND_ID_OFFSET, &state->command_id);
+		return GuestObjects::ReadWord(
+			state->selected_object + CURRENT_COMMAND_ID_OFFSET, &state->command_id);
 	}
 
 	static std::array<u8, 8> EncodeCoordinates(const float x, const float y)
@@ -132,7 +110,7 @@ namespace AVPE::NativeInput
 		for (u32 i = 0; i < bounds.size(); ++i)
 		{
 			u32 word = 0;
-			if (!ReadWord(resolution_address + i * sizeof(u32), &word))
+			if (!GuestObjects::ReadWord(resolution_address + i * sizeof(u32), &word))
 				return Fail(Status::ResolutionUnavailable, "game resolution bounds are not readable");
 			bounds[i] = static_cast<s32>(word);
 		}
@@ -158,7 +136,7 @@ namespace AVPE::NativeInput
 			return result;
 		}
 		u32 selector_mode = 0;
-		if (!ReadWord(pointer + INPUT_TYPE_OFFSET, &selector_mode) || selector_mode != 1)
+		if (!GuestObjects::ReadWord(pointer + INPUT_TYPE_OFFSET, &selector_mode) || selector_mode != 1)
 			return Fail(Status::SelectorModeRejected, "game did not retain absolute pointer mode");
 
 		const float width = static_cast<float>(bounds[2] - bounds[0]);
