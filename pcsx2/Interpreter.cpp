@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
+#include "AVPE/EECallShuttle.h"
 #include "R5900OpcodeTables.h"
 #include "VMManager.h"
 #include "Elfheader.h"
@@ -18,7 +19,7 @@ using namespace R5900;		// for OPCODE and OpcodeImpl
 extern int vu0branch, vu1branch;
 
 static int branch2 = 0;
-static u32 cpuBlockCycles = 0;		// 3 bit fixed point version of cycle count
+static u32 cpuBlockCycles = 0; // 3 bit fixed point version of cycle count
 static std::string disOut;
 static bool intExitExecution = false;
 static bool intExecuteUntilActive = false;
@@ -618,6 +619,8 @@ static void intExecute()
 
 	for (;;)
 	{
+		if (AVPE::EECallShuttle::TryCompleteDeferredCall(cpuRegs.pc))
+			continue;
 		if (!VMManager::Internal::HasBootedELF())
 		{
 			// Avoid reloading every instruction.

@@ -27,6 +27,22 @@ namespace AVPE::EECallShuttle
 	static std::atomic_bool s_faulted{false};
 	static std::atomic_bool s_active{false};
 
+	struct DeferredCall
+	{
+		DeferredState state = DeferredState::Idle;
+		u64 id = 0;
+		u64 next_id = 1;
+		cpuRegisters saved_cpu{};
+		fpuRegisters saved_fpu{};
+		VURegs saved_vu0{};
+		std::array<u8, GUEST_CALL_FRAME_SIZE> saved_stack{};
+		u32 stack_address = 0;
+		u32 return_pc = 0;
+		Result result{};
+	};
+
+	static DeferredCall s_deferred;
+
 	class ActiveCallGuard final
 	{
 	public:
@@ -116,6 +132,26 @@ namespace AVPE::EECallShuttle
 		return {.status = status, .error = error};
 	}
 
+	static Result ValidateRequest(const Request& request)
+	{
+		if ((request.function & 3) != 0 || request.function < TARGET_TEXT_BEGIN ||
+			request.function >= TARGET_TEXT_END)
+		{
+			return Fail(Status::InvalidRequest, "function must be an aligned address in the AVP:E executable text");
+		}
+		if (request.cycle_budget == 0 || request.cycle_budget > MAX_CYCLE_BUDGET)
+			return Fail(Status::InvalidRequest, "cycle budget must be in 1..30000000");
+		if (s_faulted.load(std::memory_order_acquire))
+			return Fail(Status::Faulted, "EE call shuttle is faulted; load a known state before another call");
+		if (!VMManager::HasValidVM())
+			return Fail(Status::VMUnavailable, "no valid VM");
+		if (VMManager::GetDiscSerial() != TARGET_SERIAL || VMManager::GetDiscCRC() != TARGET_CRC)
+			return Fail(Status::WrongGame, "loaded executable is not the supported AVP:E revision");
+		if (Cpu == nullptr || Cpu->ExecuteUntil == nullptr)
+			return Fail(Status::UnsupportedCPU, "active EE engine cannot execute to a call boundary");
+		return {.status = Status::Success};
+	}
+
 	static void PreserveAdvancedTiming(const cpuRegisters& completed)
 	{
 		cpuRegs.PERF = completed.PERF;
@@ -138,21 +174,11 @@ namespace AVPE::EECallShuttle
 	static Result CallOnCPUThread(
 		const Request& request, const std::optional<u32> stack_argument, const std::span<const u8> stack_bytes)
 	{
-		if ((request.function & 3) != 0 || request.function < TARGET_TEXT_BEGIN ||
-			request.function >= TARGET_TEXT_END)
-		{
-			return Fail(Status::InvalidRequest, "function must be an aligned address in the AVP:E executable text");
-		}
-		if (request.cycle_budget == 0 || request.cycle_budget > MAX_CYCLE_BUDGET)
-			return Fail(Status::InvalidRequest, "cycle budget must be in 1..30000000");
-		if (s_faulted.load(std::memory_order_acquire))
-			return Fail(Status::Faulted, "EE call shuttle is faulted; load a known state before another call");
-		if (!VMManager::HasValidVM())
-			return Fail(Status::VMUnavailable, "no valid VM");
-		if (VMManager::GetDiscSerial() != TARGET_SERIAL || VMManager::GetDiscCRC() != TARGET_CRC)
-			return Fail(Status::WrongGame, "loaded executable is not the supported AVP:E revision");
-		if (Cpu == nullptr || Cpu->ExecuteUntil == nullptr)
-			return Fail(Status::UnsupportedCPU, "active EE engine cannot execute to a call boundary");
+		const Result validation = ValidateRequest(request);
+		if (!validation.Succeeded())
+			return validation;
+		if (s_deferred.state == DeferredState::Running)
+			return Fail(Status::Busy, "a deferred EE call is still running");
 		if (stack_argument.has_value() &&
 			(*stack_argument >= request.arguments.size() || stack_bytes.empty() ||
 				stack_bytes.size() > GUEST_CALL_FRAME_SIZE - GUEST_ARGUMENT_HOME_SIZE))
@@ -249,6 +275,97 @@ namespace AVPE::EECallShuttle
 		return Fail(Status::Interrupted, "unknown EE execution result");
 	}
 
+	static DeferredTicket QueueDeferredOnCPUThread(const Request& request)
+	{
+		const Result validation = ValidateRequest(request);
+		if (!validation.Succeeded())
+			return {.status = validation.status, .error = validation.error};
+		if (VMManager::GetState() != VMState::Running)
+			return {.status = Status::VMUnavailable, .error = "VM must be running for a deferred EE call"};
+		if (s_active.load(std::memory_order_acquire) || s_deferred.state == DeferredState::Running)
+			return {.status = Status::Busy, .error = "another EE call is still running"};
+
+		const u32 interrupted_sp = cpuRegs.GPR.n.sp.UL[0];
+		if ((interrupted_sp & 0xf) != 0 || interrupted_sp < GUEST_CALL_FRAME_SIZE)
+			return {.status = Status::GuestMemoryError, .error = "interrupted guest stack is not aligned"};
+		const u32 stack_address = interrupted_sp - GUEST_CALL_FRAME_SIZE;
+		if (stack_address >= Ps2MemSize::ExposedRam ||
+			stack_address + GUEST_CALL_FRAME_SIZE > Ps2MemSize::ExposedRam ||
+			!vtlb_memSafeReadBytes(stack_address, s_deferred.saved_stack.data(), s_deferred.saved_stack.size()))
+		{
+			return {.status = Status::GuestMemoryError, .error = "guest call frame is not readable main RAM"};
+		}
+
+		s_deferred.saved_cpu = cpuRegs;
+		s_deferred.saved_fpu = fpuRegs;
+		s_deferred.saved_vu0 = VU0;
+		s_deferred.stack_address = stack_address;
+		s_deferred.return_pc = cpuRegs.pc;
+		s_deferred.result = {};
+		s_deferred.id = s_deferred.next_id++;
+		if (s_deferred.next_id == 0)
+			s_deferred.next_id = 1;
+
+		for (u32 i = 0; i < request.arguments.size(); ++i)
+		{
+			cpuRegs.GPR.r[4 + i].UD[1] = 0;
+			cpuRegs.GPR.r[4 + i].UD[0] = request.arguments[i];
+		}
+		cpuRegs.GPR.n.sp.UD[1] = 0;
+		cpuRegs.GPR.n.sp.UL[0] = stack_address;
+		cpuRegs.GPR.n.ra.UD[1] = 0;
+		cpuRegs.GPR.n.ra.UL[0] = s_deferred.return_pc;
+		cpuRegs.pc = request.function;
+		cpuRegs.code = 0;
+		cpuRegs.IsDelaySlot = 0;
+		cpuRegs.branch = 0;
+		cpuRegs.pcWriteback = 0;
+		s_deferred.state = DeferredState::Running;
+
+		// The return address may already have a linked recompiler block. Clearing
+		// its first word forces the dispatch through TryCompleteDeferredCall before
+		// the interrupted instruction is allowed to execute.
+		Cpu->Clear(s_deferred.return_pc, 1);
+		Cpu->ExitExecution();
+		return {.status = Status::Success, .id = s_deferred.id};
+	}
+
+	bool TryCompleteDeferredCall(const u32 pc)
+	{
+		if (s_deferred.state != DeferredState::Running || pc != s_deferred.return_pc)
+			return false;
+
+		const cpuRegisters completed_cpu = cpuRegs;
+		const bool stack_restored =
+			vtlb_memSafeWriteBytes(s_deferred.stack_address, s_deferred.saved_stack.data(),
+				s_deferred.saved_stack.size()) &&
+			vtlb_memSafeCmpBytes(s_deferred.stack_address, s_deferred.saved_stack.data(),
+				s_deferred.saved_stack.size()) == 0;
+		const u64 v0 = completed_cpu.GPR.n.v0.UD[0];
+		const u64 v1 = completed_cpu.GPR.n.v1.UD[0];
+		const u64 elapsed_cycles = completed_cpu.cycle - s_deferred.saved_cpu.cycle;
+
+		cpuRegs = s_deferred.saved_cpu;
+		fpuRegs = s_deferred.saved_fpu;
+		VU0 = s_deferred.saved_vu0;
+		PreserveAdvancedTiming(completed_cpu);
+
+		s_deferred.result = {
+			.status = stack_restored ? Status::Success : Status::GuestMemoryError,
+			.v0 = v0,
+			.v1 = v1,
+			.stopped_pc = pc,
+			.staging_address = s_deferred.stack_address,
+			.elapsed_cycles = elapsed_cycles,
+			.stack_restored = stack_restored,
+			.error = stack_restored ? "" : "deferred guest call returned but exact stack restoration failed",
+		};
+		s_deferred.state = stack_restored ? DeferredState::Completed : DeferredState::Failed;
+		if (!stack_restored)
+			s_faulted.store(true, std::memory_order_release);
+		return true;
+	}
+
 	Result Transaction::Call(const Request& request)
 	{
 		return CallOnCPUThread(request, std::nullopt, {});
@@ -258,6 +375,11 @@ namespace AVPE::EECallShuttle
 		const Request& request, const u32 argument_index, const std::span<const u8> bytes)
 	{
 		return CallOnCPUThread(request, argument_index, bytes);
+	}
+
+	DeferredTicket Transaction::QueueDeferred(const Request& request)
+	{
+		return QueueDeferredOnCPUThread(request);
 	}
 
 	void RunTransaction(const std::function<void(Transaction&)>& operation)
@@ -276,8 +398,22 @@ namespace AVPE::EECallShuttle
 		return result;
 	}
 
+	DeferredSnapshot GetDeferredSnapshot()
+	{
+		DeferredSnapshot snapshot;
+		RunTransaction([&snapshot](Transaction&) {
+			snapshot.state = s_deferred.state;
+			snapshot.id = s_deferred.id;
+			snapshot.result = s_deferred.result;
+		});
+		return snapshot;
+	}
+
 	void ResetAfterStateLoad()
 	{
 		s_faulted.store(false, std::memory_order_release);
+		s_deferred.state = DeferredState::Idle;
+		s_deferred.id = 0;
+		s_deferred.result = {};
 	}
 } // namespace AVPE::EECallShuttle

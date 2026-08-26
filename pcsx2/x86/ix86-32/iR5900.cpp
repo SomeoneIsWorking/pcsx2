@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
+#include "AVPE/EECallShuttle.h"
 #include "CDVD/CDVD.h"
 #include "DebugTools/Breakpoints.h"
 #include "Elfheader.h"
@@ -2207,6 +2208,7 @@ static void recRecompile(const u32 startpc)
 	u32 i = 0;
 	u32 willbranch3 = 0;
 
+	AVPE::EECallShuttle::TryCompleteDeferredCall(startpc);
 	pxAssert(startpc);
 
 	// if recPtr reached the mem limit reset whole mem

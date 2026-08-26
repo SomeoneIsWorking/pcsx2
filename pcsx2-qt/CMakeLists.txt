@@ -7,6 +7,8 @@ set(CMAKE_AUTOUIC ON)
 add_executable(pcsx2-qt)
 
 target_sources(pcsx2-qt PRIVATE
+	AVPE/HostInputRouter.cpp
+	AVPE/HostInputRouter.h
 	AVPE/HostWindow.cpp
 	AVPE/HostWindow.h
 	AboutDialog.cpp

@@ -281,12 +281,15 @@ namespace AVPE
 			return lucent::http::Response::text(400, "Bad Request", "need path\n");
 		Error error;
 		bool ok = false;
-		Host::RunOnCPUThread([&]() { ok = VMManager::LoadState(path->c_str(), &error); }, true);
-		if (ok)
-		{
-			EECallShuttle::ResetAfterStateLoad();
-			NativeInput::ResetAfterStateLoad();
-		}
+		Host::RunOnCPUThread([&]() {
+			ok = VMManager::LoadState(path->c_str(), &error);
+			if (ok)
+			{
+				EECallShuttle::ResetAfterStateLoad();
+				NativeInput::ResetAfterStateLoad();
+			}
+		},
+			true);
 		lucent::info("avpe", "loadstate {} ({})", *path, ok ? "ok" : error.GetDescription());
 		return lucent::http::Response::json(ok ? 200 : 500, ok ? "OK" : "Error",
 			ok ? "{\"loaded\":true}" : "{\"loaded\":false}");
@@ -408,7 +411,7 @@ namespace AVPE
 		const NativeInput::Result result = NativeInput::MoveAbsolute(*x, *y);
 		if (!result.Succeeded())
 		{
-			int status = 500;
+			int status = result.shuttle_status == EECallShuttle::Status::Busy ? 409 : 500;
 			switch (result.status)
 			{
 				case NativeInput::Status::InvalidCoordinates:
@@ -504,14 +507,18 @@ namespace AVPE
 			action = NativeMenuInput::Action::Left;
 		else if (*action_name == "right")
 			action = NativeMenuInput::Action::Right;
+		else if (*action_name == "activate")
+			action = NativeMenuInput::Action::Activate;
+		else if (*action_name == "cancel")
+			action = NativeMenuInput::Action::Cancel;
 		else
 			return lucent::http::Response::text(
-				400, "Bad Request", "action must be up, down, left, or right\n");
+				400, "Bad Request", "action must be up, down, left, right, activate, or cancel\n");
 
 		const NativeMenuInput::Result result = NativeMenuInput::Apply(action);
 		if (!result.Succeeded())
 		{
-			int status = 500;
+			int status = result.shuttle_status == EECallShuttle::Status::Busy ? 409 : 500;
 			switch (result.status)
 			{
 				case NativeMenuInput::Status::MenuUnavailable:
@@ -526,12 +533,65 @@ namespace AVPE
 				status, "Native Menu Input Failed", std::string(result.error) + "\n");
 		}
 
-		char response[512];
+		char response[704];
 		std::snprintf(response, sizeof(response),
-			R"({"action":"%s","menu":"0x%08X","callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"elapsed_cycles":%llu})",
-			action_name->c_str(), result.menu, result.callback_count, result.before.handle,
+			R"({"action":"%s","menu":"0x%08X","handler":"0x%08X","callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"elapsed_cycles":%llu,"deferred":%s,"deferred_call_id":%llu})",
+			action_name->c_str(), result.menu, result.handler, result.callback_count, result.before.handle,
 			result.before.object, result.after.handle, result.after.object,
-			static_cast<unsigned long long>(result.elapsed_cycles));
+			static_cast<unsigned long long>(result.elapsed_cycles), result.deferred ? "true" : "false",
+			static_cast<unsigned long long>(result.deferred_call_id));
+		return lucent::http::Response::json(result.deferred ? 202 : 200,
+			result.deferred ? "Accepted" : "OK", response);
+	}
+
+	static lucent::http::Response handle_input_menu_state()
+	{
+		const NativeMenuInput::Result result = NativeMenuInput::Inspect();
+		if (!result.Succeeded())
+		{
+			const int status =
+				(result.status == NativeMenuInput::Status::MenuUnavailable ||
+					result.status == NativeMenuInput::Status::AmbiguousMenu) ?
+					409 :
+					500;
+			return lucent::http::Response::text(
+				status, "Native Menu State Unavailable", std::string(result.error) + "\n");
+		}
+		char response[320];
+		std::snprintf(response, sizeof(response),
+			R"({"menu":"0x%08X","callback_count":%u,"focus_handle":"0x%08X","focus_object":"0x%08X"})",
+			result.menu, result.callback_count, result.before.handle, result.before.object);
+		return lucent::http::Response::json(200, "OK", response);
+	}
+
+	static const char* deferred_state_name(const EECallShuttle::DeferredState state)
+	{
+		switch (state)
+		{
+			case EECallShuttle::DeferredState::Idle:
+				return "idle";
+			case EECallShuttle::DeferredState::Running:
+				return "running";
+			case EECallShuttle::DeferredState::Completed:
+				return "completed";
+			case EECallShuttle::DeferredState::Failed:
+				return "failed";
+		}
+		return "failed";
+	}
+
+	static lucent::http::Response handle_ee_deferred()
+	{
+		const EECallShuttle::DeferredSnapshot snapshot = EECallShuttle::GetDeferredSnapshot();
+		char response[384];
+		std::snprintf(response, sizeof(response),
+			R"({"id":%llu,"state":"%s","succeeded":%s,"v0":"0x%016llX","v1":"0x%016llX","return_pc":"0x%08X","staging_address":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu,"error":"%s"})",
+			static_cast<unsigned long long>(snapshot.id), deferred_state_name(snapshot.state),
+			snapshot.result.Succeeded() ? "true" : "false",
+			static_cast<unsigned long long>(snapshot.result.v0),
+			static_cast<unsigned long long>(snapshot.result.v1), snapshot.result.stopped_pc,
+			snapshot.result.staging_address, snapshot.result.stack_restored ? "true" : "false",
+			static_cast<unsigned long long>(snapshot.result.elapsed_cycles), snapshot.result.error);
 		return lucent::http::Response::json(200, "OK", response);
 	}
 
@@ -561,6 +621,7 @@ namespace AVPE
 					status = 400;
 					break;
 				case EECallShuttle::Status::WrongGame:
+				case EECallShuttle::Status::Busy:
 				case EECallShuttle::Status::Faulted:
 					status = 409;
 					break;
@@ -706,6 +767,10 @@ namespace AVPE
 			return handle_mem_scan(req);
 		if (req.method == "GET" && path == "/debug")
 			return handle_debug();
+		if (req.method == "GET" && path == "/ee/deferred")
+			return handle_ee_deferred();
+		if (req.method == "GET" && path == "/input/menu")
+			return handle_input_menu_state();
 		if (req.method == "GET" && path == "/snap")
 			return handle_snap();
 		if (req.method == "POST" && path == "/mem/write")
@@ -731,6 +796,8 @@ namespace AVPE
 		lucent::warn("avpe", "no route: {} {}", req.method, path);
 		return lucent::http::Response::json(404, "Not Found",
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
+			"\"GET /ee/deferred\","
+			"\"GET /input/menu\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /state/save\",\"POST /state/load\","
 			"\"POST /input/press\",\"POST /input/move-absolute\",\"POST /input/mouse-button\","
 			"\"POST /input/menu-action\","
