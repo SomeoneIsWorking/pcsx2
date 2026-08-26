@@ -5,6 +5,8 @@
 
 #include "Host.h"
 
+#include <lucent/log.h>
+
 const Pad::ControllerInfo PadNotConnected::ControllerInfo = {Pad::ControllerType::NotConnected, "None",
 	TRANSLATE_NOOP("Pad", "Not Connected"), nullptr, {}, {}, Pad::VibrationCapabilities::NoVibration };
 
@@ -103,6 +105,10 @@ std::tuple<u8, u8> PadNotConnected::GetRawRightAnalog() const
 
 u32 PadNotConnected::GetButtons() const
 {
+	// AVPE diagnostic: prove whether the game is polling an EMPTY slot.
+	static u32 ncCount = 0;
+	if ((++ncCount % 600) == 0)
+		lucent::warn("avpe", "NotConnected slot{} polled {} times", unifiedSlot, ncCount);
 	return 0;
 }
 
