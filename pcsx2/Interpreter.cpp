@@ -657,6 +657,27 @@ static void intExecute()
 	}
 }
 
+static EEExecutionResult intExecuteUntil(const u32 target_pc, const u64 cycle_budget)
+{
+	if (cpuRegs.pc == target_pc)
+		return EEExecutionResult::ReachedTarget;
+	if (cycle_budget == 0)
+		return EEExecutionResult::CycleBudgetExceeded;
+
+	const u64 start_cycle = cpuRegs.cycle;
+	if (fastjmp_set(&intJmpBuf) != 0)
+		return EEExecutionResult::Interrupted;
+
+	for (;;)
+	{
+		if ((cpuRegs.cycle - start_cycle) > cycle_budget)
+			return EEExecutionResult::CycleBudgetExceeded;
+		if (cpuRegs.pc == target_pc)
+			return EEExecutionResult::ReachedTarget;
+		execI();
+	}
+}
+
 static void intStep()
 {
 	execI();
@@ -677,6 +698,7 @@ R5900cpu intCpu =
 	intReset,
 	intStep,
 	intExecute,
+	intExecuteUntil,
 
 	intSafeExitExecution,
 	intCancelInstruction,

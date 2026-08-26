@@ -2,13 +2,15 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "AutoUpdaterDialog.h"
-#include "AVPE/AVPE.h"
+#include "AVPE/HostWindow.h"
 #include "Debugger/DebuggerWindow.h"
 #include "DisplayWidget.h"
 #include "GameList/GameListWidget.h"
 #include "LogWindow.h"
 #include "MainWindow.h"
 #include "QtHost.h"
+
+#include "pcsx2/AVPE/AVPE.h"
 #include "QtProgressCallback.h"
 #include "QtUtils.h"
 #include "SetupWizardDialog.h"
@@ -906,7 +908,13 @@ std::optional<WindowInfo> EmuThread::acquireRenderWindow(bool recreate_window)
 	const bool render_to_main = !m_is_exclusive_fullscreen && !window_fullscreen && m_is_rendering_to_main;
 #endif
 
-	return emit onAcquireRenderWindowRequested(recreate_window, window_fullscreen, render_to_main, m_is_surfaceless);
+	const bool control_test = AVPE::IsSurfacelessControlTest();
+	const bool surfaceless = m_is_surfaceless || control_test;
+	std::optional<WindowInfo> result =
+		emit onAcquireRenderWindowRequested(recreate_window, window_fullscreen, render_to_main, surfaceless);
+	if (control_test)
+		AVPE::NoteControlTestRenderWindow(result.has_value() && result->type == WindowInfo::Type::Surfaceless);
+	return result;
 }
 
 void EmuThread::releaseRenderWindow()
@@ -1741,7 +1749,15 @@ void Host::EndTextInput()
 std::optional<WindowInfo> Host::GetTopLevelWindowInfo()
 {
 	std::optional<WindowInfo> ret;
-	QMetaObject::invokeMethod(g_main_window, &MainWindow::getWindowInfo, Qt::BlockingQueuedConnection, &ret);
+	if (AVPE::g_host_window)
+	{
+		QMetaObject::invokeMethod(
+			AVPE::g_host_window, [&ret]() { ret = AVPE::g_host_window->getWindowInfo(); }, Qt::BlockingQueuedConnection);
+	}
+	else
+	{
+		QMetaObject::invokeMethod(g_main_window, &MainWindow::getWindowInfo, Qt::BlockingQueuedConnection, &ret);
+	}
 	return ret;
 }
 
@@ -2134,6 +2150,8 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -version: Displays version information and exits.\n");
 	std::fprintf(stderr, "  -batch: Enables batch mode (exits after shutting down).\n");
 	std::fprintf(stderr, "  -nogui: Hides main window while running (implies batch mode).\n");
+	std::fprintf(stderr, "  -avpe-host: Uses the AVPE-owned product window (implies -nogui).\n");
+	std::fprintf(stderr, "  -avpe-control-test: AVPE-only surfaceless and silent control-test mode (implies -nogui).\n");
 	std::fprintf(stderr, "  -portable: Force enable portable mode to store data in local PCSX2 path instead of the default configuration path. Overrides '-datapath'.\n");
 	std::fprintf(stderr, "  -datapath <path>: Specify the directory to be used for all application data.\n");
 	std::fprintf(stderr, "  -elf <file>: Overrides the boot ELF with the specified filename.\n");
@@ -2207,6 +2225,20 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			{
 				s_batch_mode = true;
 				s_nogui_mode = true;
+				continue;
+			}
+			else if (CHECK_ARG(QStringLiteral("-avpe-control-test")))
+			{
+				s_batch_mode = true;
+				s_nogui_mode = true;
+				AVPE::SetSurfacelessControlTest(true);
+				continue;
+			}
+			else if (CHECK_ARG(QStringLiteral("-avpe-host")))
+			{
+				s_batch_mode = true;
+				s_nogui_mode = true;
+				AVPE::SetProductHost(true);
 				continue;
 			}
 			else if (CHECK_ARG(QStringLiteral("-portable")))
@@ -2524,6 +2556,14 @@ int main(int argc, char* argv[])
 	// Create all window objects, the emuthread might still be starting up at this point.
 	g_main_window = new MainWindow();
 	g_main_window->initialize();
+	if (AVPE::IsProductHost())
+	{
+		new AVPE::HostWindow();
+		AVPE::g_host_window->connectEmulationDisplay(g_emu_thread);
+		AVPE::g_host_window->show();
+		AVPE::g_host_window->raise();
+		AVPE::g_host_window->activateWindow();
+	}
 
 	// When running in batch mode, ensure game list is loaded, but don't scan for any new files.
 	if (!s_batch_mode)
@@ -2562,6 +2602,7 @@ int main(int argc, char* argv[])
 shutdown_and_exit:
 	// Shutting down.
 	EmuThread::stop();
+	delete AVPE::g_host_window;
 	if (g_main_window)
 	{
 		g_main_window->close();

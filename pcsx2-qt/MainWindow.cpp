@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "AboutDialog.h"
+#include "pcsx2/AVPE/AVPE.h"
 #include "AutoUpdaterDialog.h"
 #include "CoverDownloadDialog.h"
 #include "DisplayWidget.h"
@@ -624,11 +625,14 @@ void MainWindow::connectSignals()
 void MainWindow::connectVMThreadSignals(EmuThread* thread)
 {
 	connect(thread, &EmuThread::statusMessage, this, &MainWindow::onStatusMessage);
-	connect(thread, &EmuThread::onAcquireRenderWindowRequested, this, &MainWindow::acquireRenderWindow, Qt::BlockingQueuedConnection);
-	connect(thread, &EmuThread::onReleaseRenderWindowRequested, this, &MainWindow::releaseRenderWindow, Qt::BlockingQueuedConnection);
-	connect(thread, &EmuThread::onResizeRenderWindowRequested, this, &MainWindow::displayResizeRequested);
-	connect(thread, &EmuThread::onMouseModeRequested, this, &MainWindow::mouseModeRequested);
-	connect(thread, &EmuThread::onMouseLockRequested, this, &MainWindow::mouseLockRequested);
+	if (!AVPE::IsProductHost())
+	{
+		connect(thread, &EmuThread::onAcquireRenderWindowRequested, this, &MainWindow::acquireRenderWindow, Qt::BlockingQueuedConnection);
+		connect(thread, &EmuThread::onReleaseRenderWindowRequested, this, &MainWindow::releaseRenderWindow, Qt::BlockingQueuedConnection);
+		connect(thread, &EmuThread::onResizeRenderWindowRequested, this, &MainWindow::displayResizeRequested);
+		connect(thread, &EmuThread::onMouseModeRequested, this, &MainWindow::mouseModeRequested);
+		connect(thread, &EmuThread::onMouseLockRequested, this, &MainWindow::mouseLockRequested);
+	}
 	connect(thread, &EmuThread::onFullscreenUIStateChange, this, &MainWindow::onFullscreenUIStateChange);
 	connect(thread, &EmuThread::onVMStarting, this, &MainWindow::onVMStarting);
 	connect(thread, &EmuThread::onVMStarted, this, &MainWindow::onVMStarted);
