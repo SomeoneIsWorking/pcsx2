@@ -1,0 +1,3 @@
+[submodule "3rdparty/lucent"]
+	path = 3rdparty/lucent
+	url = https://github.com/SomeoneIsWorking/lucent.git
