@@ -1,6 +1,8 @@
 // AVPE-owned product window. Fork-local; not for upstream PCSX2.
 #pragma once
 
+#include "AVPE/HostInputRouter.h"
+
 #include "common/WindowInfo.h"
 
 #include <QtWidgets/QMainWindow>
@@ -10,6 +12,8 @@
 class DisplaySurface;
 class EmuThread;
 class QCloseEvent;
+class QEvent;
+class QObject;
 class QWidget;
 
 namespace AVPE
@@ -34,6 +38,7 @@ namespace AVPE
 
 	protected:
 		void closeEvent(QCloseEvent* event) override;
+		bool eventFilter(QObject* watched, QEvent* event) override;
 
 	private:
 		void createRenderSurface(bool fullscreen);
@@ -41,6 +46,7 @@ namespace AVPE
 
 		DisplaySurface* m_surface = nullptr;
 		QWidget* m_surface_container = nullptr;
+		HostInputRouter m_input_router;
 		bool m_closing = false;
 	};
 

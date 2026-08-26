@@ -17,10 +17,19 @@ namespace AVPE::EECallShuttle
 		WrongGame,
 		VMUnavailable,
 		UnsupportedCPU,
+		Busy,
 		Faulted,
 		GuestMemoryError,
 		CycleBudgetExceeded,
 		Interrupted,
+	};
+
+	enum class DeferredState : u8
+	{
+		Idle,
+		Running,
+		Completed,
+		Failed,
 	};
 
 	struct Request
@@ -44,6 +53,22 @@ namespace AVPE::EECallShuttle
 		bool Succeeded() const { return status == Status::Success; }
 	};
 
+	struct DeferredTicket
+	{
+		Status status = Status::Interrupted;
+		u64 id = 0;
+		const char* error = "";
+
+		bool Accepted() const { return status == Status::Success; }
+	};
+
+	struct DeferredSnapshot
+	{
+		DeferredState state = DeferredState::Idle;
+		u64 id = 0;
+		Result result;
+	};
+
 	// May be called from a non-CPU thread. The request is dispatched synchronously
 	// to the VM thread and the interrupted EE architectural context is restored.
 	Result Call(const Request& request);
@@ -53,6 +78,7 @@ namespace AVPE::EECallShuttle
 	public:
 		Result Call(const Request& request);
 		Result CallWithStackBuffer(const Request& request, u32 argument_index, std::span<const u8> bytes);
+		DeferredTicket QueueDeferred(const Request& request);
 
 	private:
 		Transaction() = default;
@@ -62,6 +88,12 @@ namespace AVPE::EECallShuttle
 	// Runs one cohesive operation under a single blocking CPU-thread dispatch.
 	// Transaction is the only CPU-thread execution token exposed to AVPE owners.
 	void RunTransaction(const std::function<void(Transaction&)>& operation);
+	DeferredSnapshot GetDeferredSnapshot();
+
+	// CPU-core boundary hook. A deferred call runs through the ordinary VM
+	// scheduler, then this restores the interrupted architectural context before
+	// the original return PC executes.
+	bool TryCompleteDeferredCall(u32 pc);
 
 	// A timed-out call may have partial guest-memory effects. Loading a known
 	// state is the only operation which makes subsequent calls trustworthy.

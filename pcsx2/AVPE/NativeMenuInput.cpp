@@ -15,6 +15,7 @@ namespace AVPE::NativeMenuInput
 	static constexpr u32 CALLBACK_OWNER_OFFSET = 0x08;
 	static constexpr u32 CALLBACK_FUNCTION_OFFSET = 0x14;
 	static constexpr u32 MENU_INPUT = 0x00125330;
+	static constexpr u32 MENU_CANCEL_VTABLE_OFFSET = 0xFC;
 	static constexpr u32 MAX_CALLBACK_COUNT = 256;
 	static constexpr std::array<u32, 6> MENU_CALLBACKS = {
 		0x00124BD0,
@@ -105,25 +106,78 @@ namespace AVPE::NativeMenuInput
 		       GuestObjects::ResolveHandle(focus->handle, &focus->object);
 	}
 
+	static bool ReadCancelHandler(const u32 menu, u32* handler)
+	{
+		u32 vtable = 0;
+		return GuestObjects::ReadWord(menu, &vtable) &&
+		       GuestObjects::IsPlausibleAddress(vtable) &&
+		       GuestObjects::ReadWord(vtable + MENU_CANCEL_VTABLE_OFFSET, handler) &&
+		       GuestObjects::IsPlausibleAddress(*handler);
+	}
+
+	static void InspectOnCPUThread(Result* result)
+	{
+		ActiveMenu active;
+		result->status = FindActiveMenu(&active, &result->error);
+		result->callback_count = active.callback_count;
+		result->menu = active.object;
+		if (result->status != Status::Success)
+			return;
+		if (!ReadFocus(result->menu, &result->before))
+		{
+			result->status = Status::GuestMemoryError;
+			result->error = "focused game menu item is invalid or unreadable";
+		}
+	}
+
+	Result Inspect()
+	{
+		Result result;
+		EECallShuttle::RunTransaction(
+			[&result](EECallShuttle::Transaction&) { InspectOnCPUThread(&result); });
+		return result;
+	}
+
 	Result Apply(const Action action)
 	{
 		Result result{.action = action};
 		EECallShuttle::RunTransaction([&result, action](EECallShuttle::Transaction& transaction) {
-			ActiveMenu active;
-			result.status = FindActiveMenu(&active, &result.error);
-			result.callback_count = active.callback_count;
-			result.menu = active.object;
+			InspectOnCPUThread(&result);
 			if (result.status != Status::Success)
 				return;
-			if (!ReadFocus(result.menu, &result.before))
+
+			result.handler = MENU_INPUT;
+			if (action == Action::Cancel && !ReadCancelHandler(result.menu, &result.handler))
 			{
 				result.status = Status::GuestMemoryError;
-				result.error = "focused game menu item is invalid or unreadable";
+				result.error = "active menu cancel handler is invalid or unreadable";
+				return;
+			}
+			EECallShuttle::Request request{.function = result.handler};
+			request.arguments = {
+				result.menu,
+				action == Action::Cancel ? 0 : static_cast<u32>(action),
+				0,
+				0,
+			};
+			if (action == Action::Activate || action == Action::Cancel)
+			{
+				const EECallShuttle::DeferredTicket ticket = transaction.QueueDeferred(request);
+				result.shuttle_status = ticket.status;
+				result.deferred_call_id = ticket.id;
+				result.deferred = ticket.Accepted();
+				if (!ticket.Accepted())
+				{
+					result.status = ticket.status == EECallShuttle::Status::GuestMemoryError ?
+					                    Status::GuestMemoryError :
+					                    Status::ShuttleFailure;
+					result.error = ticket.error;
+					return;
+				}
+				result.status = Status::Success;
 				return;
 			}
 
-			EECallShuttle::Request request{.function = MENU_INPUT};
-			request.arguments = {result.menu, static_cast<u32>(action), 0, 0};
 			const EECallShuttle::Result call = transaction.Call(request);
 			result.shuttle_status = call.status;
 			result.elapsed_cycles = call.elapsed_cycles;

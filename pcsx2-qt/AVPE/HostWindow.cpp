@@ -11,8 +11,10 @@
 #include <lucent/log.h>
 
 #include <QtCore/QCoreApplication>
+#include <QtCore/QEvent>
 #include <QtGui/QCloseEvent>
 #include <QtGui/QGuiApplication>
+#include <QtGui/QKeyEvent>
 #include <QtWidgets/QWidget>
 
 namespace AVPE
@@ -78,6 +80,8 @@ namespace AVPE
 	{
 		m_surface = new DisplaySurface();
 		m_surface_container = m_surface->createWindowContainer(this);
+		m_surface->installEventFilter(this);
+		m_surface_container->installEventFilter(this);
 		setCentralWidget(m_surface_container);
 		g_emu_thread->connectDisplaySignals(m_surface);
 		fullscreen ? showFullScreen() : showNormal();
@@ -127,5 +131,23 @@ namespace AVPE
 			QMetaObject::invokeMethod(g_main_window, "requestExit", Qt::QueuedConnection, Q_ARG(bool, false));
 		}
 		event->ignore();
+	}
+
+	bool HostWindow::eventFilter(QObject* watched, QEvent* event)
+	{
+		if (watched == m_surface || watched == m_surface_container)
+		{
+			if (event->type() == QEvent::KeyPress &&
+				m_input_router.HandleKeyPress(*static_cast<QKeyEvent*>(event)))
+			{
+				return true;
+			}
+			if (event->type() == QEvent::KeyRelease &&
+				m_input_router.HandleKeyRelease(*static_cast<QKeyEvent*>(event)))
+			{
+				return true;
+			}
+		}
+		return QMainWindow::eventFilter(watched, event);
 	}
 } // namespace AVPE

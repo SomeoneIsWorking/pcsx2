@@ -12,6 +12,8 @@ namespace AVPE::NativeMenuInput
 		Down,
 		Left,
 		Right,
+		Activate,
+		Cancel,
 	};
 
 	enum class Status : u8
@@ -35,14 +37,18 @@ namespace AVPE::NativeMenuInput
 		EECallShuttle::Status shuttle_status = EECallShuttle::Status::Interrupted;
 		Action action = Action::Up;
 		u32 menu = 0;
+		u32 handler = 0;
 		u32 callback_count = 0;
 		FocusState before;
 		FocusState after;
 		u64 elapsed_cycles = 0;
+		u64 deferred_call_id = 0;
+		bool deferred = false;
 		const char* error = "";
 
 		bool Succeeded() const { return status == Status::Success; }
 	};
 
+	Result Inspect();
 	Result Apply(Action action);
 } // namespace AVPE::NativeMenuInput
