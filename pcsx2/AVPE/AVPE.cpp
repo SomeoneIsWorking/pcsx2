@@ -1,6 +1,7 @@
 // AVPE control channel — see AVPE.h. Fork-local; not for upstream.
 #include "AVPE/AVPE.h"
 #include "Host.h"
+#include "MTGS.h"
 #include "VMManager.h"
 #include "vtlb.h"
 
@@ -346,6 +347,53 @@ namespace AVPE {
 		return lucent::http::Response::json(200, "OK", buf);
 	}
 
+	// GET /snap — current frame as BMP (24-bit), so tooling can SEE the game.
+	static lucent::http::Response handle_snap()
+	{
+		u32 width = 0, height = 0;
+		std::vector<u32> pixels;
+		if (!MTGS::SaveMemorySnapshot(0, 0, true, false, &width, &height, &pixels))
+			return lucent::http::Response::text(503, "Unavailable", "no frame available\n");
+		if (width == 0 || height == 0)
+			return lucent::http::Response::text(500, "Error", "empty frame\n");
+
+		// Minimal BMP writer: 24-bit bottom-up BGR, rows padded to 4 bytes.
+		const u32 row_bytes = width * 3;
+		const u32 row_pad = (4 - (row_bytes % 4)) % 4;
+		const u32 data_size = (row_bytes + row_pad) * height;
+		const u32 file_size = 54 + data_size;
+		std::vector<u8> bmp(file_size);
+		auto put16 = [&](size_t o, u16 v) { bmp[o] = v & 0xff; bmp[o+1] = v >> 8; };
+		auto put32 = [&](size_t o, u32 v) {
+			bmp[o] = v & 0xff; bmp[o+1] = (v>>8)&0xff; bmp[o+2] = (v>>16)&0xff; bmp[o+3] = (v>>24)&0xff;
+		};
+		put16(0, 0x4D42);              // 'BM'
+		put32(2, file_size);
+		put32(10, 54);
+		put32(14, 40);                 // BITMAPINFOHEADER
+		put32(18, width);
+		put32(22, height);
+		put16(26, 1);
+		put16(28, 24);
+		put32(34, data_size);
+		size_t o = 54;
+		for (u32 y = height; y-- > 0;)
+		{
+			const u32* row = &pixels[static_cast<size_t>(y) * width];
+			for (u32 x = 0; x < width; ++x)
+			{
+				const u32 px = row[x];
+				bmp[o++] = static_cast<u8>(px & 0xff);         // B
+				bmp[o++] = static_cast<u8>((px >> 8) & 0xff);   // G
+				bmp[o++] = static_cast<u8>((px >> 16) & 0xff);  // R
+			}
+			o += row_pad;
+		}
+		lucent::info("avpe", "snap {}x{}", width, height);
+		return lucent::http::Response::binary(200, "OK", "image/bmp",
+			std::string(reinterpret_cast<const char*>(bmp.data()), bmp.size()));
+	}
+
 	static lucent::http::Response dispatch(const lucent::http::Request& req)
 	{
 		const std::string path(req.path());
@@ -357,6 +405,8 @@ namespace AVPE {
 			return handle_mem_scan(req);
 		if (req.method == "GET" && path == "/debug")
 			return handle_debug();
+		if (req.method == "GET" && path == "/snap")
+			return handle_snap();
 		if (req.method == "POST" && path == "/mem/write")
 			return handle_mem_write(req.body);
 		if (req.method == "POST" && path == "/state/save")
@@ -369,8 +419,9 @@ namespace AVPE {
 		// Negative must be loud: name what was requested and what exists.
 		lucent::warn("avpe", "no route: {} {}", req.method, path);
 		return lucent::http::Response::json(404, "Not Found",
-			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"POST /mem/write\","
-			"\"POST /state/save\",\"POST /state/load\",\"POST /input/press\"]}");
+			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
+			"\"GET /snap\",\"POST /mem/write\",\"POST /state/save\",\"POST /state/load\","
+			"\"POST /input/press\"]}");
 	}
 
 	bool Start()
