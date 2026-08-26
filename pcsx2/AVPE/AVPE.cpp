@@ -1,6 +1,7 @@
 // AVPE control channel — see AVPE.h. Fork-local; not for upstream.
 #include "AVPE/AVPE.h"
 #include "AVPE/EECallShuttle.h"
+#include "AVPE/NativeInput.h"
 #include "Config.h"
 #include "Host.h"
 #include "Host/AudioStreamTypes.h"
@@ -16,7 +17,9 @@
 #include <lucent/config.h>
 
 #include <atomic>
+#include <cerrno>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
@@ -350,6 +353,34 @@ namespace AVPE
 		return v;
 	}
 
+	static std::optional<float> json_float_field(const std::string& body, const std::string& key)
+	{
+		const std::string needle = "\"" + key + "\"";
+		size_t position = body.find(needle);
+		if (position == std::string::npos)
+			return std::nullopt;
+		position = body.find(':', position + needle.size());
+		if (position == std::string::npos)
+			return std::nullopt;
+		++position;
+		while (position < body.size() && (body[position] == ' ' || body[position] == '\t'))
+			++position;
+		if (position >= body.size())
+			return std::nullopt;
+
+		const char* const start = body.c_str() + position;
+		char* end = nullptr;
+		errno = 0;
+		const float value = std::strtof(start, &end);
+		if (end == start || errno == ERANGE || !std::isfinite(value))
+			return std::nullopt;
+		while (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n')
+			++end;
+		if (*end != ',' && *end != '}')
+			return std::nullopt;
+		return value;
+	}
+
 	// POST /input/press {"mask":512,"ms":250} — PadDualshock2::Inputs bit space.
 	static lucent::http::Response handle_input_press(const std::string& body)
 	{
@@ -361,6 +392,45 @@ namespace AVPE
 			ms = *mss;
 		PressButtons(*mask, ms);
 		return lucent::http::Response::json(200, "OK", "{\"pressed\":true}");
+	}
+
+	static lucent::http::Response handle_input_move_absolute(const std::string& body)
+	{
+		const auto x = json_float_field(body, "x");
+		const auto y = json_float_field(body, "y");
+		if (!x || !y)
+			return lucent::http::Response::text(400, "Bad Request", "need finite numeric x+y\n");
+
+		const NativeInput::Result result = NativeInput::MoveAbsolute(*x, *y);
+		if (!result.Succeeded())
+		{
+			int status = 500;
+			switch (result.status)
+			{
+				case NativeInput::Status::InvalidCoordinates:
+					status = 400;
+					break;
+				case NativeInput::Status::PointerUnavailable:
+				case NativeInput::Status::SelectorModeRejected:
+					status = 409;
+					break;
+				case NativeInput::Status::ResolutionUnavailable:
+					status = 503;
+					break;
+				default:
+					break;
+			}
+			lucent::error("avpe-input", "absolute move ({}, {}) failed: {}", *x, *y, result.error);
+			return lucent::http::Response::text(status, "Native Input Failed", std::string(result.error) + "\n");
+		}
+
+		char response[384];
+		std::snprintf(response, sizeof(response),
+			R"({"pointer":"0x%08X","screen_x":%.6f,"screen_y":%.6f,"observed_x":%.6f,"observed_y":%.6f,"staging_address":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu})",
+			result.pointer, result.screen_x, result.screen_y, result.observed_x, result.observed_y,
+			result.staging_address, result.stack_restored ? "true" : "false",
+			static_cast<unsigned long long>(result.elapsed_cycles));
+		return lucent::http::Response::json(200, "OK", response);
 	}
 
 	// POST /ee/call {"function":"0x00137b30","a0":0,"cycle_budget":3000000}
@@ -544,6 +614,8 @@ namespace AVPE
 			return handle_state_load(req.body);
 		if (req.method == "POST" && path == "/input/press")
 			return handle_input_press(req.body);
+		if (req.method == "POST" && path == "/input/move-absolute")
+			return handle_input_move_absolute(req.body);
 		if (req.method == "POST" && path == "/ee/call")
 			return handle_ee_call(req.body);
 		if (req.method == "POST" && path == "/shutdown")
@@ -554,7 +626,7 @@ namespace AVPE
 		return lucent::http::Response::json(404, "Not Found",
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /state/save\",\"POST /state/load\","
-			"\"POST /input/press\",\"POST /ee/call\",\"POST /shutdown\"]}");
+			"\"POST /input/press\",\"POST /input/move-absolute\",\"POST /ee/call\",\"POST /shutdown\"]}");
 	}
 
 	bool Start()

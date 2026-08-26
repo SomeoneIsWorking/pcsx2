@@ -90,6 +90,7 @@ set(pcsx2Sources
 	PINE.cpp
 	AVPE/AVPE.cpp
 	AVPE/EECallShuttle.cpp
+	AVPE/NativeInput.cpp
 	Mdec.cpp
 	Memory.cpp
 	MMI.cpp

@@ -21,8 +21,15 @@ static int branch2 = 0;
 static u32 cpuBlockCycles = 0;		// 3 bit fixed point version of cycle count
 static std::string disOut;
 static bool intExitExecution = false;
+static bool intExecuteUntilActive = false;
 static fastjmp_buf intJmpBuf;
+static fastjmp_buf intExecuteUntilJmpBuf;
 static u32 intLastBranchTo;
+
+static fastjmp_buf* intActiveJmpBuf()
+{
+	return intExecuteUntilActive ? &intExecuteUntilJmpBuf : &intJmpBuf;
+}
 
 void intEventTest();
 
@@ -555,6 +562,21 @@ static void intReset()
 
 void intEventTest()
 {
+	// ExecuteUntil is an out-of-band guest call made while the normal scheduler
+	// is already servicing a host task. Defer EE/IOP/timer events until the
+	// interrupted execution context resumes so VSync cannot re-enter itself.
+	if (intExecuteUntilActive)
+	{
+		if (intExitExecution)
+		{
+			intExitExecution = false;
+			if (CHECK_EEREC)
+				writebackCache();
+			fastjmp_jmp(intActiveJmpBuf(), 1);
+		}
+		return;
+	}
+
 	// Perform counters, ints, and IOP updates:
 	_cpuEventTest_Shared();
 
@@ -563,7 +585,7 @@ void intEventTest()
 		intExitExecution = false;
 		if (CHECK_EEREC)
 			writebackCache();
-		fastjmp_jmp(&intJmpBuf, 1);
+		fastjmp_jmp(intActiveJmpBuf(), 1);
 	}
 }
 
@@ -577,14 +599,14 @@ static void intSafeExitExecution()
 	{
 		if (CHECK_EEREC)
 			writebackCache();
-		fastjmp_jmp(&intJmpBuf, 1);
+		fastjmp_jmp(intActiveJmpBuf(), 1);
 	}
 }
 
 static void intCancelInstruction()
 {
 	// See execute function.
-	fastjmp_jmp(&intJmpBuf, 0);
+	fastjmp_jmp(intActiveJmpBuf(), 0);
 }
 
 static void intExecute()
@@ -663,17 +685,28 @@ static EEExecutionResult intExecuteUntil(const u32 target_pc, const u64 cycle_bu
 		return EEExecutionResult::ReachedTarget;
 	if (cycle_budget == 0)
 		return EEExecutionResult::CycleBudgetExceeded;
+	pxAssertRel(!intExecuteUntilActive, "Nested EE ExecuteUntil calls are not supported");
 
 	const u64 start_cycle = cpuRegs.cycle;
-	if (fastjmp_set(&intJmpBuf) != 0)
+	intExecuteUntilActive = true;
+	if (fastjmp_set(&intExecuteUntilJmpBuf) != 0)
+	{
+		intExecuteUntilActive = false;
 		return EEExecutionResult::Interrupted;
+	}
 
 	for (;;)
 	{
 		if ((cpuRegs.cycle - start_cycle) > cycle_budget)
+		{
+			intExecuteUntilActive = false;
 			return EEExecutionResult::CycleBudgetExceeded;
+		}
 		if (cpuRegs.pc == target_pc)
+		{
+			intExecuteUntilActive = false;
 			return EEExecutionResult::ReachedTarget;
+		}
 		execI();
 	}
 }
