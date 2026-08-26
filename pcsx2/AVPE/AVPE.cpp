@@ -282,7 +282,10 @@ namespace AVPE
 		bool ok = false;
 		Host::RunOnCPUThread([&]() { ok = VMManager::LoadState(path->c_str(), &error); }, true);
 		if (ok)
+		{
 			EECallShuttle::ResetAfterStateLoad();
+			NativeInput::ResetAfterStateLoad();
+		}
 		lucent::info("avpe", "loadstate {} ({})", *path, ok ? "ok" : error.GetDescription());
 		return lucent::http::Response::json(ok ? 200 : 500, ok ? "OK" : "Error",
 			ok ? "{\"loaded\":true}" : "{\"loaded\":false}");
@@ -429,6 +432,58 @@ namespace AVPE
 			R"({"pointer":"0x%08X","screen_x":%.6f,"screen_y":%.6f,"observed_x":%.6f,"observed_y":%.6f,"staging_address":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu})",
 			result.pointer, result.screen_x, result.screen_y, result.observed_x, result.observed_y,
 			result.staging_address, result.stack_restored ? "true" : "false",
+			static_cast<unsigned long long>(result.elapsed_cycles));
+		return lucent::http::Response::json(200, "OK", response);
+	}
+
+	static lucent::http::Response handle_input_mouse_button(const std::string& body)
+	{
+		const auto button_name = json_string_field(body, "button");
+		const auto edge_name = json_string_field(body, "edge");
+		if (!button_name || !edge_name)
+			return lucent::http::Response::text(400, "Bad Request", "need button+edge\n");
+
+		NativeInput::MouseButton button;
+		if (*button_name == "primary")
+			button = NativeInput::MouseButton::Primary;
+		else if (*button_name == "secondary")
+			button = NativeInput::MouseButton::Secondary;
+		else
+			return lucent::http::Response::text(400, "Bad Request", "button must be primary or secondary\n");
+
+		NativeInput::ButtonEdge edge;
+		if (*edge_name == "press")
+			edge = NativeInput::ButtonEdge::Press;
+		else if (*edge_name == "release")
+			edge = NativeInput::ButtonEdge::Release;
+		else
+			return lucent::http::Response::text(400, "Bad Request", "edge must be press or release\n");
+
+		const NativeInput::ButtonResult result = NativeInput::ApplyButtonEdge(button, edge);
+		if (!result.Succeeded())
+		{
+			int status = 500;
+			switch (result.status)
+			{
+				case NativeInput::Status::InvalidButtonEdge:
+				case NativeInput::Status::PointerUnavailable:
+					status = 409;
+					break;
+				default:
+					break;
+			}
+			lucent::error("avpe-input", "{} {} failed: {}", *button_name, *edge_name, result.error);
+			return lucent::http::Response::text(
+				status, "Native Input Failed", std::string(result.error) + "\n");
+		}
+
+		char response[768];
+		std::snprintf(response, sizeof(response),
+			R"({"button":"%s","edge":"%s","pointer":"0x%08X","handler":"0x%08X","before":{"count":%u,"selected_mark":"0x%08X","selected_object":"0x%08X","command_id":"0x%08X"},"after":{"count":%u,"selected_mark":"0x%08X","selected_object":"0x%08X","command_id":"0x%08X"},"elapsed_cycles":%llu})",
+			button_name->c_str(), edge_name->c_str(), result.pointer, result.handler,
+			result.before.count, result.before.selected_mark, result.before.selected_object,
+			result.before.command_id, result.after.count, result.after.selected_mark,
+			result.after.selected_object, result.after.command_id,
 			static_cast<unsigned long long>(result.elapsed_cycles));
 		return lucent::http::Response::json(200, "OK", response);
 	}
@@ -616,6 +671,8 @@ namespace AVPE
 			return handle_input_press(req.body);
 		if (req.method == "POST" && path == "/input/move-absolute")
 			return handle_input_move_absolute(req.body);
+		if (req.method == "POST" && path == "/input/mouse-button")
+			return handle_input_mouse_button(req.body);
 		if (req.method == "POST" && path == "/ee/call")
 			return handle_ee_call(req.body);
 		if (req.method == "POST" && path == "/shutdown")
@@ -626,7 +683,8 @@ namespace AVPE
 		return lucent::http::Response::json(404, "Not Found",
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /state/save\",\"POST /state/load\","
-			"\"POST /input/press\",\"POST /input/move-absolute\",\"POST /ee/call\",\"POST /shutdown\"]}");
+			"\"POST /input/press\",\"POST /input/move-absolute\",\"POST /input/mouse-button\","
+			"\"POST /ee/call\",\"POST /shutdown\"]}");
 	}
 
 	bool Start()

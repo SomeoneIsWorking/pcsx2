@@ -7,19 +7,32 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <mutex>
 
 namespace AVPE::NativeInput
 {
 	static constexpr u32 GET_RESOLUTION = 0x00137B30;
 	static constexpr u32 SET_INPUT_TYPE = 0x001B18E0;
 	static constexpr u32 UPDATE_POSITION_ABSOLUTE = 0x0012EAB0;
+	static constexpr u32 PRESS_MOUSE_PRIMARY = 0x001B52C0;
+	static constexpr u32 RELEASE_MOUSE_PRIMARY = 0x001B52D0;
+	static constexpr u32 PRESS_MOUSE_SECONDARY = 0x001B5300;
+	static constexpr u32 RELEASE_MOUSE_SECONDARY = 0x001B5310;
 	static constexpr u32 POINTER_SINGLETON = 0x00367720;
 	static constexpr u32 INPUT_TYPE_OFFSET = 0x224;
 	static constexpr u32 POSITION_X_OFFSET = 0x194;
 	static constexpr u32 POSITION_Y_OFFSET = 0x198;
+	static constexpr u32 SELECTION_ARRAY_OFFSET = 0x1B0;
+	static constexpr u32 SELECTED_OBJECT_OFFSET = 0xA8;
+	static constexpr u32 CURRENT_COMMAND_ID_OFFSET = 0x460;
 	static constexpr u32 TARGET_STATIC_BEGIN = 0x00100000;
 	static constexpr u32 TARGET_STATIC_END = 0x00400000;
 	static constexpr s32 MAX_PLAUSIBLE_RESOLUTION = 8192;
+	static constexpr u32 MAX_SELECTION_COUNT = 32;
+
+	static std::mutex s_button_mutex;
+	static bool s_primary_pressed = false;
+	static bool s_secondary_pressed = false;
 
 	static Result Fail(const Status status, const char* error)
 	{
@@ -45,6 +58,46 @@ namespace AVPE::NativeInput
 			return false;
 		*value = std::bit_cast<float>(bits);
 		return std::isfinite(*value);
+	}
+
+	static bool IsPlausibleAddress(const u32 address)
+	{
+		return address >= TARGET_STATIC_BEGIN && address < Ps2MemSize::ExposedRam && (address & 3) == 0;
+	}
+
+	static bool IsPlausibleObject(const u32 address)
+	{
+		u32 vtable = 0;
+		return IsPlausibleAddress(address) && ReadWord(address, &vtable) &&
+		       vtable >= TARGET_STATIC_BEGIN && vtable < TARGET_STATIC_END && (vtable & 3) == 0;
+	}
+
+	static bool ReadLivePointer(u32* pointer)
+	{
+		return ReadWord(POINTER_SINGLETON, pointer) && IsPlausibleObject(*pointer);
+	}
+
+	static bool ReadSelection(const u32 pointer, SelectionState* state)
+	{
+		*state = {};
+		u32 array = 0;
+		u32 data = 0;
+		if (!ReadWord(pointer + SELECTION_ARRAY_OFFSET, &array) || !IsPlausibleAddress(array) ||
+			!ReadWord(array, &data) || !ReadWord(array + sizeof(u32), &state->count) ||
+			state->count > MAX_SELECTION_COUNT)
+		{
+			return false;
+		}
+		if (state->count == 0 || !IsPlausibleAddress(data) ||
+			!ReadWord(data, &state->selected_mark) || !IsPlausibleObject(state->selected_mark) ||
+			!ReadWord(state->selected_mark + SELECTED_OBJECT_OFFSET, &state->selected_object) ||
+			!IsPlausibleObject(state->selected_object))
+		{
+			state->selected_mark = 0;
+			state->selected_object = 0;
+			return true;
+		}
+		return ReadWord(state->selected_object + CURRENT_COMMAND_ID_OFFSET, &state->command_id);
 	}
 
 	static std::array<u8, 8> EncodeCoordinates(const float x, const float y)
@@ -90,11 +143,7 @@ namespace AVPE::NativeInput
 		}
 
 		u32 pointer = 0;
-		u32 vtable = 0;
-		if (!ReadWord(POINTER_SINGLETON, &pointer) || pointer < TARGET_STATIC_BEGIN ||
-			pointer >= Ps2MemSize::ExposedRam || (pointer & 3) != 0 ||
-			!ReadWord(pointer, &vtable) || vtable < TARGET_STATIC_BEGIN || vtable >= TARGET_STATIC_END ||
-			(vtable & 3) != 0)
+		if (!ReadLivePointer(&pointer))
 		{
 			return Fail(Status::PointerUnavailable, "live AVP:E pointer singleton is null or implausible");
 		}
@@ -171,5 +220,79 @@ namespace AVPE::NativeInput
 				result = MoveOnCPUThread(transaction, normalized_x, normalized_y);
 			});
 		return result;
+	}
+
+	static ButtonResult FailButton(
+		const Status status, const MouseButton button, const ButtonEdge edge, const char* error)
+	{
+		return {.status = status, .button = button, .edge = edge, .error = error};
+	}
+
+	static u32 HandlerFor(const MouseButton button, const ButtonEdge edge)
+	{
+		if (button == MouseButton::Primary)
+			return edge == ButtonEdge::Press ? PRESS_MOUSE_PRIMARY : RELEASE_MOUSE_PRIMARY;
+		return edge == ButtonEdge::Press ? PRESS_MOUSE_SECONDARY : RELEASE_MOUSE_SECONDARY;
+	}
+
+	ButtonResult ApplyButtonEdge(const MouseButton button, const ButtonEdge edge)
+	{
+		std::lock_guard lock(s_button_mutex);
+		bool& pressed = button == MouseButton::Primary ? s_primary_pressed : s_secondary_pressed;
+		if (pressed == (edge == ButtonEdge::Press))
+		{
+			return FailButton(Status::InvalidButtonEdge, button, edge,
+				pressed ? "button is already pressed" : "button is not pressed");
+		}
+
+		ButtonResult result;
+		EECallShuttle::RunTransaction([&result, button, edge](EECallShuttle::Transaction& transaction) {
+			result.button = button;
+			result.edge = edge;
+			result.handler = HandlerFor(button, edge);
+			if (!ReadLivePointer(&result.pointer))
+			{
+				result.status = Status::PointerUnavailable;
+				result.error = "live AVP:E pointer singleton is null or implausible";
+				return;
+			}
+			if (!ReadSelection(result.pointer, &result.before))
+			{
+				result.status = Status::GuestMemoryError;
+				result.error = "game selection container is invalid or unreadable";
+				return;
+			}
+
+			EECallShuttle::Request request{.function = result.handler};
+			request.arguments[0] = result.pointer;
+			const EECallShuttle::Result call = transaction.Call(request);
+			result.shuttle_status = call.status;
+			result.elapsed_cycles = call.elapsed_cycles;
+			if (!call.Succeeded())
+			{
+				result.status = call.status == EECallShuttle::Status::GuestMemoryError ?
+				                    Status::GuestMemoryError :
+				                    Status::ShuttleFailure;
+				result.error = call.error;
+				return;
+			}
+			if (!ReadSelection(result.pointer, &result.after))
+			{
+				result.status = Status::GuestMemoryError;
+				result.error = "game selection container became invalid after mouse handler";
+				return;
+			}
+			result.status = Status::Success;
+		});
+		if (result.Succeeded())
+			pressed = edge == ButtonEdge::Press;
+		return result;
+	}
+
+	void ResetAfterStateLoad()
+	{
+		std::lock_guard lock(s_button_mutex);
+		s_primary_pressed = false;
+		s_secondary_pressed = false;
 	}
 } // namespace AVPE::NativeInput
