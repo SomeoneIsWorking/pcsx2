@@ -15,7 +15,10 @@
 #include <QtGui/QCloseEvent>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QKeyEvent>
+#include <QtGui/QMouseEvent>
 #include <QtWidgets/QWidget>
+
+#include <algorithm>
 
 namespace AVPE
 {
@@ -146,6 +149,37 @@ namespace AVPE
 				m_input_router.HandleKeyRelease(*static_cast<QKeyEvent*>(event)))
 			{
 				return true;
+			}
+			if (watched == m_surface && event->type() == QEvent::MouseMove)
+			{
+				const QMouseEvent* const mouse_event = static_cast<QMouseEvent*>(event);
+				const float width = static_cast<float>(std::max(m_surface->width() - 1, 1));
+				const float height = static_cast<float>(std::max(m_surface->height() - 1, 1));
+				const float normalized_x =
+					std::clamp(static_cast<float>(mouse_event->position().x()) / width, 0.0f, 1.0f);
+				const float normalized_y =
+					std::clamp(static_cast<float>(mouse_event->position().y()) / height, 0.0f, 1.0f);
+				if (m_input_router.HandlePointerMove(normalized_x, normalized_y))
+					return true;
+			}
+			if (watched == m_surface &&
+				(event->type() == QEvent::MouseButtonPress ||
+					event->type() == QEvent::MouseButtonRelease ||
+					event->type() == QEvent::MouseButtonDblClick))
+			{
+				const QMouseEvent* const mouse_event = static_cast<QMouseEvent*>(event);
+				std::optional<HostInputRouter::PointerButton> button;
+				if (mouse_event->button() == Qt::LeftButton)
+					button = HostInputRouter::PointerButton::Primary;
+				else if (mouse_event->button() == Qt::RightButton)
+					button = HostInputRouter::PointerButton::Secondary;
+				if (button.has_value())
+				{
+					if (event->type() == QEvent::MouseButtonDblClick)
+						return m_input_router.HandlePointerDoubleClick(*button);
+					return m_input_router.HandlePointerButton(
+						*button, event->type() == QEvent::MouseButtonPress);
+				}
 			}
 		}
 		return QMainWindow::eventFilter(watched, event);
