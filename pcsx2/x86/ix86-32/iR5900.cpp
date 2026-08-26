@@ -46,17 +46,6 @@ static bool eeCpuExecuting = false;
 static bool eeRecExitRequested = false;
 static bool g_resetEeScalingStats = false;
 
-struct ExecuteUntilState
-{
-	bool active = false;
-	u32 target_pc = 0;
-	u64 start_cycle = 0;
-	u64 cycle_budget = 0;
-	EEExecutionResult result = EEExecutionResult::Interrupted;
-};
-
-static ExecuteUntilState s_execute_until;
-
 #define PC_GETBLOCK(x) PC_GETBLOCK_(x, recLUT)
 
 u32 maxrecmem = 0;
@@ -408,20 +397,6 @@ static const void* UnmappedRecLUTPage = nullptr;
 
 static void recEventTest()
 {
-	if (s_execute_until.active)
-	{
-		if ((cpuRegs.cycle - s_execute_until.start_cycle) > s_execute_until.cycle_budget)
-		{
-			s_execute_until.result = EEExecutionResult::CycleBudgetExceeded;
-			recExitExecution();
-		}
-		if (cpuRegs.pc == s_execute_until.target_pc)
-		{
-			s_execute_until.result = EEExecutionResult::ReachedTarget;
-			recExitExecution();
-		}
-	}
-
 	_cpuEventTest_Shared();
 
 	if (eeRecExitRequested)
@@ -429,11 +404,6 @@ static void recEventTest()
 		eeRecExitRequested = false;
 		recExitExecution();
 	}
-
-	// ExecuteUntil needs an instruction-boundary observation after every block;
-	// normal execution retains the scheduler's ordinary next-event cadence.
-	if (s_execute_until.active)
-		cpuRegs.nextEventCycle = 0;
 }
 
 // The address for all cleared blocks.  It recompiles the current pc and then
@@ -808,25 +778,10 @@ static void recExecute()
 
 static EEExecutionResult recExecuteUntil(const u32 target_pc, const u64 cycle_budget)
 {
-	if (cpuRegs.pc == target_pc)
-		return EEExecutionResult::ReachedTarget;
-	if (cycle_budget == 0)
-		return EEExecutionResult::CycleBudgetExceeded;
-	pxAssertRel(!s_execute_until.active, "Nested EE ExecuteUntil calls are not supported");
-
-	s_execute_until = {
-		.active = true,
-		.target_pc = target_pc,
-		.start_cycle = cpuRegs.cycle,
-		.cycle_budget = cycle_budget,
-		.result = EEExecutionResult::Interrupted,
-	};
-	cpuRegs.nextEventCycle = 0;
-	recExecute();
-
-	const EEExecutionResult result = s_execute_until.result;
-	s_execute_until.active = false;
-	return result;
+	// Normal recompiler execution already owns its global dispatch jump buffer.
+	// Synthetic calls must not recursively enter it, so interpret the bounded
+	// call using the independent ExecuteUntil jump context.
+	return intCpu.ExecuteUntil(target_pc, cycle_budget);
 }
 
 ////////////////////////////////////////////////////

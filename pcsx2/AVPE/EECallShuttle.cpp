@@ -6,10 +6,14 @@
 #include "R5900.h"
 #include "VMManager.h"
 #include "VU.h"
+#include "vtlb.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <cstring>
 #include <iterator>
+#include <optional>
 
 namespace AVPE::EECallShuttle
 {
@@ -18,7 +22,94 @@ namespace AVPE::EECallShuttle
 	static constexpr u32 TARGET_TEXT_BEGIN = 0x00100000;
 	static constexpr u32 TARGET_TEXT_END = 0x00366D00;
 	static constexpr u64 MAX_CYCLE_BUDGET = 30'000'000;
+	static constexpr u32 GUEST_CALL_FRAME_SIZE = 0x20;
+	static constexpr u32 GUEST_ARGUMENT_HOME_SIZE = 0x10;
 	static std::atomic_bool s_faulted{false};
+	static std::atomic_bool s_active{false};
+
+	class ActiveCallGuard final
+	{
+	public:
+		ActiveCallGuard()
+			: m_acquired(!s_active.exchange(true, std::memory_order_acq_rel))
+		{
+		}
+
+		~ActiveCallGuard()
+		{
+			if (m_acquired)
+				s_active.store(false, std::memory_order_release);
+		}
+
+		bool Acquired() const { return m_acquired; }
+
+	private:
+		bool m_acquired;
+	};
+
+	class GuestStackFrame final
+	{
+	public:
+		bool Stage(const std::span<const u8> bytes)
+		{
+			if (bytes.empty() || bytes.size() > GUEST_CALL_FRAME_SIZE - GUEST_ARGUMENT_HOME_SIZE)
+				return false;
+
+			const u32 interrupted_sp = cpuRegs.GPR.n.sp.UL[0];
+			if ((interrupted_sp & 0xf) != 0 || interrupted_sp < GUEST_CALL_FRAME_SIZE)
+				return false;
+
+			m_address = interrupted_sp - GUEST_CALL_FRAME_SIZE;
+			const u32 frame_end = m_address + GUEST_CALL_FRAME_SIZE - 1;
+			if (frame_end < m_address)
+				return false;
+
+			// AVP:E's user stack is in the direct low EE main-RAM mapping. Do not
+			// use vtlb_V2P here: its ppmap is optional and absent for this title.
+			if (m_address >= Ps2MemSize::ExposedRam || frame_end >= Ps2MemSize::ExposedRam)
+				return false;
+
+			if (!vtlb_memSafeReadBytes(m_address, m_original.data(), m_original.size()))
+				return false;
+			m_staged = m_original;
+			std::memcpy(m_staged.data() + GUEST_ARGUMENT_HOME_SIZE, bytes.data(), bytes.size());
+			if (!vtlb_memSafeWriteBytes(m_address, m_staged.data(), m_staged.size()) ||
+				vtlb_memSafeCmpBytes(m_address, m_staged.data(), m_staged.size()) != 0)
+			{
+				m_restore_failed = !RestoreBytes();
+				return false;
+			}
+
+			cpuRegs.GPR.n.sp.UD[1] = 0;
+			cpuRegs.GPR.n.sp.UL[0] = m_address;
+			m_active = true;
+			return true;
+		}
+
+		bool Restore()
+		{
+			if (!m_active)
+				return !m_restore_failed;
+			m_active = false;
+			m_restore_failed = !RestoreBytes();
+			return !m_restore_failed;
+		}
+
+		u32 DataAddress() const { return m_address == 0 ? 0 : m_address + GUEST_ARGUMENT_HOME_SIZE; }
+
+	private:
+		bool RestoreBytes()
+		{
+			return vtlb_memSafeWriteBytes(m_address, m_original.data(), m_original.size()) &&
+			       vtlb_memSafeCmpBytes(m_address, m_original.data(), m_original.size()) == 0;
+		}
+
+		std::array<u8, GUEST_CALL_FRAME_SIZE> m_original{};
+		std::array<u8, GUEST_CALL_FRAME_SIZE> m_staged{};
+		u32 m_address = 0;
+		bool m_active = false;
+		bool m_restore_failed = false;
+	};
 
 	static Result Fail(const Status status, const char* error)
 	{
@@ -44,25 +135,64 @@ namespace AVPE::EECallShuttle
 		cpuRegs.CP0.n.Cause = completed.CP0.n.Cause;
 	}
 
-	static Result CallOnCPUThread(const Request& request)
+	static Result CallOnCPUThread(
+		const Request& request, const std::optional<u32> stack_argument, const std::span<const u8> stack_bytes)
 	{
+		if ((request.function & 3) != 0 || request.function < TARGET_TEXT_BEGIN ||
+			request.function >= TARGET_TEXT_END)
+		{
+			return Fail(Status::InvalidRequest, "function must be an aligned address in the AVP:E executable text");
+		}
+		if (request.cycle_budget == 0 || request.cycle_budget > MAX_CYCLE_BUDGET)
+			return Fail(Status::InvalidRequest, "cycle budget must be in 1..30000000");
+		if (s_faulted.load(std::memory_order_acquire))
+			return Fail(Status::Faulted, "EE call shuttle is faulted; load a known state before another call");
 		if (!VMManager::HasValidVM())
 			return Fail(Status::VMUnavailable, "no valid VM");
 		if (VMManager::GetDiscSerial() != TARGET_SERIAL || VMManager::GetDiscCRC() != TARGET_CRC)
 			return Fail(Status::WrongGame, "loaded executable is not the supported AVP:E revision");
 		if (Cpu == nullptr || Cpu->ExecuteUntil == nullptr)
 			return Fail(Status::UnsupportedCPU, "active EE engine cannot execute to a call boundary");
+		if (stack_argument.has_value() &&
+			(*stack_argument >= request.arguments.size() || stack_bytes.empty() ||
+				stack_bytes.size() > GUEST_CALL_FRAME_SIZE - GUEST_ARGUMENT_HOME_SIZE))
+		{
+			return Fail(Status::InvalidRequest,
+				"guest stack argument must name a0..a3 and contain at most 16 bytes");
+		}
+		if (!stack_argument.has_value() && !stack_bytes.empty())
+			return Fail(Status::InvalidRequest, "guest stack bytes require an argument index");
+
+		ActiveCallGuard active_call;
+		if (!active_call.Acquired())
+			return Fail(Status::InvalidRequest, "nested EE calls are not supported");
 
 		const cpuRegisters saved_cpu = cpuRegs;
 		const fpuRegisters saved_fpu = fpuRegs;
 		const VURegs saved_vu0 = VU0;
 		const u32 return_pc = saved_cpu.pc;
+		GuestStackFrame stack_frame;
+		if (stack_argument.has_value() && !stack_frame.Stage(stack_bytes))
+		{
+			const bool restored = stack_frame.Restore();
+			if (!restored)
+				s_faulted.store(true, std::memory_order_release);
+			return {
+				.status = Status::GuestMemoryError,
+				.staging_address = stack_frame.DataAddress(),
+				.stack_restored = restored,
+				.error = restored ? "guest stack frame is not writable main RAM" :
+			                        "guest stack staging failed and exact restoration could not be verified",
+			};
+		}
 
 		for (u32 i = 0; i < request.arguments.size(); ++i)
 		{
 			cpuRegs.GPR.r[4 + i].UD[1] = 0;
 			cpuRegs.GPR.r[4 + i].UD[0] = request.arguments[i];
 		}
+		if (stack_argument.has_value())
+			cpuRegs.GPR.r[4 + *stack_argument].UD[0] = stack_frame.DataAddress();
 		cpuRegs.GPR.n.ra.UD[1] = 0;
 		cpuRegs.GPR.n.ra.UL[0] = return_pc;
 		cpuRegs.pc = request.function;
@@ -82,13 +212,23 @@ namespace AVPE::EECallShuttle
 		fpuRegs = saved_fpu;
 		VU0 = saved_vu0;
 		PreserveAdvancedTiming(completed_cpu);
+		const bool stack_restored = stack_frame.Restore();
 
 		Result result = {
 			.v0 = v0,
 			.v1 = v1,
 			.stopped_pc = stopped_pc,
+			.staging_address = stack_argument.has_value() ? stack_frame.DataAddress() : 0,
 			.elapsed_cycles = elapsed_cycles,
+			.stack_restored = stack_restored,
 		};
+		if (!stack_restored)
+		{
+			result.status = Status::GuestMemoryError;
+			result.error = "guest call returned but exact stack restoration could not be verified";
+			s_faulted.store(true, std::memory_order_release);
+			return result;
+		}
 		switch (execution)
 		{
 			case EEExecutionResult::ReachedTarget:
@@ -101,26 +241,38 @@ namespace AVPE::EECallShuttle
 				return result;
 			case EEExecutionResult::Interrupted:
 				result.status = Status::Interrupted;
-				result.error = "guest execution was interrupted before the function returned";
+				result.error = "guest execution was interrupted; reload a known state before continuing";
+				s_faulted.store(true, std::memory_order_release);
 				return result;
 		}
+		s_faulted.store(true, std::memory_order_release);
 		return Fail(Status::Interrupted, "unknown EE execution result");
+	}
+
+	Result Transaction::Call(const Request& request)
+	{
+		return CallOnCPUThread(request, std::nullopt, {});
+	}
+
+	Result Transaction::CallWithStackBuffer(
+		const Request& request, const u32 argument_index, const std::span<const u8> bytes)
+	{
+		return CallOnCPUThread(request, argument_index, bytes);
+	}
+
+	void RunTransaction(const std::function<void(Transaction&)>& operation)
+	{
+		Host::RunOnCPUThread([&operation]() {
+			Transaction transaction;
+			operation(transaction);
+		},
+			true);
 	}
 
 	Result Call(const Request& request)
 	{
-		if ((request.function & 3) != 0 || request.function < TARGET_TEXT_BEGIN ||
-			request.function >= TARGET_TEXT_END)
-		{
-			return Fail(Status::InvalidRequest, "function must be an aligned address in the AVP:E executable text");
-		}
-		if (request.cycle_budget == 0 || request.cycle_budget > MAX_CYCLE_BUDGET)
-			return Fail(Status::InvalidRequest, "cycle budget must be in 1..30000000");
-		if (s_faulted.load(std::memory_order_acquire))
-			return Fail(Status::Faulted, "EE call shuttle is faulted; load a known state before another call");
-
 		Result result;
-		Host::RunOnCPUThread([&result, &request]() { result = CallOnCPUThread(request); }, true);
+		RunTransaction([&result, &request](Transaction& transaction) { result = transaction.Call(request); });
 		return result;
 	}
 
