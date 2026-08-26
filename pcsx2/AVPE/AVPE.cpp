@@ -564,6 +564,81 @@ namespace AVPE
 		return lucent::http::Response::json(200, "OK", response);
 	}
 
+	static int menu_pointer_failure_status(const NativeMenuInput::PointerResult& result)
+	{
+		if (result.shuttle_status == EECallShuttle::Status::Busy)
+			return 409;
+		switch (result.status)
+		{
+			case NativeMenuInput::Status::InvalidCoordinates:
+				return 400;
+			case NativeMenuInput::Status::PointerUnavailable:
+			case NativeMenuInput::Status::AmbiguousPointer:
+			case NativeMenuInput::Status::FocusUnavailable:
+				return 409;
+			case NativeMenuInput::Status::ResolutionUnavailable:
+				return 503;
+			default:
+				return 500;
+		}
+	}
+
+	static lucent::http::Response menu_pointer_response(
+		const NativeMenuInput::PointerResult& result)
+	{
+		char response[768];
+		std::snprintf(response, sizeof(response),
+			R"({"pointer":"0x%08X","handler":"0x%08X","callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"screen_x":%.6f,"screen_y":%.6f,"observed_x":%.6f,"observed_y":%.6f,"staging_address":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu,"deferred":%s,"deferred_call_id":%llu})",
+			result.pointer, result.handler, result.callback_count, result.before.handle,
+			result.before.object, result.after.handle, result.after.object, result.screen_x,
+			result.screen_y, result.observed_x, result.observed_y, result.staging_address,
+			result.stack_restored ? "true" : "false",
+			static_cast<unsigned long long>(result.elapsed_cycles), result.deferred ? "true" : "false",
+			static_cast<unsigned long long>(result.deferred_call_id));
+		return lucent::http::Response::json(result.deferred ? 202 : 200,
+			result.deferred ? "Accepted" : "OK", response);
+	}
+
+	static lucent::http::Response handle_input_menu_pointer_state()
+	{
+		const NativeMenuInput::PointerResult result = NativeMenuInput::InspectPointer();
+		if (!result.Succeeded())
+		{
+			return lucent::http::Response::text(menu_pointer_failure_status(result),
+				"Native Menu Pointer Unavailable", std::string(result.error) + "\n");
+		}
+		return menu_pointer_response(result);
+	}
+
+	static lucent::http::Response handle_input_menu_pointer_move(const std::string& body)
+	{
+		const auto x = json_float_field(body, "x");
+		const auto y = json_float_field(body, "y");
+		if (!x || !y)
+			return lucent::http::Response::text(400, "Bad Request", "need finite numeric x+y\n");
+
+		const NativeMenuInput::PointerResult result = NativeMenuInput::MovePointer(*x, *y);
+		if (!result.Succeeded())
+		{
+			lucent::error("avpe-input", "menu pointer move ({}, {}) failed: {}", *x, *y, result.error);
+			return lucent::http::Response::text(menu_pointer_failure_status(result),
+				"Native Menu Pointer Failed", std::string(result.error) + "\n");
+		}
+		return menu_pointer_response(result);
+	}
+
+	static lucent::http::Response handle_input_menu_pointer_activate()
+	{
+		const NativeMenuInput::PointerResult result = NativeMenuInput::ActivatePointer();
+		if (!result.Succeeded())
+		{
+			lucent::error("avpe-input", "menu pointer activation failed: {}", result.error);
+			return lucent::http::Response::text(menu_pointer_failure_status(result),
+				"Native Menu Pointer Failed", std::string(result.error) + "\n");
+		}
+		return menu_pointer_response(result);
+	}
+
 	static const char* deferred_state_name(const EECallShuttle::DeferredState state)
 	{
 		switch (state)
@@ -771,6 +846,8 @@ namespace AVPE
 			return handle_ee_deferred();
 		if (req.method == "GET" && path == "/input/menu")
 			return handle_input_menu_state();
+		if (req.method == "GET" && path == "/input/menu-pointer")
+			return handle_input_menu_pointer_state();
 		if (req.method == "GET" && path == "/snap")
 			return handle_snap();
 		if (req.method == "POST" && path == "/mem/write")
@@ -787,6 +864,10 @@ namespace AVPE
 			return handle_input_mouse_button(req.body);
 		if (req.method == "POST" && path == "/input/menu-action")
 			return handle_input_menu_action(req.body);
+		if (req.method == "POST" && path == "/input/menu-pointer-move")
+			return handle_input_menu_pointer_move(req.body);
+		if (req.method == "POST" && path == "/input/menu-pointer-activate")
+			return handle_input_menu_pointer_activate();
 		if (req.method == "POST" && path == "/ee/call")
 			return handle_ee_call(req.body);
 		if (req.method == "POST" && path == "/shutdown")
@@ -797,10 +878,11 @@ namespace AVPE
 		return lucent::http::Response::json(404, "Not Found",
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
 			"\"GET /ee/deferred\","
-			"\"GET /input/menu\","
+			"\"GET /input/menu\",\"GET /input/menu-pointer\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /state/save\",\"POST /state/load\","
 			"\"POST /input/press\",\"POST /input/move-absolute\",\"POST /input/mouse-button\","
-			"\"POST /input/menu-action\","
+			"\"POST /input/menu-action\",\"POST /input/menu-pointer-move\","
+			"\"POST /input/menu-pointer-activate\","
 			"\"POST /ee/call\",\"POST /shutdown\"]}");
 	}
 

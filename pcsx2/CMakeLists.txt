@@ -93,6 +93,7 @@ set(pcsx2Sources
 	AVPE/GuestObjects.cpp
 	AVPE/NativeInput.cpp
 	AVPE/NativeMenuInput.cpp
+	AVPE/NativePointerMotion.cpp
 	Mdec.cpp
 	Memory.cpp
 	MMI.cpp
