@@ -53,6 +53,7 @@ R5900cpu GSDumpReplayerCpu = {
 	GSDumpReplayerCpuReset,
 	GSDumpReplayerCpuStep,
 	GSDumpReplayerCpuExecute,
+	nullptr,
 	GSDumpReplayerExitExecution,
 	GSDumpReplayerCancelInstruction,
 	GSDumpReplayerCpuClear};

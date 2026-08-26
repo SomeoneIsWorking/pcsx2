@@ -303,6 +303,13 @@ extern void eeloadHook2();
 // --------------------------------------------------------------------------------------
 //  R5900cpu
 // --------------------------------------------------------------------------------------
+enum class EEExecutionResult : u8
+{
+	ReachedTarget,
+	CycleBudgetExceeded,
+	Interrupted,
+};
+
 // [TODO] : This is on the list to get converted to a proper C++ class.  I'm putting it
 // off until I get my new IOPint and IOPrec re-merged. --air
 //
@@ -333,6 +340,11 @@ struct R5900cpu
 	// call to return at the nearest state check (typically handled internally using
 	// either C++ exceptions or setjmp/longjmp).
 	void (*Execute)();
+
+	// Executes from the current EE context until the next instruction would be at
+	// target_pc. The cycle budget bounds synthetic guest calls without relying on
+	// debugger breakpoints or wall-clock sleeps.
+	EEExecutionResult (*ExecuteUntil)(u32 target_pc, u64 cycle_budget);
 
 	// Immediately exits execution of recompiled code if we are in a state to do so, or
 	// queues an exit as soon as it is safe. Safe in this case refers to whether we are

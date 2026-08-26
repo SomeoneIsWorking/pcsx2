@@ -7,6 +7,8 @@ set(CMAKE_AUTOUIC ON)
 add_executable(pcsx2-qt)
 
 target_sources(pcsx2-qt PRIVATE
+	AVPE/HostWindow.cpp
+	AVPE/HostWindow.h
 	AboutDialog.cpp
 	AboutDialog.h
 	AboutDialog.ui
@@ -295,6 +297,7 @@ target_include_directories(pcsx2-qt PRIVATE
 target_link_libraries(pcsx2-qt PRIVATE
 	PCSX2_FLAGS
 	PCSX2
+	lucent::lucent
 	Qt6::Core
 	Qt6::Gui
 	Qt6::Widgets

@@ -89,6 +89,7 @@ set(pcsx2Sources
 	IopMem.cpp
 	PINE.cpp
 	AVPE/AVPE.cpp
+	AVPE/EECallShuttle.cpp
 	Mdec.cpp
 	Memory.cpp
 	MMI.cpp

@@ -7,6 +7,14 @@
 
 namespace AVPE
 {
+	void SetProductHost(bool enabled);
+	bool IsProductHost();
+
+	// Selected only by the recognized -avpe-control-test application mode.
+	void SetSurfacelessControlTest(bool enabled);
+	bool IsSurfacelessControlTest();
+	void NoteControlTestRenderWindow(bool surfaceless);
+
 	// Idempotent. Starts the loopback HTTP control server (port: env
 	// AVPE_HTTP_PORT, default 28447). Returns false only on bind failure.
 	bool Start();

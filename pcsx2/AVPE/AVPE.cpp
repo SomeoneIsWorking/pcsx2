@@ -1,6 +1,9 @@
 // AVPE control channel — see AVPE.h. Fork-local; not for upstream.
 #include "AVPE/AVPE.h"
+#include "AVPE/EECallShuttle.h"
+#include "Config.h"
 #include "Host.h"
+#include "Host/AudioStreamTypes.h"
 #include "MTGS.h"
 #include "VMManager.h"
 #include "vtlb.h"
@@ -12,16 +15,54 @@
 #include <lucent/log.h>
 #include <lucent/config.h>
 
-#include <cstring>
+#include <atomic>
 #include <chrono>
+#include <cstdlib>
+#include <cstring>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
 
-namespace AVPE {
+namespace AVPE
+{
 	static std::optional<lucent::http::Server> s_server;
 	static std::once_flag s_start_once;
+	static std::atomic_bool s_product_host{false};
+	static std::atomic_bool s_control_test_mode{false};
+	static std::atomic_bool s_control_test_surface_verified{false};
+	static std::string s_control_nonce;
+
+	void SetProductHost(bool enabled)
+	{
+		s_product_host.store(enabled, std::memory_order_release);
+		if (enabled)
+			SetSurfacelessControlTest(false);
+	}
+
+	bool IsProductHost()
+	{
+		return s_product_host.load(std::memory_order_acquire);
+	}
+
+	void SetSurfacelessControlTest(bool enabled)
+	{
+		s_control_test_mode.store(enabled, std::memory_order_release);
+		s_control_test_surface_verified.store(false, std::memory_order_release);
+		if (enabled)
+			s_product_host.store(false, std::memory_order_release);
+	}
+
+	bool IsSurfacelessControlTest()
+	{
+		return s_control_test_mode.load(std::memory_order_acquire);
+	}
+
+	void NoteControlTestRenderWindow(bool surfaceless)
+	{
+		if (IsSurfacelessControlTest())
+			s_control_test_surface_verified.store(surfaceless, std::memory_order_release);
+	}
 
 	// ---------------------------------------------------------------- utils
 
@@ -34,7 +75,8 @@ namespace AVPE {
 		{
 			const size_t amp = q.find('&', pos);
 			const std::string_view pair = q.substr(pos, (amp == std::string_view::npos) ?
-														  std::string_view::npos : amp - pos);
+															std::string_view::npos :
+															amp - pos);
 			const size_t eq = pair.find('=');
 			if (eq != std::string_view::npos && pair.substr(0, eq) == key)
 				return std::string(pair.substr(eq + 1));
@@ -55,10 +97,14 @@ namespace AVPE {
 		{
 			const char c = s[i];
 			int d;
-			if (c >= '0' && c <= '9') d = c - '0';
-			else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
-			else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
-			else return false; // any non-hex character refuses the whole value
+			if (c >= '0' && c <= '9')
+				d = c - '0';
+			else if (c >= 'a' && c <= 'f')
+				d = c - 'a' + 10;
+			else if (c >= 'A' && c <= 'F')
+				d = c - 'A' + 10;
+			else
+				return false; // any non-hex character refuses the whole value
 			v = (v << 4) | static_cast<u32>(d);
 		}
 		*out = v;
@@ -67,9 +113,12 @@ namespace AVPE {
 
 	static int hex_val(char c)
 	{
-		if (c >= '0' && c <= '9') return c - '0';
-		if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-		if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+		if (c >= '0' && c <= '9')
+			return c - '0';
+		if (c >= 'a' && c <= 'f')
+			return c - 'a' + 10;
+		if (c >= 'A' && c <= 'F')
+			return c - 'A' + 10;
 		return -1;
 	}
 
@@ -129,17 +178,34 @@ namespace AVPE {
 		std::string state = "Shutdown";
 		switch (st)
 		{
-			case VMState::Initializing: state = "Initializing"; break;
-			case VMState::Running:      state = "Running"; break;
-			case VMState::Paused:       state = "Paused"; break;
-			case VMState::Resetting:    state = "Resetting"; break;
-			case VMState::Stopping:     state = "Stopping"; break;
-			default: break;
+			case VMState::Initializing:
+				state = "Initializing";
+				break;
+			case VMState::Running:
+				state = "Running";
+				break;
+			case VMState::Paused:
+				state = "Paused";
+				break;
+			case VMState::Resetting:
+				state = "Resetting";
+				break;
+			case VMState::Stopping:
+				state = "Stopping";
+				break;
+			default:
+				break;
 		}
-		char buf[256];
+		const bool control_test = IsSurfacelessControlTest();
+		const bool surfaceless = s_control_test_surface_verified.load(std::memory_order_acquire);
+		const bool null_audio = EmuConfig.SPU2.Backend == AudioBackend::Null && EmuConfig.SPU2.OutputMuted;
+		char buf[512];
 		std::snprintf(buf, sizeof(buf),
-			R"({"vm":"%s","serial":"%s","crc":"%08X"})",
-			state.c_str(), VMManager::GetDiscSerial().c_str(), VMManager::GetDiscCRC());
+			R"({"vm":"%s","serial":"%s","crc":"%08X","host_mode":"%s","surface":"%s","audio":"%s","nonce":"%s"})",
+			state.c_str(), VMManager::GetDiscSerial().c_str(), VMManager::GetDiscCRC(),
+			control_test ? "control-test" : (IsProductHost() ? "avpe-product" : "pcsx2"),
+			surfaceless ? "surfaceless" : "unverified",
+			null_audio ? "null-muted" : "other", s_control_nonce.c_str());
 		return lucent::http::Response::json(200, "OK", buf);
 	}
 
@@ -195,7 +261,8 @@ namespace AVPE {
 			VMManager::SaveState(path->c_str(), false, false,
 				[&error](const std::string& err) { error = err; });
 			VMManager::WaitForSaveStateFlush();
-		}, true);
+		},
+			true);
 		const bool ok = error.empty();
 		lucent::info("avpe", "savestate -> {} ({})", *path, ok ? "ok" : error);
 		return lucent::http::Response::json(ok ? 200 : 500, ok ? "OK" : "Error",
@@ -211,9 +278,17 @@ namespace AVPE {
 		Error error;
 		bool ok = false;
 		Host::RunOnCPUThread([&]() { ok = VMManager::LoadState(path->c_str(), &error); }, true);
+		if (ok)
+			EECallShuttle::ResetAfterStateLoad();
 		lucent::info("avpe", "loadstate {} ({})", *path, ok ? "ok" : error.GetDescription());
 		return lucent::http::Response::json(ok ? 200 : 500, ok ? "OK" : "Error",
 			ok ? "{\"loaded\":true}" : "{\"loaded\":false}");
+	}
+
+	static lucent::http::Response handle_shutdown()
+	{
+		Host::RequestVMShutdown(false, false, false);
+		return lucent::http::Response::json(202, "Accepted", "{\"shutdown\":true}");
 	}
 
 	// Decimal unless 0x-prefixed. Bare digits MUST NOT be read as hex.
@@ -288,6 +363,57 @@ namespace AVPE {
 		return lucent::http::Response::json(200, "OK", "{\"pressed\":true}");
 	}
 
+	// POST /ee/call {"function":"0x00137b30","a0":0,"cycle_budget":3000000}
+	static lucent::http::Response handle_ee_call(const std::string& body)
+	{
+		const auto function = json_u32_field(body, "function");
+		if (!function)
+			return lucent::http::Response::text(400, "Bad Request", "need function\n");
+
+		EECallShuttle::Request request{.function = *function};
+		for (u32 i = 0; i < request.arguments.size(); ++i)
+		{
+			if (const auto argument = json_u32_field(body, "a" + std::to_string(i)))
+				request.arguments[i] = *argument;
+		}
+		if (const auto cycle_budget = json_u32_field(body, "cycle_budget"))
+			request.cycle_budget = *cycle_budget;
+
+		const EECallShuttle::Result result = EECallShuttle::Call(request);
+		if (!result.Succeeded())
+		{
+			int status = 500;
+			switch (result.status)
+			{
+				case EECallShuttle::Status::InvalidRequest:
+					status = 400;
+					break;
+				case EECallShuttle::Status::WrongGame:
+				case EECallShuttle::Status::Faulted:
+					status = 409;
+					break;
+				case EECallShuttle::Status::VMUnavailable:
+					status = 503;
+					break;
+				case EECallShuttle::Status::CycleBudgetExceeded:
+					status = 504;
+					break;
+				default:
+					break;
+			}
+			lucent::error("avpe", "EE call {:08x} failed: {}", request.function, result.error);
+			return lucent::http::Response::text(status, "EE Call Failed", std::string(result.error) + "\n");
+		}
+
+		char response[256];
+		std::snprintf(response, sizeof(response),
+			R"({"v0":"0x%016llX","v1":"0x%016llX","stopped_pc":"0x%08X","elapsed_cycles":%llu})",
+			static_cast<unsigned long long>(result.v0), static_cast<unsigned long long>(result.v1),
+			result.stopped_pc, static_cast<unsigned long long>(result.elapsed_cycles));
+		lucent::info("avpe", "EE call {:08x} returned after {} cycles", request.function, result.elapsed_cycles);
+		return lucent::http::Response::json(200, "OK", response);
+	}
+
 	// GET /mem/scan?start=0x..&end=0x..&hex=aabb — first match address or {"found":false}.
 	// Bounded: range capped at 4 MiB, pattern at 256 bytes. Scans are exact-byte.
 	static lucent::http::Response handle_mem_scan(const lucent::http::Request& req)
@@ -332,7 +458,7 @@ namespace AVPE {
 			std::snprintf(buf, sizeof(buf), "%s\"0x%08X\"", i ? "," : "", addrs[i]);
 			body += buf;
 		}
-		body += "]}";;
+		body += "]}";
 		return lucent::http::Response::json(200, "OK", body);
 	}
 
@@ -365,12 +491,15 @@ namespace AVPE {
 		std::vector<u8> bmp(file_size);
 		auto put16 = [&](size_t o, u16 v) { bmp[o] = v & 0xff; bmp[o+1] = v >> 8; };
 		auto put32 = [&](size_t o, u32 v) {
-			bmp[o] = v & 0xff; bmp[o+1] = (v>>8)&0xff; bmp[o+2] = (v>>16)&0xff; bmp[o+3] = (v>>24)&0xff;
+			bmp[o] = v & 0xff;
+			bmp[o + 1] = (v >> 8) & 0xff;
+			bmp[o + 2] = (v >> 16) & 0xff;
+			bmp[o + 3] = (v >> 24) & 0xff;
 		};
-		put16(0, 0x4D42);              // 'BM'
+		put16(0, 0x4D42); // 'BM'
 		put32(2, file_size);
 		put32(10, 54);
-		put32(14, 40);                 // BITMAPINFOHEADER
+		put32(14, 40); // BITMAPINFOHEADER
 		put32(18, width);
 		put32(22, height);
 		put16(26, 1);
@@ -383,9 +512,9 @@ namespace AVPE {
 			for (u32 x = 0; x < width; ++x)
 			{
 				const u32 px = row[x];
-				bmp[o++] = static_cast<u8>(px & 0xff);         // B
-				bmp[o++] = static_cast<u8>((px >> 8) & 0xff);   // G
-				bmp[o++] = static_cast<u8>((px >> 16) & 0xff);  // R
+				bmp[o++] = static_cast<u8>(px & 0xff); // B
+				bmp[o++] = static_cast<u8>((px >> 8) & 0xff); // G
+				bmp[o++] = static_cast<u8>((px >> 16) & 0xff); // R
 			}
 			o += row_pad;
 		}
@@ -415,19 +544,25 @@ namespace AVPE {
 			return handle_state_load(req.body);
 		if (req.method == "POST" && path == "/input/press")
 			return handle_input_press(req.body);
+		if (req.method == "POST" && path == "/ee/call")
+			return handle_ee_call(req.body);
+		if (req.method == "POST" && path == "/shutdown")
+			return handle_shutdown();
 
 		// Negative must be loud: name what was requested and what exists.
 		lucent::warn("avpe", "no route: {} {}", req.method, path);
 		return lucent::http::Response::json(404, "Not Found",
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /state/save\",\"POST /state/load\","
-			"\"POST /input/press\"]}");
+			"\"POST /input/press\",\"POST /ee/call\",\"POST /shutdown\"]}");
 	}
 
 	bool Start()
 	{
 		std::call_once(s_start_once, []() {
 			lucent::config::set_prefix("AVPE_");
+			const char* const nonce = std::getenv("AVPE_CONTROL_NONCE");
+			s_control_nonce = nonce ? nonce : "";
 			const int port = lucent::config::number("HTTP_PORT", 28447);
 			s_server.emplace(lucent::http::ServerOptions{.port = static_cast<u16>(port)}, &dispatch);
 			if (!s_server->start())
@@ -466,17 +601,17 @@ namespace AVPE {
 			13, // PAD_RIGHT
 			14, // PAD_DOWN
 			15, // PAD_LEFT
-			4,  // PAD_TRIANGLE
-			5,  // PAD_CIRCLE
-			6,  // PAD_CROSS
-			7,  // PAD_SQUARE
-			8,  // PAD_SELECT
+			4, // PAD_TRIANGLE
+			5, // PAD_CIRCLE
+			6, // PAD_CROSS
+			7, // PAD_SQUARE
+			8, // PAD_SELECT
 			11, // PAD_START
-			2,  // PAD_L1
-			0,  // PAD_L2
-			3,  // PAD_R1
-			1,  // PAD_R2
-			9,  // PAD_L3
+			2, // PAD_L1
+			0, // PAD_L2
+			3, // PAD_R1
+			1, // PAD_R2
+			9, // PAD_L3
 			10, // PAD_R3
 		};
 		u32 wire = 0;
