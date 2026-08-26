@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "AutoUpdaterDialog.h"
+#include "AVPE/AVPE.h"
 #include "Debugger/DebuggerWindow.h"
 #include "DisplayWidget.h"
 #include "GameList/GameListWidget.h"
@@ -2508,6 +2509,9 @@ int main(int argc, char* argv[])
 	// Start up the CPU thread.
 	QtHost::HookSignals();
 	EmuThread::start();
+
+	// AVPE: loopback control channel (fork-local; port from AVPE_HTTP_PORT).
+	AVPE::Start();
 
 	// Optionally run setup wizard.
 	int result;

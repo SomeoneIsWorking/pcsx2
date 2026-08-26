@@ -8,6 +8,7 @@ else()
 	add_library(PCSX2)
 endif()
 target_link_libraries(PCSX2 PRIVATE PCSX2_FLAGS)
+target_link_libraries(PCSX2 PRIVATE lucent::lucent)
 
 target_compile_features(PCSX2_FLAGS INTERFACE cxx_std_17)
 target_compile_definitions(PCSX2_FLAGS INTERFACE "${PCSX2_DEFS}")
@@ -87,6 +88,7 @@ set(pcsx2Sources
 	IopIrq.cpp
 	IopMem.cpp
 	PINE.cpp
+	AVPE/AVPE.cpp
 	Mdec.cpp
 	Memory.cpp
 	MMI.cpp

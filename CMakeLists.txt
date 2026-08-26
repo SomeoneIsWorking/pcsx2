@@ -57,6 +57,9 @@ if (WIN32)
 	add_subdirectory(updater)
 endif()
 
+# AVPE (fork-local): loopback control channel dependency
+add_subdirectory(3rdparty/lucent EXCLUDE_FROM_ALL)
+
 # tests
 if(ENABLE_TESTS)
 	add_subdirectory(3rdparty/googletest)
