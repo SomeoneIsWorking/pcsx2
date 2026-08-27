@@ -11,8 +11,6 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
 #include <limits>
 #include <mutex>
 #include <optional>
@@ -33,6 +31,7 @@ namespace AVPE::NativeAssets
 
 		std::mutex s_observation_mutex;
 		NativeAssetStore s_store;
+		NativeAssetCache s_cache;
 		u64 s_total_open_calls = 0;
 		u64 s_dropped_unique_paths = 0;
 		std::vector<OpenObservation> s_observed_paths;
@@ -40,10 +39,9 @@ namespace AVPE::NativeAssets
 		struct CdvdAsset
 		{
 			std::string guest_path;
-			std::string host_path;
+			NativeAssetStoreRecord record;
 			u32 base_lsn = 0;
 			u32 sectors = 0;
-			u32 size = 0;
 		};
 		std::vector<CdvdAsset> s_cdvd_assets;
 		u32 s_next_cdvd_lsn = kNativeCdvdLsnBegin;
@@ -175,8 +173,7 @@ namespace AVPE::NativeAssets
 				return {.disposition = OpenDisposition::RefusedInvalidStore};
 			return {
 				.disposition = OpenDisposition::NativeFile,
-				.host_path = result.record.path.string(),
-				.size = result.record.size,
+				.record = result.record,
 			};
 		}
 
@@ -245,7 +242,7 @@ namespace AVPE::NativeAssets
 			return {.disposition = file.disposition};
 		}
 
-		const u64 size = file.size;
+		const u64 size = file.record.size;
 		if (size == 0 || size > std::numeric_limits<u32>::max())
 		{
 			NoteRefusal(guest_path);
@@ -262,7 +259,7 @@ namespace AVPE::NativeAssets
 				resolution = {
 					.disposition = OpenDisposition::NativeFile,
 					.lsn = existing->base_lsn,
-					.size = existing->size,
+					.size = static_cast<u32>(existing->record.size),
 				};
 			}
 			else
@@ -276,10 +273,9 @@ namespace AVPE::NativeAssets
 				s_next_cdvd_lsn += sectors;
 				s_cdvd_assets.push_back({
 					.guest_path = guest_path,
-					.host_path = file.host_path,
+					.record = file.record,
 					.base_lsn = base_lsn,
 					.sectors = sectors,
-					.size = static_cast<u32>(size),
 				});
 				resolution = {
 					.disposition = OpenDisposition::NativeFile,
@@ -317,10 +313,12 @@ namespace AVPE::NativeAssets
 		const size_t byte_count = static_cast<size_t>(sectors) * kCdvdSectorSize;
 		std::vector<u8> bytes(byte_count, 0);
 		const u64 offset = static_cast<u64>(lsn - asset->base_lsn) * kCdvdSectorSize;
-		const size_t available = offset >= asset->size ? 0 : static_cast<size_t>(std::min<u64>(byte_count, asset->size - offset));
-		std::ifstream input(asset->host_path, std::ios::binary);
-		if (!input || (available != 0 && (!input.seekg(static_cast<std::streamoff>(offset)) ||
-											 !input.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(available)))))
+		const size_t available = offset >= asset->record.size ?
+		                             0 :
+		                             static_cast<size_t>(std::min<u64>(byte_count, asset->record.size - offset));
+		const ReadResult read = Read(asset->record, offset, std::span<u8>(bytes.data(), available));
+		if (available != 0 &&
+			(read.disposition != ReadDisposition::Complete || read.bytes_read != available))
 		{
 			NoteNativeRead(asset->guest_path, static_cast<u32>(byte_count), -1);
 			return {.disposition = CdvdDisposition::Failed};
@@ -328,6 +326,113 @@ namespace AVPE::NativeAssets
 		NativeAssetByteTrace::RecordNativeCdvdBytes(asset->guest_path, offset, bytes.data(), bytes.size());
 		NoteNativeRead(asset->guest_path, static_cast<u32>(byte_count), static_cast<s32>(byte_count));
 		return {.disposition = CdvdDisposition::Complete, .bytes = std::move(bytes)};
+	}
+
+	ReadResult Read(const NativeAssetStoreRecord& record, const u64 offset, const std::span<u8> destination)
+	{
+		const NativeAssetStoreResult validation = s_store.Validate(record);
+		if (validation.disposition != NativeAssetStoreDisposition::Found)
+		{
+			s_cache.Unbind();
+			return {.error = validation.error};
+		}
+		return s_cache.ReadAt(validation.record, offset, destination);
+	}
+
+	OpenResolution ResolveSavedFile(const std::string_view path)
+	{
+		const ParsedPath parsed = ParseSupportedPath(path);
+		if (!IsTargetRecognized() || !parsed.supported_namespace || !parsed.relative)
+			return {.disposition = OpenDisposition::RefusedInvalidStore};
+		return ResolveStoreFile(path, false);
+	}
+
+	std::vector<CdvdMappingState> GetCdvdMappingState()
+	{
+		std::lock_guard lock(s_cdvd_mutex);
+		std::vector<CdvdMappingState> result;
+		result.reserve(s_cdvd_assets.size());
+		for (const CdvdAsset& asset : s_cdvd_assets)
+		{
+			result.push_back({
+				.guest_path = asset.guest_path,
+				.base_lsn = asset.base_lsn,
+				.size = asset.record.size,
+				.sha256 = asset.record.sha256,
+			});
+		}
+		return result;
+	}
+
+	bool RestoreCdvdMappingState(const std::vector<CdvdMappingState>& mappings, const u32 next_lsn)
+	{
+		std::vector<CdvdAsset> restored;
+		restored.reserve(mappings.size());
+		u32 minimum_next_lsn = kNativeCdvdLsnBegin;
+		for (const CdvdMappingState& mapping : mappings)
+		{
+			const OpenResolution resolution = ResolveSavedFile(mapping.guest_path);
+			if (resolution.disposition != OpenDisposition::NativeFile || resolution.record.size != mapping.size ||
+				resolution.record.sha256 != mapping.sha256 || mapping.size == 0 ||
+				mapping.size > std::numeric_limits<u32>::max())
+			{
+				return false;
+			}
+			const u32 sectors = static_cast<u32>((mapping.size + kCdvdSectorSize - 1) / kCdvdSectorSize);
+			const u64 mapping_end = static_cast<u64>(mapping.base_lsn) + sectors;
+			if (mapping.base_lsn < kNativeCdvdLsnBegin || mapping_end > kNativeCdvdLsnEnd)
+				return false;
+			const bool overlaps = std::any_of(restored.begin(), restored.end(), [&mapping, mapping_end](const CdvdAsset& asset) {
+				const u64 asset_end = static_cast<u64>(asset.base_lsn) + asset.sectors;
+				return mapping.base_lsn < asset_end && asset.base_lsn < mapping_end;
+			});
+			if (overlaps)
+				return false;
+			restored.push_back({
+				.guest_path = mapping.guest_path,
+				.record = resolution.record,
+				.base_lsn = mapping.base_lsn,
+				.sectors = sectors,
+			});
+			minimum_next_lsn = std::max(minimum_next_lsn, static_cast<u32>(mapping_end));
+		}
+		if (next_lsn < minimum_next_lsn || next_lsn > kNativeCdvdLsnEnd)
+			return false;
+
+		std::lock_guard lock(s_cdvd_mutex);
+		s_cdvd_assets = std::move(restored);
+		s_next_cdvd_lsn = next_lsn;
+		return true;
+	}
+
+	u32 GetNextCdvdLsn()
+	{
+		std::lock_guard lock(s_cdvd_mutex);
+		return s_next_cdvd_lsn;
+	}
+
+	CacheSnapshot GetCacheSnapshot()
+	{
+		return s_cache.Snapshot();
+	}
+
+	void DropCache()
+	{
+		s_cache.DropPages();
+	}
+
+	void ResetGuestState()
+	{
+		std::lock_guard lock(s_cdvd_mutex);
+		s_cdvd_assets.clear();
+		s_next_cdvd_lsn = kNativeCdvdLsnBegin;
+	}
+
+	void UnbindStore()
+	{
+		ResetGuestState();
+		s_cache.Unbind();
+		s_store.Unbind();
 	}
 
 	void NoteOriginalFallback(const std::string_view path)
@@ -395,11 +500,6 @@ namespace AVPE::NativeAssets
 			s_total_open_calls = 0;
 			s_dropped_unique_paths = 0;
 			s_observed_paths.clear();
-		}
-		{
-			std::lock_guard lock(s_cdvd_mutex);
-			s_cdvd_assets.clear();
-			s_next_cdvd_lsn = kNativeCdvdLsnBegin;
 		}
 	}
 } // namespace AVPE::NativeAssets

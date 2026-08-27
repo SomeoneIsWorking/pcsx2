@@ -71,11 +71,11 @@ namespace R3000A
 	namespace ioman
 	{
 		void reset();
+		void closeNativeAssetHandles();
 		bool is_host(const std::string_view path);
 		std::string host_path(const std::string_view path, bool allow_open_host_root);
-	}
+	} // namespace ioman
 } // namespace R3000A
 
 extern void Hle_SetHostRoot(const char* bootFilename);
 extern void Hle_ClearHostRoot();
-

@@ -4,6 +4,8 @@
 #include "R3000A.h"
 #include "Common.h"
 
+#include "AVPE/NativeAssets.h"
+
 #include "SIO/Sio0.h"
 #include "Sif.h"
 #include "DebugTools/Breakpoints.h"
@@ -50,6 +52,7 @@ void psxReset()
 	psxHwReset();
 	PSXCLK = 36864000;
 	ioman::reset();
+	AVPE::NativeAssets::ResetGuestState();
 	psxBiosReset();
 }
 

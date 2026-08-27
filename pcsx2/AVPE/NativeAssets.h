@@ -2,8 +2,11 @@
 
 #pragma once
 
+#include "AVPE/NativeAssetCache.h"
+#include "AVPE/NativeAssetStore.h"
 #include "common/Pcsx2Types.h"
 
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -22,9 +25,12 @@ namespace AVPE::NativeAssets
 	struct OpenResolution
 	{
 		OpenDisposition disposition = OpenDisposition::Unhandled;
-		std::string host_path;
-		u64 size = 0;
+		NativeAssetStoreRecord record;
 	};
+
+	using ReadDisposition = NativeAssetCacheReadDisposition;
+	using ReadResult = NativeAssetCacheReadResult;
+	using CacheSnapshot = NativeAssetCacheSnapshot;
 
 	enum class CdvdDisposition : u8
 	{
@@ -44,6 +50,14 @@ namespace AVPE::NativeAssets
 	{
 		CdvdDisposition disposition = CdvdDisposition::Unhandled;
 		std::vector<u8> bytes;
+	};
+
+	struct CdvdMappingState
+	{
+		std::string guest_path;
+		u32 base_lsn = 0;
+		u64 size = 0;
+		std::string sha256;
 	};
 
 	struct OpenObservation
@@ -75,6 +89,15 @@ namespace AVPE::NativeAssets
 	CdvdSearchResolution ResolveCdvdSearch(std::string_view path);
 	CdvdDisposition ResolveCdvdSeek(u32 lsn);
 	CdvdReadResolution ReadCdvdSectors(u32 lsn, u32 sectors);
+	ReadResult Read(const NativeAssetStoreRecord& record, u64 offset, std::span<u8> destination);
+	OpenResolution ResolveSavedFile(std::string_view path);
+	std::vector<CdvdMappingState> GetCdvdMappingState();
+	bool RestoreCdvdMappingState(const std::vector<CdvdMappingState>& mappings, u32 next_lsn);
+	u32 GetNextCdvdLsn();
+	CacheSnapshot GetCacheSnapshot();
+	void DropCache();
+	void ResetGuestState();
+	void UnbindStore();
 	void NoteOriginalFallback(std::string_view path);
 	void NoteCdvdOriginalFallback(std::string_view path);
 	void NoteNativeOpen(std::string_view path);

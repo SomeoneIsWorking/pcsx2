@@ -93,6 +93,8 @@ set(pcsx2Sources
 	AVPE/EECallShuttle.cpp
 	AVPE/GuestObjects.cpp
 	AVPE/NativeAssetByteTrace.cpp
+	AVPE/NativeAssetCache.cpp
+	AVPE/NativeAssetFile.cpp
 	AVPE/NativeAssetStore.cpp
 	AVPE/NativeAssets.cpp
 	AVPE/NativeLoadTiming.cpp
