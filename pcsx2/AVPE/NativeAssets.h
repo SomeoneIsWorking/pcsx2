@@ -51,6 +51,7 @@ namespace AVPE::NativeAssets
 		u32 flags = 0;
 		u32 count = 0;
 		u32 native_open_count = 0;
+		u32 original_fallback_count = 0;
 		u32 refused_count = 0;
 		u32 read_calls = 0;
 		u64 bytes_read = 0;
@@ -73,6 +74,8 @@ namespace AVPE::NativeAssets
 	CdvdSearchResolution ResolveCdvdSearch(std::string_view path);
 	CdvdDisposition ResolveCdvdSeek(u32 lsn);
 	CdvdReadResolution ReadCdvdSectors(u32 lsn, u32 sectors);
+	void NoteOriginalFallback(std::string_view path);
+	void NoteCdvdOriginalFallback(std::string_view path);
 	void NoteNativeOpen(std::string_view path);
 	void NoteNativeRead(std::string_view path, u32 bytes_requested, s32 result);
 	void NoteNativeSeek(std::string_view path);

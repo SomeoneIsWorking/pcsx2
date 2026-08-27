@@ -673,6 +673,7 @@ namespace R3000A
 				return 1;
 			}
 
+			AVPE::NativeAssets::NoteOriginalFallback(path);
 			return 0;
 		}
 
@@ -1024,7 +1025,10 @@ namespace R3000A
 			const AVPE::NativeAssets::CdvdSearchResolution resolution =
 				AVPE::NativeAssets::ResolveCdvdSearch(path);
 			if (resolution.disposition == AVPE::NativeAssets::OpenDisposition::Unhandled)
+			{
+				AVPE::NativeAssets::NoteCdvdOriginalFallback(path);
 				return 0;
+			}
 
 			v0 = 0;
 			if (resolution.disposition == AVPE::NativeAssets::OpenDisposition::NativeFile)
