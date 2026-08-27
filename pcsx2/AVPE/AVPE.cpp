@@ -1,6 +1,7 @@
 // AVPE control channel — see AVPE.h. Fork-local; not for upstream.
 #include "AVPE/AVPE.h"
 #include "AVPE/EECallShuttle.h"
+#include "AVPE/NativeAssets.h"
 #include "AVPE/NativeInput.h"
 #include "AVPE/NativeMenuInput.h"
 #include "Config.h"
@@ -40,6 +41,7 @@ namespace AVPE
 	{
 		s_control_test_mode.store(enabled, std::memory_order_release);
 		s_control_test_surface_verified.store(false, std::memory_order_release);
+		NativeAssets::ResetObservation();
 	}
 
 	bool IsSurfacelessControlTest()
@@ -138,6 +140,53 @@ namespace AVPE
 			s.push_back(d[data[i] & 0xf]);
 		}
 		return s;
+	}
+
+	static std::string json_escape(const std::string_view value)
+	{
+		static constexpr char hex[] = "0123456789abcdef";
+		std::string escaped;
+		escaped.reserve(value.size());
+		for (const char character : value)
+		{
+			switch (character)
+			{
+				case '"':
+					escaped += "\\\"";
+					break;
+				case '\\':
+					escaped += "\\\\";
+					break;
+				case '\b':
+					escaped += "\\b";
+					break;
+				case '\f':
+					escaped += "\\f";
+					break;
+				case '\n':
+					escaped += "\\n";
+					break;
+				case '\r':
+					escaped += "\\r";
+					break;
+				case '\t':
+					escaped += "\\t";
+					break;
+				default:
+					if (static_cast<unsigned char>(character) < 0x20)
+					{
+						escaped += "\\u00";
+						escaped.push_back(hex[(character >> 4) & 0xf]);
+						escaped.push_back(hex[character & 0xf]);
+					}
+					else
+					{
+						escaped.push_back(character);
+					}
+					break;
+			}
+		}
+		return escaped;
 	}
 
 	// Minimal JSON string-field extractor: finds "key":"value" (no escapes).
@@ -766,6 +815,29 @@ namespace AVPE
 		return lucent::http::Response::json(200, "OK", buf);
 	}
 
+	static lucent::http::Response handle_asset_opens()
+	{
+		const NativeAssets::ObservationSnapshot snapshot = NativeAssets::GetObservationSnapshot();
+		std::string body = "{\"enabled\":";
+		body += snapshot.enabled ? "true" : "false";
+		body += ",\"target_recognized\":";
+		body += snapshot.target_recognized ? "true" : "false";
+		body += ",\"total_open_calls\":" + std::to_string(snapshot.total_open_calls);
+		body += ",\"dropped_unique_paths\":" + std::to_string(snapshot.dropped_unique_paths);
+		body += ",\"paths\":[";
+		for (size_t index = 0; index < snapshot.paths.size(); ++index)
+		{
+			const NativeAssets::OpenObservation& observation = snapshot.paths[index];
+			if (index != 0)
+				body += ',';
+			body += "{\"path\":\"" + json_escape(observation.path) + "\",\"flags\":";
+			body += std::to_string(observation.flags);
+			body += ",\"count\":" + std::to_string(observation.count) + '}';
+		}
+		body += "]}";
+		return lucent::http::Response::json(200, "OK", body);
+	}
+
 	// GET /snap — current frame as BMP (24-bit), so tooling can SEE the game.
 	static lucent::http::Response handle_snap()
 	{
@@ -827,6 +899,8 @@ namespace AVPE
 			return handle_mem_scan(req);
 		if (req.method == "GET" && path == "/debug")
 			return handle_debug();
+		if (req.method == "GET" && path == "/assets/opens")
+			return handle_asset_opens();
 		if (req.method == "GET" && path == "/ee/deferred")
 			return handle_ee_deferred();
 		if (req.method == "GET" && path == "/input/menu")
@@ -862,6 +936,7 @@ namespace AVPE
 		lucent::warn("avpe", "no route: {} {}", req.method, path);
 		return lucent::http::Response::json(404, "Not Found",
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
+			"\"GET /assets/opens\","
 			"\"GET /ee/deferred\","
 			"\"GET /input/menu\",\"GET /input/menu-pointer\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /state/save\",\"POST /state/load\","

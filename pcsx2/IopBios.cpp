@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
+#include "AVPE/NativeAssets.h"
 #include "DebugTools/SymbolGuardian.h"
 #include "IopBios.h"
 #include "IopMem.h"
@@ -590,6 +591,7 @@ namespace R3000A
 			const std::string path = clean_path(Ra0);
 			s32 flags = a1;
 			u16 mode = a2;
+			AVPE::NativeAssets::ObserveIomanOpen(path, static_cast<u32>(flags));
 
 			if (is_host(path))
 			{
