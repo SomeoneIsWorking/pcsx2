@@ -901,21 +901,21 @@ namespace R3000A
 
 			if (IOManFile* file = getfd<IOManFile>(fd))
 			{
-				auto buf = std::make_unique<char[]>(count);
+				std::vector<char> buf(count, 0);
 
-				v0 = file->read(buf.get(), count);
+				const s32 result = file->read(buf.data(), count);
+				v0 = result;
 				const fileHandle* const handle = findFileHandle(fd);
 				if (handle && handle->native_asset)
-					AVPE::NativeAssets::NoteNativeRead(handle->full_path, count, static_cast<s32>(v0));
+					AVPE::NativeAssets::NoteNativeRead(handle->full_path, count, result);
 
-				[[likely]]
-				if (v0 >= 0 && iopMemSafeWriteBytes(data, buf.get(), v0))
+				if (result > 0 && iopMemSafeWriteBytes(data, buf.data(), static_cast<u32>(result)))
 				{
-					psxCpu->Clear(data, (v0 + 3) / 4);
+					psxCpu->Clear(data, (static_cast<u32>(result) + 3) / 4);
 				}
-				else
+				else if (result > 0)
 				{
-					for (s32 i = 0; i < static_cast<s32>(v0); i++)
+					for (s32 i = 0; i < result; i++)
 						iopMemWrite8(data + i, buf[i]);
 				}
 
@@ -979,6 +979,72 @@ namespace R3000A
 			return 0;
 		}
 	} // namespace ioman
+
+	namespace cdvdman
+	{
+		struct CdvdFile
+		{
+			u32 lsn;
+			u32 size;
+			char name[16];
+			u8 date[8];
+		};
+		static_assert(sizeof(CdvdFile) == 32);
+
+		int read_HLE()
+		{
+			AVPE::NativeAssets::CdvdReadResolution resolution = AVPE::NativeAssets::ReadCdvdSectors(a0, a1);
+			if (resolution.disposition == AVPE::NativeAssets::CdvdDisposition::Unhandled)
+				return 0;
+
+			v0 = 0;
+			if (resolution.disposition == AVPE::NativeAssets::CdvdDisposition::Complete &&
+				iopMemSafeWriteBytes(a2, resolution.bytes.data(), static_cast<u32>(resolution.bytes.size())))
+			{
+				psxCpu->Clear(a2, static_cast<u32>((resolution.bytes.size() + 3) / 4));
+				v0 = 1;
+			}
+			pc = ra;
+			return 1;
+		}
+
+		int seek_HLE()
+		{
+			const AVPE::NativeAssets::CdvdDisposition disposition = AVPE::NativeAssets::ResolveCdvdSeek(a0);
+			if (disposition == AVPE::NativeAssets::CdvdDisposition::Unhandled)
+				return 0;
+			v0 = disposition == AVPE::NativeAssets::CdvdDisposition::Complete ? 1 : 0;
+			pc = ra;
+			return 1;
+		}
+
+		int searchFile_HLE()
+		{
+			const std::string path = Ra1;
+			const AVPE::NativeAssets::CdvdSearchResolution resolution =
+				AVPE::NativeAssets::ResolveCdvdSearch(path);
+			if (resolution.disposition == AVPE::NativeAssets::OpenDisposition::Unhandled)
+				return 0;
+
+			v0 = 0;
+			if (resolution.disposition == AVPE::NativeAssets::OpenDisposition::NativeFile)
+			{
+				CdvdFile file = {.lsn = resolution.lsn, .size = resolution.size};
+				const size_t name_start = path.find_last_of("/\\");
+				std::string name = path.substr(name_start == std::string::npos ? 0 : name_start + 1);
+				if (name.ends_with(";1"))
+					name.resize(name.size() - 2);
+				StringUtil::Strlcpy(file.name, name, sizeof(file.name));
+				if (iopMemSafeWriteBytes(a0, &file, sizeof(file)))
+				{
+					psxCpu->Clear(a0, sizeof(file) / 4);
+					v0 = 1;
+				}
+			}
+			pc = ra;
+			return 1;
+		}
+	} // namespace cdvdman
 
 	namespace sysmem
 	{
@@ -1407,6 +1473,11 @@ namespace R3000A
 		END_MODULE
 		MODULE(sysmem)
 			EXPORT_H( 14, Kprintf)
+		END_MODULE
+		MODULE(cdvdman)
+			EXPORT_H(  6, read)
+			EXPORT_H(  7, seek)
+			EXPORT_H( 10, searchFile)
 		END_MODULE
 
 		// Special case with ioman and iomanX
