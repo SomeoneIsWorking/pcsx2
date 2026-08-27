@@ -849,6 +849,23 @@ namespace AVPE
 		return lucent::http::Response::json(200, "OK", body);
 	}
 
+	static lucent::http::Response handle_asset_cache()
+	{
+		const NativeAssets::CacheSnapshot snapshot = NativeAssets::GetCacheSnapshot();
+		std::string body = "{\"page_bytes\":" + std::to_string(NativeAssetCache::PageBytes);
+		body += ",\"maximum_pages\":" + std::to_string(NativeAssetCache::MaximumPages);
+		body += ",\"maximum_resident_bytes\":" + std::to_string(NativeAssetCache::MaximumResidentBytes);
+		body += ",\"hits\":" + std::to_string(snapshot.hits);
+		body += ",\"misses\":" + std::to_string(snapshot.misses);
+		body += ",\"fills\":" + std::to_string(snapshot.fills);
+		body += ",\"evictions\":" + std::to_string(snapshot.evictions);
+		body += ",\"resident_pages\":" + std::to_string(snapshot.resident_pages);
+		body += ",\"resident_bytes\":" + std::to_string(snapshot.resident_bytes);
+		body += ",\"transient_handles\":" + std::to_string(snapshot.transient_handles);
+		body += ",\"peak_transient_handles\":" + std::to_string(snapshot.peak_transient_handles) + '}';
+		return lucent::http::Response::json(200, "OK", body);
+	}
+
 	static lucent::http::Response handle_asset_resolve(const std::string& body)
 	{
 		const std::optional<std::string> path = json_string_field(body, "path");
@@ -951,6 +968,8 @@ namespace AVPE
 			return handle_debug();
 		if (req.method == "GET" && path == "/assets/opens")
 			return handle_asset_opens();
+		if (req.method == "GET" && path == "/assets/cache")
+			return handle_asset_cache();
 		if (req.method == "GET" && path == "/assets/byte-trace")
 			return lucent::http::Response::json(200, "OK", NativeAssetByteTrace::SnapshotJson());
 		if (req.method == "GET" && path == "/assets/load-timing")
@@ -994,7 +1013,7 @@ namespace AVPE
 		lucent::warn("avpe", "no route: {} {}", req.method, path);
 		return lucent::http::Response::json(404, "Not Found",
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
-			"\"GET /assets/opens\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\","
+			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\","
 			"\"GET /ee/deferred\","
 			"\"GET /input/menu\",\"GET /input/menu-pointer\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /assets/resolve\","

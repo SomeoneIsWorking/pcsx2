@@ -4,6 +4,7 @@
 #include "Common.h"
 #include "AVPE/NativeAssets.h"
 #include "AVPE/NativeAssetByteTrace.h"
+#include "AVPE/NativeAssetFile.h"
 #include "AVPE/NativeLoadTiming.h"
 #include "DebugTools/SymbolGuardian.h"
 #include "IopBios.h"
@@ -415,11 +416,11 @@ namespace R3000A
 
 	struct fileHandle
 	{
-		u32 fd_index;
+		u32 fd_index = 0;
 		std::string full_path;
-		s32 flags;
-		u16 mode;
-		bool native_asset;
+		s32 flags = 0;
+		u16 mode = 0;
+		bool native_asset = false;
 	};
 
 	std::vector<fileHandle> handles;
@@ -445,7 +446,7 @@ namespace R3000A
 
 		struct filedesc
 		{
-			enum
+			enum : u8
 			{
 				FILE_FREE,
 				FILE_FILE,
@@ -528,6 +529,18 @@ namespace R3000A
 			return -IOP_EMFILE;
 		}
 
+		template <typename T>
+		int allocfdAt(T* const obj, const u32 fd_index)
+		{
+			if (fd_index >= maxfds || fds[fd_index])
+			{
+				obj->close();
+				return -IOP_EIO;
+			}
+			fds[fd_index] = obj;
+			return firstfd + static_cast<int>(fd_index);
+		}
+
 		void freefd(int fd)
 		{
 			fd -= firstfd;
@@ -546,6 +559,23 @@ namespace R3000A
 					fds[i].close();
 			}
 			handles.clear();
+		}
+
+		void closeNativeAssetHandles()
+		{
+			for (auto handle = handles.begin(); handle != handles.end();)
+			{
+				if (!handle->native_asset)
+				{
+					++handle;
+					continue;
+				}
+
+				const std::string path = handle->full_path;
+				freefd(static_cast<int>(handle->fd_index) + firstfd);
+				handle = handles.erase(handle);
+				AVPE::NativeAssets::NoteNativeClose(path);
+			}
 		}
 
 		bool is_host(const std::string_view path)
@@ -640,9 +670,8 @@ namespace R3000A
 					return 1;
 				}
 
-				int err = native_file ?
-				              HostFile::openNative(&file, native_asset.host_path, flags, mode) :
-				              HostFile::open(&file, path, flags, mode);
+				int err = native_file ? AVPE::NativeAssetFile::Open(&file, native_asset.record) :
+				                        HostFile::open(&file, path, flags, mode);
 
 				if (err != 0 || !file)
 				{
@@ -655,9 +684,7 @@ namespace R3000A
 				else
 				{
 					v0 = allocfd(file);
-					if ((s32)v0 < 0)
-						file->close();
-					else
+					if ((s32)v0 >= 0)
 					{
 						fileHandle handle;
 						handle.fd_index = v0 - firstfd;
@@ -810,7 +837,7 @@ namespace R3000A
 				const std::string full_path = host_path(path.substr(path.find(':') + 1), true);
 				if (iomanx)
 				{
-					char buf[sizeof(fxio_stat_t)];
+					char buf[sizeof(fxio_stat_t)] = {};
 					v0 = host_stat(full_path, (fxio_stat_t*)&buf);
 
 					for (size_t i = 0; i < sizeof(fxio_stat_t); i++)
@@ -818,7 +845,7 @@ namespace R3000A
 				}
 				else
 				{
-					char buf[sizeof(fio_stat_t)];
+					char buf[sizeof(fio_stat_t)] = {};
 					v0 = host_stat(full_path, (fio_stat_t*)&buf);
 
 					for (size_t i = 0; i < sizeof(fio_stat_t); i++)
@@ -1593,56 +1620,200 @@ bool SaveStateBase::handleFreeze()
 	if (!FreezeTag("hostHandles"))
 		return false;
 
-	if (EmuConfig.HostFs && IsLoading())
-		R3000A::ioman::reset();
-
 	const int firstfd = R3000A::ioman::firstfd;
-	size_t handleCount = EmuConfig.HostFs ? R3000A::handles.size() : 0;
-	Freeze(handleCount);
-
-	if (!EmuConfig.HostFs) //if hostfs isn't enabled, skip loading/saving file handles
-		return IsOkay();
-
-	for (size_t i = 0; i < handleCount; i++)
+	if (GetVersion() == 0)
 	{
-		if (IsLoading())
+		if (EmuConfig.HostFs && IsLoading())
+			R3000A::ioman::reset();
+
+		size_t handle_count = EmuConfig.HostFs ? R3000A::handles.size() : 0;
+		Freeze(handle_count);
+		if (!EmuConfig.HostFs)
+			return IsOkay();
+
+		for (size_t i = 0; i < handle_count; i++)
 		{
-			//load the parameters for opening the file
-			s32 pos;
-			Freeze(pos);
+			if (IsLoading())
+			{
+				s32 pos;
+				Freeze(pos);
 
-			R3000A::fileHandle handle;
-			Freeze(handle.flags);
-			FreezeString(handle.full_path);
-			Freeze(handle.mode);
-			R3000A::handles.push_back(handle);
+				R3000A::fileHandle handle;
+				Freeze(handle.flags);
+				FreezeString(handle.full_path);
+				Freeze(handle.mode);
+				R3000A::handles.push_back(handle);
 
-			//reopen the file
-			IOManFile* file = NULL;
+				IOManFile* file = nullptr;
+				R3000A::HostFile::open(&file, handle.full_path, handle.flags, handle.mode);
+				if (!file)
+				{
+					Console.Warning("Failed to open file: '%s'", handle.full_path.c_str());
+					continue;
+				}
+				R3000A::handles[i].fd_index = R3000A::ioman::allocfd(file) - firstfd;
+				file->lseek(pos, SEEK_SET);
+			}
+			else
+			{
+				const u32 fd = R3000A::handles[i].fd_index;
+				IOManFile* file = R3000A::ioman::getfd<IOManFile>(fd + firstfd);
+				s32 pos = file ? file->lseek(0, SEEK_CUR) : 0;
+				Freeze(pos);
+				Freeze(R3000A::handles[i].flags);
+				FreezeString(R3000A::handles[i].full_path);
+				Freeze(R3000A::handles[i].mode);
+			}
+		}
+		return IsOkay();
+	}
+
+	if (IsLoading())
+	{
+		R3000A::ioman::reset();
+		AVPE::NativeAssets::ResetGuestState();
+	}
+
+	std::vector<R3000A::fileHandle*> saved_handles;
+	if (IsSaving())
+	{
+		for (R3000A::fileHandle& handle : R3000A::handles)
+		{
+			if (handle.native_asset || EmuConfig.HostFs)
+				saved_handles.push_back(&handle);
+		}
+	}
+
+	u32 handle_count = static_cast<u32>(saved_handles.size());
+	Freeze(handle_count);
+	if (handle_count > R3000A::ioman::maxfds)
+	{
+		Console.Error("Savestate contains too many HLE file handles");
+		m_error = true;
+		return false;
+	}
+
+	for (u32 i = 0; i < handle_count; ++i)
+	{
+		R3000A::fileHandle loaded_handle;
+		R3000A::fileHandle& handle = IsSaving() ? *saved_handles[i] : loaded_handle;
+		IOManFile* file = IsSaving() ? R3000A::ioman::getfd<IOManFile>(handle.fd_index + firstfd) : nullptr;
+		s32 position = IsSaving() && file ? file->lseek(0, SEEK_CUR) : 0;
+		u8 native_asset = handle.native_asset ? 1 : 0;
+		Freeze(handle.fd_index);
+		Freeze(position);
+		Freeze(native_asset);
+		Freeze(handle.flags);
+		FreezeString(handle.full_path);
+		Freeze(handle.mode);
+		handle.native_asset = native_asset != 0;
+
+		u64 admitted_size = 0;
+		std::string admitted_sha256;
+		AVPE::NativeAssets::OpenResolution native_resolution;
+		if (handle.native_asset)
+		{
+			if (IsSaving())
+			{
+				native_resolution = AVPE::NativeAssets::ResolveSavedFile(handle.full_path);
+				if (native_resolution.disposition == AVPE::NativeAssets::OpenDisposition::NativeFile)
+				{
+					admitted_size = native_resolution.record.size;
+					admitted_sha256 = native_resolution.record.sha256;
+				}
+			}
+			Freeze(admitted_size);
+			FreezeString(admitted_sha256);
+		}
+
+		if (IsSaving())
+		{
+			if (!file || position < 0 ||
+				(handle.native_asset && native_resolution.disposition != AVPE::NativeAssets::OpenDisposition::NativeFile))
+			{
+				Console.Error("Cannot save invalid HLE file handle: '%s'", handle.full_path.c_str());
+				m_error = true;
+				return false;
+			}
+			continue;
+		}
+
+		if (handle.native_asset)
+		{
+			native_resolution = AVPE::NativeAssets::ResolveSavedFile(handle.full_path);
+			if (native_resolution.disposition != AVPE::NativeAssets::OpenDisposition::NativeFile ||
+				native_resolution.record.size != admitted_size || native_resolution.record.sha256 != admitted_sha256 ||
+				AVPE::NativeAssetFile::Open(&file, native_resolution.record) != 0)
+			{
+				Console.Error("Cannot restore native asset handle: '%s'", handle.full_path.c_str());
+				m_error = true;
+				break;
+			}
+		}
+		else if (EmuConfig.HostFs)
+		{
 			R3000A::HostFile::open(&file, handle.full_path, handle.flags, handle.mode);
 			if (!file)
 			{
-				Console.Warning("Failed to open file: '%s'", handle.full_path.c_str());
-				continue;
+				Console.Error("Cannot restore host file handle: '%s'", handle.full_path.c_str());
+				m_error = true;
+				break;
 			}
-			R3000A::handles[i].fd_index = R3000A::ioman::allocfd(file) - firstfd;
-
-			//seek file to position when saved
-			file->lseek(pos, SEEK_SET);
 		}
 		else
 		{
-			//save the current file position
-			const u32 fd = R3000A::handles[i].fd_index;
-			IOManFile* file = R3000A::ioman::getfd<IOManFile>(fd + firstfd);
-			s32 pos = file ? file->lseek(0, SEEK_CUR) : 0;
-			Freeze(pos);
-
-			//save the parameters for opening the file
-			Freeze(R3000A::handles[i].flags);
-			FreezeString(R3000A::handles[i].full_path);
-			Freeze(R3000A::handles[i].mode);
+			continue;
 		}
+
+		if (R3000A::ioman::allocfdAt(file, handle.fd_index) < 0 || file->lseek(position, SEEK_SET) != position)
+		{
+			Console.Error("Cannot restore HLE descriptor %u", handle.fd_index + firstfd);
+			m_error = true;
+			break;
+		}
+		R3000A::handles.push_back(std::move(handle));
+	}
+
+	if (m_error)
+	{
+		if (IsLoading())
+		{
+			R3000A::ioman::reset();
+			AVPE::NativeAssets::ResetGuestState();
+		}
+		return false;
+	}
+
+	if (!FreezeTag("nativeCdvd"))
+		return false;
+	std::vector<AVPE::NativeAssets::CdvdMappingState> mappings =
+		IsSaving() ? AVPE::NativeAssets::GetCdvdMappingState() : std::vector<AVPE::NativeAssets::CdvdMappingState>();
+	u32 mapping_count = static_cast<u32>(mappings.size());
+	u32 next_lsn = IsSaving() ? AVPE::NativeAssets::GetNextCdvdLsn() : 0;
+	Freeze(mapping_count);
+	Freeze(next_lsn);
+	if (mapping_count > 4096)
+	{
+		Console.Error("Savestate contains too many native CDVD mappings");
+		m_error = true;
+		return false;
+	}
+	if (IsLoading())
+		mappings.resize(mapping_count);
+	for (AVPE::NativeAssets::CdvdMappingState& mapping : mappings)
+	{
+		FreezeString(mapping.guest_path);
+		Freeze(mapping.base_lsn);
+		Freeze(mapping.size);
+		FreezeString(mapping.sha256);
+	}
+	if (IsLoading() && !AVPE::NativeAssets::RestoreCdvdMappingState(mappings, next_lsn))
+	{
+		Console.Error("Cannot restore native CDVD mappings");
+		R3000A::ioman::reset();
+		AVPE::NativeAssets::ResetGuestState();
+		m_error = true;
+		return false;
 	}
 	return IsOkay();
 }

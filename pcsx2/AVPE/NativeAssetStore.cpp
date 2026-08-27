@@ -180,6 +180,7 @@ namespace AVPE
 		std::string manifest_sha256;
 		std::uint64_t generation = 0;
 		bool bound = false;
+		bool rebind_blocked = false;
 		std::vector<Record> records;
 		std::unordered_map<std::string, std::uint32_t> records_by_key;
 
@@ -193,9 +194,17 @@ namespace AVPE
 			records_by_key.clear();
 		}
 
-		void InvalidateBinding()
+		void ExplicitlyUnbind()
 		{
 			ClearBinding();
+			rebind_blocked = false;
+			++generation;
+		}
+
+		void BlockRebind()
+		{
+			ClearBinding();
+			rebind_blocked = true;
 			++generation;
 		}
 
@@ -298,41 +307,9 @@ namespace AVPE
 			return true;
 		}
 
-		NativeAssetStoreResult Resolve(const std::filesystem::path& configured_files_root,
-			const std::string_view expected_digest, const std::string_view canonical_relative_path)
+		NativeAssetStoreResult ValidateRecord(Record& record)
 		{
-			const std::optional<std::string> requested_key = CanonicalPathKey(canonical_relative_path, true);
-			if (!requested_key)
-				return {.disposition = NativeAssetStoreDisposition::Missing, .error = "asset path is not canonical"};
-			if (!IsLowerHexDigest(expected_digest))
-			{
-				InvalidateBinding();
-				return {.disposition = NativeAssetStoreDisposition::InvalidStore,
-					.error = "manifest admission digest is not lowercase SHA-256"};
-			}
-
 			std::error_code filesystem_error;
-			const std::filesystem::path canonical_root = std::filesystem::canonical(configured_files_root, filesystem_error);
-			if (filesystem_error || !std::filesystem::is_directory(canonical_root, filesystem_error) || filesystem_error)
-			{
-				InvalidateBinding();
-				return {.disposition = NativeAssetStoreDisposition::InvalidStore,
-					.error = "native asset files root is missing or invalid"};
-			}
-
-			if (bound && (root != canonical_root || manifest_sha256 != expected_digest || !ManifestUnchanged()))
-				InvalidateBinding();
-			if (!bound)
-			{
-				std::string bind_error;
-				if (!Bind(canonical_root, expected_digest, &bind_error))
-					return {.disposition = NativeAssetStoreDisposition::InvalidStore, .error = std::move(bind_error)};
-			}
-
-			const auto indexed = records_by_key.find(*requested_key);
-			if (indexed == records_by_key.end())
-				return {.disposition = NativeAssetStoreDisposition::Missing, .error = "asset is absent from manifest"};
-			Record& record = records[indexed->second];
 			const std::filesystem::path candidate = std::filesystem::canonical(root / record.relative_path, filesystem_error);
 			if (filesystem_error || !IsDescendant(root, candidate) ||
 				!std::filesystem::is_regular_file(candidate, filesystem_error) || filesystem_error)
@@ -390,6 +367,76 @@ namespace AVPE
 				},
 			};
 		}
+
+		NativeAssetStoreResult Validate(const NativeAssetStoreRecord& admitted_record)
+		{
+			if (!bound || rebind_blocked || admitted_record.generation != generation ||
+				admitted_record.id >= records.size())
+			{
+				return {.disposition = NativeAssetStoreDisposition::InvalidStore,
+					.error = "native asset record is stale or the store is unbound"};
+			}
+			if (!ManifestUnchanged())
+			{
+				BlockRebind();
+				return {.disposition = NativeAssetStoreDisposition::InvalidStore,
+					.error = "native asset manifest changed without an explicit unbind"};
+			}
+
+			Record& record = records[admitted_record.id];
+			if (admitted_record.path != record.validated_path || admitted_record.size != record.size ||
+				admitted_record.sha256 != record.sha256)
+			{
+				return {.disposition = NativeAssetStoreDisposition::InvalidStore,
+					.error = "native asset record identity does not match the bound store"};
+			}
+			return ValidateRecord(record);
+		}
+
+		NativeAssetStoreResult Resolve(const std::filesystem::path& configured_files_root,
+			const std::string_view expected_digest, const std::string_view canonical_relative_path)
+		{
+			const std::optional<std::string> requested_key = CanonicalPathKey(canonical_relative_path, true);
+			if (!requested_key)
+				return {.disposition = NativeAssetStoreDisposition::Missing, .error = "asset path is not canonical"};
+			if (!IsLowerHexDigest(expected_digest))
+			{
+				if (bound)
+					BlockRebind();
+				return {.disposition = NativeAssetStoreDisposition::InvalidStore,
+					.error = "manifest admission digest is not lowercase SHA-256"};
+			}
+
+			std::error_code filesystem_error;
+			const std::filesystem::path canonical_root = std::filesystem::canonical(configured_files_root, filesystem_error);
+			if (filesystem_error || !std::filesystem::is_directory(canonical_root, filesystem_error) || filesystem_error)
+			{
+				if (bound)
+					BlockRebind();
+				return {.disposition = NativeAssetStoreDisposition::InvalidStore,
+					.error = "native asset files root is missing or invalid"};
+			}
+
+			if (bound && (root != canonical_root || manifest_sha256 != expected_digest || !ManifestUnchanged()))
+				BlockRebind();
+			if (rebind_blocked)
+			{
+				return {.disposition = NativeAssetStoreDisposition::InvalidStore,
+					.error = "native asset store changed without an explicit unbind"};
+			}
+			if (!bound)
+			{
+				std::string bind_error;
+				if (!Bind(canonical_root, expected_digest, &bind_error))
+					return {.disposition = NativeAssetStoreDisposition::InvalidStore, .error = std::move(bind_error)};
+			}
+
+			const auto indexed = records_by_key.find(*requested_key);
+			if (indexed == records_by_key.end())
+				return {.disposition = NativeAssetStoreDisposition::Missing, .error = "asset is absent from manifest"};
+			Record& record = records[indexed->second];
+			return ValidateRecord(record);
+		}
 	};
 
 	NativeAssetStore::NativeAssetStore()
@@ -406,9 +453,15 @@ namespace AVPE
 		return m_state->Resolve(configured_files_root, expected_manifest_sha256, canonical_relative_path);
 	}
 
+	NativeAssetStoreResult NativeAssetStore::Validate(const NativeAssetStoreRecord& admitted_record)
+	{
+		std::lock_guard lock(m_state->mutex);
+		return m_state->Validate(admitted_record);
+	}
+
 	void NativeAssetStore::Unbind()
 	{
 		std::lock_guard lock(m_state->mutex);
-		m_state->InvalidateBinding();
+		m_state->ExplicitlyUnbind();
 	}
 } // namespace AVPE

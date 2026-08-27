@@ -90,9 +90,9 @@ static void PostLoadPrep()
 // --------------------------------------------------------------------------------------
 //  SaveStateBase  (implementations)
 // --------------------------------------------------------------------------------------
-SaveStateBase::SaveStateBase(VmStateBuffer& memblock)
+SaveStateBase::SaveStateBase(VmStateBuffer& memblock, const u32 version)
 	: m_memory(memblock)
-	, m_version(g_SaveVersion)
+	, m_version(version)
 {
 }
 
@@ -314,13 +314,13 @@ void memSavingState::FreezeMem(void* data, int size)
 // --------------------------------------------------------------------------------------
 //  memLoadingState  (implementations)
 // --------------------------------------------------------------------------------------
-memLoadingState::memLoadingState(const VmStateBuffer& load_from)
-	: SaveStateBase(const_cast<VmStateBuffer&>(load_from))
+memLoadingState::memLoadingState(const VmStateBuffer& load_from, const u32 version)
+	: SaveStateBase(const_cast<VmStateBuffer&>(load_from), version)
 {
 }
 
 // Loading of state data from a memory buffer...
-void memLoadingState::FreezeMem( void* data, int size )
+void memLoadingState::FreezeMem(void* data, int size)
 {
 	if (static_cast<u32>(m_idx + size) > m_memory.size())
 		m_error = true;
@@ -1081,7 +1081,7 @@ bool SaveState_ReadScreenshot(const std::string& filename, u32* out_width, u32* 
 	return SaveState_ReadScreenshot(zf.get(), out_width, out_height, out_pixels);
 }
 
-static bool CheckVersion(const std::string& filename, zip_t* zf, Error* error)
+static bool CheckVersion(const std::string& filename, zip_t* zf, u32* const out_save_version, Error* error)
 {
 	u32 savever;
 
@@ -1109,14 +1109,15 @@ static bool CheckVersion(const std::string& filename, zip_t* zf, Error* error)
 		{
 			current_emulator_version = "Unknown";
 		}
-		Error::SetString(error, fmt::format(TRANSLATE_FS("SaveState","This save state was created with PCSX2 version {0}. It is no longer compatible "
-											"with your current PCSX2 version {1}.\n\n"
-											"If you have any unsaved progress on this save state, you can download the compatible PCSX2 version {0} "
-											"from pcsx2.net, load the save state, and save your progress to the memory card."),
-											version_string, current_emulator_version));
+		Error::SetString(error, fmt::format(TRANSLATE_FS("SaveState", "This save state was created with PCSX2 version {0}. It is no longer compatible "
+																	  "with your current PCSX2 version {1}.\n\n"
+																	  "If you have any unsaved progress on this save state, you can download the compatible PCSX2 version {0} "
+																	  "from pcsx2.net, load the save state, and save your progress to the memory card."),
+									version_string, current_emulator_version));
 		return false;
 	}
 
+	*out_save_version = savever;
 	return true;
 }
 
@@ -1137,7 +1138,7 @@ static zip_int64_t CheckFileExistsInState(zip_t* zf, const char* name, bool requ
 	return index;
 }
 
-static bool LoadInternalStructuresState(zip_t* zf, s64 index, Error* error)
+static bool LoadInternalStructuresState(zip_t* zf, s64 index, const u32 save_version, Error* error)
 {
 	zip_stat_t zst;
 	if (zip_stat_index(zf, index, 0, &zst) != 0 || zst.size > std::numeric_limits<int>::max())
@@ -1152,10 +1153,10 @@ static bool LoadInternalStructuresState(zip_t* zf, s64 index, Error* error)
 	if (zip_fread(zff.get(), buffer.data(), buffer.size()) != static_cast<zip_int64_t>(buffer.size()))
 		return false;
 
-	memLoadingState state(buffer);
+	memLoadingState state(buffer, save_version);
 	if (!state.FreezeBios())
 		return false;
-	
+
 	if (!state.FreezeInternals(error))
 		return false;
 
@@ -1178,7 +1179,8 @@ bool SaveState_UnzipFromDisk(const std::string& filename, Error* error)
 	}
 
 	// look for version and screenshot information in the zip stream:
-	if (!CheckVersion(filename, zf.get(), error))
+	u32 save_version = 0;
+	if (!CheckVersion(filename, zf.get(), &save_version, error))
 		return false;
 
 	// check that all parts are included
@@ -1205,7 +1207,7 @@ bool SaveState_UnzipFromDisk(const std::string& filename, Error* error)
 
 	PreLoadPrep();
 
-	if (!LoadInternalStructuresState(zf.get(), internal_index, error))
+	if (!LoadInternalStructuresState(zf.get(), internal_index, save_version, error))
 	{
 		if (!error->IsValid())
 			Error::SetString(error, "Save state corruption in internal structures.");

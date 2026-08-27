@@ -49,6 +49,7 @@ namespace AVPE
 
 		NativeAssetStoreResult Resolve(const std::filesystem::path& configured_files_root,
 			std::string_view expected_manifest_sha256, std::string_view canonical_relative_path);
+		NativeAssetStoreResult Validate(const NativeAssetStoreRecord& admitted_record);
 		void Unbind();
 
 	private:

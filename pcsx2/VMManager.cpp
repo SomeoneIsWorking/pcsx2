@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Achievements.h"
+#include "AVPE/NativeAssets.h"
 #include "BuildVersion.h"
 #include "CDVD/CDVD.h"
 #include "CDVD/IsoReader.h"
@@ -1700,6 +1701,7 @@ void VMManager::Shutdown(bool save_resume_state)
 
 	Patch::UnloadPatches();
 	R3000A::ioman::reset();
+	AVPE::NativeAssets::UnbindStore();
 	vtlb_Shutdown();
 	USBclose();
 	SPU2::Close();
@@ -2330,7 +2332,7 @@ void VMManager::FrameAdvance(u32 num_frames /*= 1*/)
 	SetState(VMState::Running);
 }
 
-bool VMManager::ChangeDisc(CDVD_SourceType source, std::string path)
+bool VMManager::ChangeDisc(CDVD_SourceType source, const std::string& path)
 {
 	const CDVD_SourceType old_type = CDVDsys_GetSourceType();
 	const std::string old_path(CDVDsys_GetFile(old_type));
@@ -2341,6 +2343,7 @@ bool VMManager::ChangeDisc(CDVD_SourceType source, std::string path)
 
 	Error error;
 	const bool result = DoCDVDopen(&error);
+	bool native_asset_epoch_changed = result;
 	if (result)
 	{
 		if (source == CDVD_SourceType::NoDisc)
@@ -2372,9 +2375,10 @@ bool VMManager::ChangeDisc(CDVD_SourceType source, std::string path)
 			Host::OSD_ERROR_DURATION);
 		CDVDsys_ChangeSource(old_type);
 		if (!old_path.empty())
-			CDVDsys_SetFile(old_type, std::move(old_path));
+			CDVDsys_SetFile(old_type, old_path);
 		if (!DoCDVDopen(&error))
 		{
+			native_asset_epoch_changed = true;
 			Host::AddIconOSDMessage("ChangeDisc", ICON_FA_COMPACT_DISC,
 				fmt::format(TRANSLATE_FS("VMManager", "Failed to switch back to old disc image. Removing disc.\nError was: {}"),
 					error.GetDescription()),
@@ -2382,6 +2386,11 @@ bool VMManager::ChangeDisc(CDVD_SourceType source, std::string path)
 			CDVDsys_ChangeSource(CDVD_SourceType::NoDisc);
 			DoCDVDopen(nullptr);
 		}
+	}
+	if (native_asset_epoch_changed)
+	{
+		R3000A::ioman::closeNativeAssetHandles();
+		AVPE::NativeAssets::UnbindStore();
 	}
 	cdvd.Tray.cdvdActionSeconds = 1;
 	cdvd.Tray.trayState = CDVD_DISC_OPEN;
