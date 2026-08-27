@@ -7,9 +7,6 @@
 
 namespace AVPE
 {
-	void SetProductHost(bool enabled);
-	bool IsProductHost();
-
 	// Selected only by the recognized -avpe-control-test application mode.
 	void SetSurfacelessControlTest(bool enabled);
 	bool IsSurfacelessControlTest();

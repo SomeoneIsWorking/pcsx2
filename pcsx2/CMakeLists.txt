@@ -1352,11 +1352,11 @@ function(setup_main_executable target)
 
 	if (UNIX AND NOT APPLE)
 		if (PACKAGE_MODE)
-			install(TARGETS pcsx2-qt DESTINATION ${CMAKE_INSTALL_FULL_BINDIR})
+			install(TARGETS ${target} DESTINATION ${CMAKE_INSTALL_FULL_BINDIR})
 			install(DIRECTORY ${CMAKE_SOURCE_DIR}/bin/resources DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/PCSX2)
 			install(DIRECTORY ${CMAKE_BINARY_DIR}/bin/translations DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/PCSX2)
 		else()
-			install(TARGETS pcsx2-qt DESTINATION ${CMAKE_SOURCE_DIR}/bin)
+			install(TARGETS ${target} DESTINATION ${CMAKE_SOURCE_DIR}/bin)
 		endif()
 	endif()
 

@@ -1,4 +1,4 @@
-// AVPE product-host keyboard routing. Fork-local; not for upstream PCSX2.
+// AVPE product-host input routing. Fork-local; not for upstream PCSX2.
 #pragma once
 
 #include <cstdint>
