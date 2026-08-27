@@ -85,6 +85,14 @@ namespace AVPE::NativeAssets
 			}
 		}
 
+		std::string CdvdGuestPath(const std::string_view path)
+		{
+			std::string guest_path = "cdrom0:";
+			guest_path.append(path);
+			std::replace(guest_path.begin(), guest_path.end(), '\\', '/');
+			return guest_path;
+		}
+
 		ParsedPath ParseSupportedPath(const std::string_view path)
 		{
 			constexpr std::string_view device = "cdrom0:";
@@ -220,9 +228,7 @@ namespace AVPE::NativeAssets
 
 	CdvdSearchResolution ResolveCdvdSearch(const std::string_view path)
 	{
-		std::string guest_path = "cdrom0:";
-		guest_path.append(path);
-		std::replace(guest_path.begin(), guest_path.end(), '\\', '/');
+		const std::string guest_path = CdvdGuestPath(path);
 		ObserveOpen(guest_path, 1);
 		const OpenResolution file = ResolveStoreFile(guest_path, true);
 		if (file.disposition != OpenDisposition::NativeFile)
@@ -315,6 +321,20 @@ namespace AVPE::NativeAssets
 		}
 		NoteNativeRead(asset->guest_path, static_cast<u32>(byte_count), static_cast<s32>(byte_count));
 		return {.disposition = CdvdDisposition::Complete, .bytes = std::move(bytes)};
+	}
+
+	void NoteOriginalFallback(const std::string_view path)
+	{
+		if (!IsSurfacelessControlTest() || !IsTargetRecognized())
+			return;
+		std::lock_guard lock(s_observation_mutex);
+		if (OpenObservation* observation = FindObservation(path))
+			++observation->original_fallback_count;
+	}
+
+	void NoteCdvdOriginalFallback(const std::string_view path)
+	{
+		NoteOriginalFallback(CdvdGuestPath(path));
 	}
 
 	void NoteNativeOpen(const std::string_view path)

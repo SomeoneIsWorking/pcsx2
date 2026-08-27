@@ -834,6 +834,7 @@ namespace AVPE
 			body += std::to_string(observation.flags);
 			body += ",\"count\":" + std::to_string(observation.count);
 			body += ",\"native_open_count\":" + std::to_string(observation.native_open_count);
+			body += ",\"original_fallback_count\":" + std::to_string(observation.original_fallback_count);
 			body += ",\"refused_count\":" + std::to_string(observation.refused_count);
 			body += ",\"read_calls\":" + std::to_string(observation.read_calls);
 			body += ",\"bytes_read\":" + std::to_string(observation.bytes_read);
