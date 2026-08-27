@@ -580,6 +580,40 @@ namespace R3000A
 			}
 		}
 
+		std::vector<NativeAssetHandleState> getNativeAssetHandleState()
+		{
+			std::vector<NativeAssetHandleState> result;
+			result.reserve(handles.size());
+			for (const fileHandle& handle : handles)
+			{
+				if (!handle.native_asset)
+					continue;
+
+				const int fd = static_cast<int>(handle.fd_index) + firstfd;
+				IOManFile* const file = getfd<IOManFile>(fd);
+				if (!file)
+					continue;
+
+				const int cursor = file->lseek(0, IOP_SEEK_CUR);
+				if (cursor < 0)
+					continue;
+
+				result.push_back({
+					.fd = fd,
+					.path = handle.full_path,
+					.cursor = cursor,
+				});
+			}
+			std::sort(result.begin(), result.end(), [](const NativeAssetHandleState& left, const NativeAssetHandleState& right) {
+				if (left.fd != right.fd)
+					return left.fd < right.fd;
+				if (left.path != right.path)
+					return left.path < right.path;
+				return left.cursor < right.cursor;
+			});
+			return result;
+		}
+
 		bool is_host(const std::string_view path)
 		{
 			auto not_number_pos = path.find_first_not_of("0123456789", 4);
