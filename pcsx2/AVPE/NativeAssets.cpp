@@ -3,6 +3,7 @@
 #include "AVPE/NativeAssets.h"
 
 #include "AVPE/AVPE.h"
+#include "AVPE/NativeAssetByteTrace.h"
 #include "VMManager.h"
 
 #include <algorithm>
@@ -219,6 +220,7 @@ namespace AVPE::NativeAssets
 			NoteRefusal(path);
 			return {.disposition = OpenDisposition::RefusedAccess};
 		}
+		NativeAssetByteTrace::RegisterOpticalFile(path);
 
 		OpenResolution resolution = ResolveStoreFile(path, false);
 		if (resolution.disposition != OpenDisposition::NativeFile && resolution.disposition != OpenDisposition::Unhandled)
@@ -230,6 +232,9 @@ namespace AVPE::NativeAssets
 	{
 		const std::string guest_path = CdvdGuestPath(path);
 		ObserveOpen(guest_path, 1);
+		const ParsedPath parsed = ParseSupportedPath(guest_path);
+		if (parsed.relative)
+			NativeAssetByteTrace::RegisterOpticalFile(guest_path);
 		const OpenResolution file = ResolveStoreFile(guest_path, true);
 		if (file.disposition != OpenDisposition::NativeFile)
 		{
@@ -319,6 +324,7 @@ namespace AVPE::NativeAssets
 			NoteNativeRead(asset->guest_path, static_cast<u32>(byte_count), -1);
 			return {.disposition = CdvdDisposition::Failed};
 		}
+		NativeAssetByteTrace::RecordNativeCdvdBytes(asset->guest_path, offset, bytes.data(), bytes.size());
 		NoteNativeRead(asset->guest_path, static_cast<u32>(byte_count), static_cast<s32>(byte_count));
 		return {.disposition = CdvdDisposition::Complete, .bytes = std::move(bytes)};
 	}

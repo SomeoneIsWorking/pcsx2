@@ -3,6 +3,7 @@
 
 #include "Common.h"
 #include "AVPE/NativeAssets.h"
+#include "AVPE/NativeAssetByteTrace.h"
 #include "DebugTools/SymbolGuardian.h"
 #include "IopBios.h"
 #include "IopMem.h"
@@ -903,12 +904,19 @@ namespace R3000A
 			if (IOManFile* file = getfd<IOManFile>(fd))
 			{
 				std::vector<char> buf(count, 0);
+				const fileHandle* const handle = findFileHandle(fd);
+				const bool trace_native_asset = handle && handle->native_asset && AVPE::NativeAssetByteTrace::IsEnabled();
+				const s32 trace_offset = trace_native_asset ? file->lseek(0, IOP_SEEK_CUR) : -1;
 
 				const s32 result = file->read(buf.data(), count);
 				v0 = result;
-				const fileHandle* const handle = findFileHandle(fd);
 				if (handle && handle->native_asset)
+				{
 					AVPE::NativeAssets::NoteNativeRead(handle->full_path, count, result);
+					if (trace_offset >= 0 && result > 0)
+						AVPE::NativeAssetByteTrace::RecordNativeIomanBytes(
+							handle->full_path, static_cast<u64>(trace_offset), buf.data(), static_cast<size_t>(result));
+				}
 
 				if (result > 0 && iopMemSafeWriteBytes(data, buf.data(), static_cast<u32>(result)))
 				{

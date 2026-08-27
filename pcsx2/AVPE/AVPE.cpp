@@ -2,6 +2,7 @@
 #include "AVPE/AVPE.h"
 #include "AVPE/EECallShuttle.h"
 #include "AVPE/NativeAssets.h"
+#include "AVPE/NativeAssetByteTrace.h"
 #include "AVPE/NativeInput.h"
 #include "AVPE/NativeMenuInput.h"
 #include "Config.h"
@@ -42,6 +43,7 @@ namespace AVPE
 		s_control_test_mode.store(enabled, std::memory_order_release);
 		s_control_test_surface_verified.store(false, std::memory_order_release);
 		NativeAssets::ResetObservation();
+		NativeAssetByteTrace::Reset();
 	}
 
 	bool IsSurfacelessControlTest()
@@ -876,6 +878,14 @@ namespace AVPE
 			"{\"disposition\":\"" + std::string(disposition) + "\"}");
 	}
 
+	static lucent::http::Response handle_asset_oracle_capture()
+	{
+		bool captured = false;
+		Host::RunOnCPUThread([&captured]() { captured = NativeAssetByteTrace::CaptureIsoOracle(); }, true);
+		return lucent::http::Response::json(captured ? 200 : 409,
+			captured ? "OK" : "Conflict", captured ? "{\"captured\":true}" : "{\"captured\":false}");
+	}
+
 	// GET /snap — current frame as BMP (24-bit), so tooling can SEE the game.
 	static lucent::http::Response handle_snap()
 	{
@@ -939,6 +949,8 @@ namespace AVPE
 			return handle_debug();
 		if (req.method == "GET" && path == "/assets/opens")
 			return handle_asset_opens();
+		if (req.method == "GET" && path == "/assets/byte-trace")
+			return lucent::http::Response::json(200, "OK", NativeAssetByteTrace::SnapshotJson());
 		if (req.method == "GET" && path == "/ee/deferred")
 			return handle_ee_deferred();
 		if (req.method == "GET" && path == "/input/menu")
@@ -951,6 +963,8 @@ namespace AVPE
 			return handle_mem_write(req.body);
 		if (req.method == "POST" && path == "/assets/resolve")
 			return handle_asset_resolve(req.body);
+		if (req.method == "POST" && path == "/assets/capture-iso-oracle")
+			return handle_asset_oracle_capture();
 		if (req.method == "POST" && path == "/state/save")
 			return handle_state_save(req.body);
 		if (req.method == "POST" && path == "/state/load")
@@ -976,10 +990,11 @@ namespace AVPE
 		lucent::warn("avpe", "no route: {} {}", req.method, path);
 		return lucent::http::Response::json(404, "Not Found",
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
-			"\"GET /assets/opens\","
+			"\"GET /assets/opens\",\"GET /assets/byte-trace\","
 			"\"GET /ee/deferred\","
 			"\"GET /input/menu\",\"GET /input/menu-pointer\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /assets/resolve\","
+			"\"POST /assets/capture-iso-oracle\","
 			"\"POST /state/save\",\"POST /state/load\","
 			"\"POST /input/press\",\"POST /input/move-absolute\",\"POST /input/mouse-button\","
 			"\"POST /input/menu-action\",\"POST /input/menu-pointer-move\","
