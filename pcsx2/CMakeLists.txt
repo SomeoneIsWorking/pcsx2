@@ -9,6 +9,7 @@ else()
 endif()
 target_link_libraries(PCSX2 PRIVATE PCSX2_FLAGS)
 target_link_libraries(PCSX2 PRIVATE lucent::lucent)
+target_link_libraries(PCSX2 PRIVATE rapidjson)
 
 target_compile_features(PCSX2_FLAGS INTERFACE cxx_std_17)
 target_compile_definitions(PCSX2_FLAGS INTERFACE "${PCSX2_DEFS}")
@@ -92,6 +93,7 @@ set(pcsx2Sources
 	AVPE/EECallShuttle.cpp
 	AVPE/GuestObjects.cpp
 	AVPE/NativeAssetByteTrace.cpp
+	AVPE/NativeAssetStore.cpp
 	AVPE/NativeAssets.cpp
 	AVPE/NativeLoadTiming.cpp
 	AVPE/NativeInput.cpp

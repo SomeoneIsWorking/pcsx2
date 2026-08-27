@@ -23,6 +23,7 @@ namespace AVPE::NativeAssets
 	{
 		OpenDisposition disposition = OpenDisposition::Unhandled;
 		std::string host_path;
+		u64 size = 0;
 	};
 
 	enum class CdvdDisposition : u8
