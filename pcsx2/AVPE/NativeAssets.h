@@ -25,6 +25,26 @@ namespace AVPE::NativeAssets
 		std::string host_path;
 	};
 
+	enum class CdvdDisposition : u8
+	{
+		Unhandled,
+		Complete,
+		Failed,
+	};
+
+	struct CdvdSearchResolution
+	{
+		OpenDisposition disposition = OpenDisposition::Unhandled;
+		u32 lsn = 0;
+		u32 size = 0;
+	};
+
+	struct CdvdReadResolution
+	{
+		CdvdDisposition disposition = CdvdDisposition::Unhandled;
+		std::vector<u8> bytes;
+	};
+
 	struct OpenObservation
 	{
 		std::string path;
@@ -50,6 +70,9 @@ namespace AVPE::NativeAssets
 	// Resolves only the title's grounded read-only namespaces. With no validated
 	// store environment it observes and leaves the original IOP path untouched.
 	OpenResolution ResolveIomanOpen(std::string_view path, u32 flags, bool read_only);
+	CdvdSearchResolution ResolveCdvdSearch(std::string_view path);
+	CdvdDisposition ResolveCdvdSeek(u32 lsn);
+	CdvdReadResolution ReadCdvdSectors(u32 lsn, u32 sectors);
 	void NoteNativeOpen(std::string_view path);
 	void NoteNativeRead(std::string_view path, u32 bytes_requested, s32 result);
 	void NoteNativeSeek(std::string_view path);

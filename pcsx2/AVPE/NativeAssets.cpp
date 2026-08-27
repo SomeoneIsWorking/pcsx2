@@ -9,6 +9,8 @@
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -20,14 +22,30 @@ namespace AVPE::NativeAssets
 		constexpr std::string_view kTargetSerial = "SLUS-20147";
 		constexpr size_t kMaximumObservedPaths = 128;
 		constexpr std::string_view kStoreEnvironment = "AVPE_NATIVE_ASSET_ROOT";
+		constexpr u32 kNativeCdvdLsnBegin = 0xe0000000;
+		constexpr u32 kNativeCdvdLsnEnd = 0xf0000000;
+		constexpr u32 kCdvdSectorSize = 2048;
+		constexpr u32 kMaximumCdvdReadSectors = 32;
 
 		std::mutex s_observation_mutex;
 		u64 s_total_open_calls = 0;
 		u64 s_dropped_unique_paths = 0;
 		std::vector<OpenObservation> s_observed_paths;
+		std::mutex s_cdvd_mutex;
+		struct CdvdAsset
+		{
+			std::string guest_path;
+			std::string host_path;
+			u32 base_lsn = 0;
+			u32 sectors = 0;
+			u32 size = 0;
+		};
+		std::vector<CdvdAsset> s_cdvd_assets;
+		u32 s_next_cdvd_lsn = kNativeCdvdLsnBegin;
 		struct ParsedPath
 		{
 			bool supported_namespace = false;
+			bool stream_namespace = false;
 			std::optional<std::string> relative;
 		};
 
@@ -41,6 +59,30 @@ namespace AVPE::NativeAssets
 			const auto existing = std::find_if(s_observed_paths.begin(), s_observed_paths.end(),
 				[path](const OpenObservation& observation) { return observation.path == path; });
 			return existing == s_observed_paths.end() ? nullptr : &*existing;
+		}
+
+		void ObserveOpen(const std::string_view path, const u32 flags)
+		{
+			if (!IsSurfacelessControlTest() || !IsTargetRecognized())
+				return;
+			std::lock_guard lock(s_observation_mutex);
+			++s_total_open_calls;
+			if (OpenObservation* existing = FindObservation(path))
+			{
+				++existing->count;
+			}
+			else if (s_observed_paths.size() == kMaximumObservedPaths)
+			{
+				++s_dropped_unique_paths;
+			}
+			else
+			{
+				OpenObservation observation;
+				observation.path = path;
+				observation.flags = flags;
+				observation.count = 1;
+				s_observed_paths.push_back(std::move(observation));
+			}
 		}
 
 		ParsedPath ParseSupportedPath(const std::string_view path)
@@ -60,16 +102,17 @@ namespace AVPE::NativeAssets
 				relative.erase(relative.begin());
 			std::transform(relative.begin(), relative.end(), relative.begin(),
 				[](const unsigned char character) { return static_cast<char>(std::toupper(character)); });
-			const bool supported_namespace = relative.starts_with("TBD/") || relative.starts_with("MOVIES/") ||
-			                                 relative.starts_with("STREAMS/");
+			const bool stream_namespace = relative.starts_with("STREAMS/");
+			const bool supported_namespace =
+				relative.starts_with("TBD/") || relative.starts_with("MOVIES/") || stream_namespace;
 			if (!supported_namespace)
 				return {};
 			if (relative.ends_with(";1"))
 				relative.resize(relative.size() - 2);
 			else if (relative.find(';') != std::string::npos)
-				return {.supported_namespace = true};
+				return {.supported_namespace = true, .stream_namespace = stream_namespace};
 			if (relative.empty() || relative.front() == '/' || relative.back() == '/')
-				return {.supported_namespace = true};
+				return {.supported_namespace = true, .stream_namespace = stream_namespace};
 
 			size_t component_start = 0;
 			for (size_t index = 0; index <= relative.size(); ++index)
@@ -78,11 +121,12 @@ namespace AVPE::NativeAssets
 					continue;
 				const std::string_view component(relative.data() + component_start, index - component_start);
 				if (component.empty() || component == "." || component == ".." || component.find(':') != std::string_view::npos)
-					return {.supported_namespace = true};
+					return {.supported_namespace = true, .stream_namespace = stream_namespace};
 				component_start = index + 1;
 			}
 			return {
 				.supported_namespace = true,
+				.stream_namespace = stream_namespace,
 				.relative = std::move(relative),
 			};
 		}
@@ -105,36 +149,57 @@ namespace AVPE::NativeAssets
 			if (OpenObservation* observation = FindObservation(path))
 				++observation->refused_count;
 		}
+
+		OpenResolution ResolveStoreFile(const std::string_view path, const bool streams_only)
+		{
+			const ParsedPath parsed = ParseSupportedPath(path);
+			const char* const configured_root = std::getenv(kStoreEnvironment.data());
+			if (!IsTargetRecognized() || !parsed.supported_namespace || !configured_root || !*configured_root)
+				return {};
+			if (streams_only && !parsed.stream_namespace)
+				return {};
+			if (!parsed.relative)
+				return {.disposition = OpenDisposition::RefusedAccess};
+			if (streams_only && !parsed.relative->ends_with(".VAG") && !parsed.relative->ends_with(".ZIV"))
+				return {};
+
+			std::error_code error;
+			const std::filesystem::path root = std::filesystem::canonical(configured_root, error);
+			if (error || !std::filesystem::is_directory(root, error) || error ||
+				!std::filesystem::is_regular_file(root.parent_path() / "manifest.json", error) || error)
+			{
+				return {.disposition = OpenDisposition::RefusedInvalidStore};
+			}
+			const std::filesystem::path candidate = std::filesystem::canonical(root / *parsed.relative, error);
+			if (error || !std::filesystem::is_regular_file(candidate, error) || error)
+				return {.disposition = OpenDisposition::RefusedMissing};
+			if (!IsDescendant(root, candidate))
+				return {.disposition = OpenDisposition::RefusedInvalidStore};
+			return {
+				.disposition = OpenDisposition::NativeFile,
+				.host_path = candidate.string(),
+			};
+		}
+
+		std::optional<CdvdAsset> FindCdvdAsset(const u32 lsn, const u32 sectors)
+		{
+			std::lock_guard lock(s_cdvd_mutex);
+			const u64 request_end = static_cast<u64>(lsn) + sectors;
+			const auto asset = std::find_if(s_cdvd_assets.begin(), s_cdvd_assets.end(),
+				[lsn, request_end](const CdvdAsset& candidate) {
+					return lsn >= candidate.base_lsn && lsn < static_cast<u64>(candidate.base_lsn) + candidate.sectors &&
+				           request_end <= static_cast<u64>(candidate.base_lsn) + candidate.sectors;
+				});
+			return asset == s_cdvd_assets.end() ? std::nullopt : std::optional<CdvdAsset>(*asset);
+		}
 	} // namespace
 
 	OpenResolution ResolveIomanOpen(const std::string_view path, const u32 flags, const bool read_only)
 	{
-		const bool target_recognized = IsTargetRecognized();
-		if (IsSurfacelessControlTest() && target_recognized)
-		{
-			std::lock_guard lock(s_observation_mutex);
-			++s_total_open_calls;
-			if (OpenObservation* existing = FindObservation(path))
-			{
-				++existing->count;
-			}
-			else if (s_observed_paths.size() == kMaximumObservedPaths)
-			{
-				++s_dropped_unique_paths;
-			}
-			else
-			{
-				OpenObservation observation;
-				observation.path = path;
-				observation.flags = flags;
-				observation.count = 1;
-				s_observed_paths.push_back(std::move(observation));
-			}
-		}
+		ObserveOpen(path, flags);
 
 		const ParsedPath parsed = ParseSupportedPath(path);
-		const char* const configured_root = std::getenv(kStoreEnvironment.data());
-		if (!target_recognized || !parsed.supported_namespace || !configured_root || !*configured_root)
+		if (!IsTargetRecognized() || !parsed.supported_namespace)
 			return {};
 		if (!parsed.relative)
 		{
@@ -147,29 +212,109 @@ namespace AVPE::NativeAssets
 			return {.disposition = OpenDisposition::RefusedAccess};
 		}
 
+		OpenResolution resolution = ResolveStoreFile(path, false);
+		if (resolution.disposition != OpenDisposition::NativeFile && resolution.disposition != OpenDisposition::Unhandled)
+			NoteRefusal(path);
+		return resolution;
+	}
+
+	CdvdSearchResolution ResolveCdvdSearch(const std::string_view path)
+	{
+		std::string guest_path = "cdrom0:";
+		guest_path.append(path);
+		std::replace(guest_path.begin(), guest_path.end(), '\\', '/');
+		ObserveOpen(guest_path, 1);
+		const OpenResolution file = ResolveStoreFile(guest_path, true);
+		if (file.disposition != OpenDisposition::NativeFile)
+		{
+			if (file.disposition != OpenDisposition::Unhandled)
+				NoteRefusal(guest_path);
+			return {.disposition = file.disposition};
+		}
+
 		std::error_code error;
-		const std::filesystem::path root = std::filesystem::canonical(configured_root, error);
-		if (error || !std::filesystem::is_directory(root, error) || error ||
-			!std::filesystem::is_regular_file(root.parent_path() / "manifest.json", error) || error)
+		const u64 size = std::filesystem::file_size(file.host_path, error);
+		if (error || size == 0 || size > std::numeric_limits<u32>::max())
 		{
-			NoteRefusal(path);
+			NoteRefusal(guest_path);
 			return {.disposition = OpenDisposition::RefusedInvalidStore};
 		}
-		const std::filesystem::path candidate = std::filesystem::canonical(root / *parsed.relative, error);
-		if (error || !std::filesystem::is_regular_file(candidate, error) || error)
+		const u32 sectors = static_cast<u32>((size + kCdvdSectorSize - 1) / kCdvdSectorSize);
+		CdvdSearchResolution resolution;
 		{
-			NoteRefusal(path);
-			return {.disposition = OpenDisposition::RefusedMissing};
+			std::lock_guard lock(s_cdvd_mutex);
+			const auto existing = std::find_if(s_cdvd_assets.begin(), s_cdvd_assets.end(),
+				[&guest_path](const CdvdAsset& asset) { return asset.guest_path == guest_path; });
+			if (existing != s_cdvd_assets.end())
+			{
+				resolution = {
+					.disposition = OpenDisposition::NativeFile,
+					.lsn = existing->base_lsn,
+					.size = existing->size,
+				};
+			}
+			else
+			{
+				if (static_cast<u64>(s_next_cdvd_lsn) + sectors > kNativeCdvdLsnEnd)
+				{
+					NoteRefusal(guest_path);
+					return {.disposition = OpenDisposition::RefusedInvalidStore};
+				}
+				const u32 base_lsn = s_next_cdvd_lsn;
+				s_next_cdvd_lsn += sectors;
+				s_cdvd_assets.push_back({
+					.guest_path = guest_path,
+					.host_path = file.host_path,
+					.base_lsn = base_lsn,
+					.sectors = sectors,
+					.size = static_cast<u32>(size),
+				});
+				resolution = {
+					.disposition = OpenDisposition::NativeFile,
+					.lsn = base_lsn,
+					.size = static_cast<u32>(size),
+				};
+			}
 		}
-		if (!IsDescendant(root, candidate))
+		NoteNativeOpen(guest_path);
+		return resolution;
+	}
+
+	CdvdDisposition ResolveCdvdSeek(const u32 lsn)
+	{
+		const std::optional<CdvdAsset> asset = FindCdvdAsset(lsn, 0);
+		if (!asset)
+			return lsn >= kNativeCdvdLsnBegin && lsn < kNativeCdvdLsnEnd ? CdvdDisposition::Failed :
+			                                                               CdvdDisposition::Unhandled;
+		NoteNativeSeek(asset->guest_path);
+		return CdvdDisposition::Complete;
+	}
+
+	CdvdReadResolution ReadCdvdSectors(const u32 lsn, const u32 sectors)
+	{
+		if (sectors == 0 || sectors > kMaximumCdvdReadSectors)
+			return {.disposition = lsn >= kNativeCdvdLsnBegin && lsn < kNativeCdvdLsnEnd ?
+			                           CdvdDisposition::Failed :
+			                           CdvdDisposition::Unhandled};
+		const std::optional<CdvdAsset> asset = FindCdvdAsset(lsn, sectors);
+		if (!asset)
+			return {.disposition = lsn >= kNativeCdvdLsnBegin && lsn < kNativeCdvdLsnEnd ?
+			                           CdvdDisposition::Failed :
+			                           CdvdDisposition::Unhandled};
+
+		const size_t byte_count = static_cast<size_t>(sectors) * kCdvdSectorSize;
+		std::vector<u8> bytes(byte_count, 0);
+		const u64 offset = static_cast<u64>(lsn - asset->base_lsn) * kCdvdSectorSize;
+		const size_t available = offset >= asset->size ? 0 : static_cast<size_t>(std::min<u64>(byte_count, asset->size - offset));
+		std::ifstream input(asset->host_path, std::ios::binary);
+		if (!input || (available != 0 && (!input.seekg(static_cast<std::streamoff>(offset)) ||
+											 !input.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(available)))))
 		{
-			NoteRefusal(path);
-			return {.disposition = OpenDisposition::RefusedInvalidStore};
+			NoteNativeRead(asset->guest_path, static_cast<u32>(byte_count), -1);
+			return {.disposition = CdvdDisposition::Failed};
 		}
-		return {
-			.disposition = OpenDisposition::NativeFile,
-			.host_path = candidate.string(),
-		};
+		NoteNativeRead(asset->guest_path, static_cast<u32>(byte_count), static_cast<s32>(byte_count));
+		return {.disposition = CdvdDisposition::Complete, .bytes = std::move(bytes)};
 	}
 
 	void NoteNativeOpen(const std::string_view path)
@@ -218,9 +363,16 @@ namespace AVPE::NativeAssets
 
 	void ResetObservation()
 	{
-		std::lock_guard lock(s_observation_mutex);
-		s_total_open_calls = 0;
-		s_dropped_unique_paths = 0;
-		s_observed_paths.clear();
+		{
+			std::lock_guard lock(s_observation_mutex);
+			s_total_open_calls = 0;
+			s_dropped_unique_paths = 0;
+			s_observed_paths.clear();
+		}
+		{
+			std::lock_guard lock(s_cdvd_mutex);
+			s_cdvd_assets.clear();
+			s_next_cdvd_lsn = kNativeCdvdLsnBegin;
+		}
 	}
 } // namespace AVPE::NativeAssets
