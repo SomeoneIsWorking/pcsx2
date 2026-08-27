@@ -1,10 +1,8 @@
-// AVPE-owned product window. Fork-local; not for upstream PCSX2.
-#include "AVPE/HostWindow.h"
+// AVPE-owned product window. Fork-local; independent of the PCSX2 GUI.
+#include "pcsx2-avpe/HostWindow.h"
 
-#include "DisplayWidget.h"
-#include "MainWindow.h"
-#include "QtHost.h"
-#include "QtUtils.h"
+#include "pcsx2-avpe/HostBackend.h"
+#include "pcsx2-avpe/RenderSurface.h"
 
 #include "common/Assertions.h"
 
@@ -24,13 +22,15 @@ namespace AVPE
 {
 	HostWindow* g_host_window = nullptr;
 
-	HostWindow::HostWindow(QWidget* parent)
+	HostWindow::HostWindow(HostBackend& backend, QWidget* parent)
 		: QMainWindow(parent)
+		, m_backend(backend)
 	{
 		pxAssert(!g_host_window);
 		g_host_window = this;
 		setWindowTitle(QStringLiteral("Aliens Versus Predator: Extinction"));
 		resize(960, 672);
+		m_backend.ConnectWindow(*this);
 	}
 
 	HostWindow::~HostWindow()
@@ -39,23 +39,12 @@ namespace AVPE
 		g_host_window = nullptr;
 	}
 
-	void HostWindow::connectEmulationDisplay(EmuThread* thread)
+	std::optional<WindowInfo> HostWindow::getWindowInfo()
 	{
-		connect(thread, &EmuThread::onAcquireRenderWindowRequested, this, &HostWindow::acquireRenderWindow,
-			Qt::BlockingQueuedConnection);
-		connect(thread, &EmuThread::onReleaseRenderWindowRequested, this, &HostWindow::releaseRenderWindow,
-			Qt::BlockingQueuedConnection);
-		connect(thread, &EmuThread::onResizeRenderWindowRequested, this, &HostWindow::resizeRenderWindow);
-		connect(thread, &EmuThread::onMouseModeRequested, this, &HostWindow::setMouseMode);
-		connect(thread, &EmuThread::onMouseLockRequested, this, &HostWindow::setMouseLock);
+		return m_backend.GetWindowInfo(*this);
 	}
 
-	std::optional<WindowInfo> HostWindow::getWindowInfo() const
-	{
-		return QtUtils::GetWindowInfoForWindow(this);
-	}
-
-	std::optional<WindowInfo> HostWindow::acquireRenderWindow(
+	std::optional<WindowInfo> HostWindow::AcquireRenderWindow(
 		bool recreate_window, bool fullscreen, bool render_to_main, bool surfaceless)
 	{
 		Q_UNUSED(render_to_main);
@@ -75,23 +64,23 @@ namespace AVPE
 			fullscreen ? showFullScreen() : showNormal();
 		}
 
-		m_surface->setFocus();
-		return m_surface->getWindowInfo();
+		m_surface->SetFocus();
+		return m_backend.GetWindowInfo(*m_surface);
 	}
 
 	void HostWindow::createRenderSurface(bool fullscreen)
 	{
-		m_surface = new DisplaySurface();
-		m_surface_container = m_surface->createWindowContainer(this);
+		m_surface = new RenderSurface();
+		m_surface_container = m_surface->CreateContainer(this);
 		m_surface->installEventFilter(this);
 		m_surface_container->installEventFilter(this);
 		setCentralWidget(m_surface_container);
-		g_emu_thread->connectDisplaySignals(m_surface);
+		m_backend.ConnectRenderSurface(*m_surface);
 		fullscreen ? showFullScreen() : showNormal();
 		QGuiApplication::sync();
 	}
 
-	void HostWindow::releaseRenderWindow()
+	void HostWindow::ReleaseRenderWindow()
 	{
 		destroyRenderSurface();
 	}
@@ -107,21 +96,20 @@ namespace AVPE
 		m_surface = nullptr;
 	}
 
-	void HostWindow::resizeRenderWindow(qint32 width, qint32 height)
+	void HostWindow::ResizeRenderWindow(qint32 width, qint32 height)
 	{
 		if (width > 0 && height > 0 && !isFullScreen())
-			QtUtils::ResizePotentiallyFixedSizeWindow(this, width, height);
+			m_backend.ResizeWindow(*this, width, height);
 	}
 
-	void HostWindow::setMouseMode(bool relative_mode, bool hide_cursor)
+	void HostWindow::SetMouseMode(bool relative_mode, bool hide_cursor)
 	{
 		if (!m_surface)
 			return;
-		m_surface->updateRelativeMode(relative_mode);
-		m_surface->updateCursor(hide_cursor);
+		m_surface->SetMouseMode(relative_mode, hide_cursor);
 	}
 
-	void HostWindow::setMouseLock(bool locked)
+	void HostWindow::SetMouseLock(bool locked)
 	{
 		lucent::info("avpe-host", "mouse lock request: {}", locked);
 	}
@@ -131,7 +119,7 @@ namespace AVPE
 		if (!m_closing)
 		{
 			m_closing = true;
-			QMetaObject::invokeMethod(g_main_window, "requestExit", Qt::QueuedConnection, Q_ARG(bool, false));
+			m_backend.RequestExit();
 		}
 		event->ignore();
 	}

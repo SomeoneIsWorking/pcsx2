@@ -32,29 +32,14 @@ namespace AVPE
 {
 	static std::optional<lucent::http::Server> s_server;
 	static std::once_flag s_start_once;
-	static std::atomic_bool s_product_host{false};
 	static std::atomic_bool s_control_test_mode{false};
 	static std::atomic_bool s_control_test_surface_verified{false};
 	static std::string s_control_nonce;
-
-	void SetProductHost(bool enabled)
-	{
-		s_product_host.store(enabled, std::memory_order_release);
-		if (enabled)
-			SetSurfacelessControlTest(false);
-	}
-
-	bool IsProductHost()
-	{
-		return s_product_host.load(std::memory_order_acquire);
-	}
 
 	void SetSurfacelessControlTest(bool enabled)
 	{
 		s_control_test_mode.store(enabled, std::memory_order_release);
 		s_control_test_surface_verified.store(false, std::memory_order_release);
-		if (enabled)
-			s_product_host.store(false, std::memory_order_release);
 	}
 
 	bool IsSurfacelessControlTest()
@@ -207,7 +192,7 @@ namespace AVPE
 		std::snprintf(buf, sizeof(buf),
 			R"({"vm":"%s","serial":"%s","crc":"%08X","host_mode":"%s","surface":"%s","audio":"%s","nonce":"%s"})",
 			state.c_str(), VMManager::GetDiscSerial().c_str(), VMManager::GetDiscCRC(),
-			control_test ? "control-test" : (IsProductHost() ? "avpe-product" : "pcsx2"),
+			control_test ? "control-test" : "pcsx2",
 			surfaceless ? "surfaceless" : "unverified",
 			null_audio ? "null-muted" : "other", s_control_nonce.c_str());
 		return lucent::http::Response::json(200, "OK", buf);

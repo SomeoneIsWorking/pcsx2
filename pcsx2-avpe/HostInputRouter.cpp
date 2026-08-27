@@ -1,6 +1,6 @@
-// AVPE product-host keyboard routing. Fork-local; not for upstream PCSX2.
+// AVPE product-host input routing. Fork-local; not for upstream PCSX2.
 
-#include "AVPE/HostInputRouter.h"
+#include "pcsx2-avpe/HostInputRouter.h"
 
 #include "AVPE/NativeInput.h"
 #include "AVPE/NativeMenuInput.h"

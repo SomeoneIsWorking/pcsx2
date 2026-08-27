@@ -49,6 +49,7 @@ add_subdirectory(common)
 add_subdirectory(pcsx2)
 
 if(ENABLE_QT_UI)
+	add_subdirectory(pcsx2-avpe)
 	add_subdirectory(pcsx2-qt)
 endif()
 
