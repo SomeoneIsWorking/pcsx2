@@ -10,11 +10,32 @@
 
 namespace AVPE::NativeAssets
 {
+	enum class OpenDisposition : u8
+	{
+		Unhandled,
+		NativeFile,
+		RefusedMissing,
+		RefusedAccess,
+		RefusedInvalidStore,
+	};
+
+	struct OpenResolution
+	{
+		OpenDisposition disposition = OpenDisposition::Unhandled;
+		std::string host_path;
+	};
+
 	struct OpenObservation
 	{
 		std::string path;
 		u32 flags = 0;
 		u32 count = 0;
+		u32 native_open_count = 0;
+		u32 refused_count = 0;
+		u32 read_calls = 0;
+		u64 bytes_read = 0;
+		u32 seek_calls = 0;
+		u32 close_count = 0;
 	};
 
 	struct ObservationSnapshot
@@ -26,9 +47,13 @@ namespace AVPE::NativeAssets
 		std::vector<OpenObservation> paths;
 	};
 
-	// Called at the IOP ioman/iomanX open boundary. This is observation-only:
-	// it never claims the request or changes the original IOP path.
-	void ObserveIomanOpen(std::string_view path, u32 flags);
+	// Resolves only the title's grounded read-only namespaces. With no validated
+	// store environment it observes and leaves the original IOP path untouched.
+	OpenResolution ResolveIomanOpen(std::string_view path, u32 flags, bool read_only);
+	void NoteNativeOpen(std::string_view path);
+	void NoteNativeRead(std::string_view path, u32 bytes_requested, s32 result);
+	void NoteNativeSeek(std::string_view path);
+	void NoteNativeClose(std::string_view path);
 	ObservationSnapshot GetObservationSnapshot();
 	void ResetObservation();
 } // namespace AVPE::NativeAssets
