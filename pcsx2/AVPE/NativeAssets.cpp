@@ -4,6 +4,7 @@
 
 #include "AVPE/AVPE.h"
 #include "AVPE/NativeAssetByteTrace.h"
+#include "AVPE/NativeAssetStore.h"
 #include "AVPE/NativeLoadTiming.h"
 #include "VMManager.h"
 
@@ -24,12 +25,14 @@ namespace AVPE::NativeAssets
 		constexpr std::string_view kTargetSerial = "SLUS-20147";
 		constexpr size_t kMaximumObservedPaths = 128;
 		constexpr std::string_view kStoreEnvironment = "AVPE_NATIVE_ASSET_ROOT";
+		constexpr std::string_view kManifestSha256Environment = "AVPE_NATIVE_ASSET_MANIFEST_SHA256";
 		constexpr u32 kNativeCdvdLsnBegin = 0xe0000000;
 		constexpr u32 kNativeCdvdLsnEnd = 0xf0000000;
 		constexpr u32 kCdvdSectorSize = 2048;
 		constexpr u32 kMaximumCdvdReadSectors = 32;
 
 		std::mutex s_observation_mutex;
+		NativeAssetStore s_store;
 		u64 s_total_open_calls = 0;
 		u64 s_dropped_unique_paths = 0;
 		std::vector<OpenObservation> s_observed_paths;
@@ -141,18 +144,6 @@ namespace AVPE::NativeAssets
 			};
 		}
 
-		bool IsDescendant(const std::filesystem::path& root, const std::filesystem::path& candidate)
-		{
-			auto root_component = root.begin();
-			auto candidate_component = candidate.begin();
-			for (; root_component != root.end(); ++root_component, ++candidate_component)
-			{
-				if (candidate_component == candidate.end() || *root_component != *candidate_component)
-					return false;
-			}
-			return candidate_component != candidate.end();
-		}
-
 		void NoteRefusal(const std::string_view path)
 		{
 			std::lock_guard lock(s_observation_mutex);
@@ -173,21 +164,19 @@ namespace AVPE::NativeAssets
 			if (streams_only && !parsed.relative->ends_with(".VAG") && !parsed.relative->ends_with(".ZIV"))
 				return {};
 
-			std::error_code error;
-			const std::filesystem::path root = std::filesystem::canonical(configured_root, error);
-			if (error || !std::filesystem::is_directory(root, error) || error ||
-				!std::filesystem::is_regular_file(root.parent_path() / "manifest.json", error) || error)
-			{
+			const char* const manifest_sha256 = std::getenv(kManifestSha256Environment.data());
+			if (!manifest_sha256 || !*manifest_sha256)
 				return {.disposition = OpenDisposition::RefusedInvalidStore};
-			}
-			const std::filesystem::path candidate = std::filesystem::canonical(root / *parsed.relative, error);
-			if (error || !std::filesystem::is_regular_file(candidate, error) || error)
+
+			const NativeAssetStoreResult result = s_store.Resolve(configured_root, manifest_sha256, *parsed.relative);
+			if (result.disposition == NativeAssetStoreDisposition::Missing)
 				return {.disposition = OpenDisposition::RefusedMissing};
-			if (!IsDescendant(root, candidate))
+			if (result.disposition != NativeAssetStoreDisposition::Found)
 				return {.disposition = OpenDisposition::RefusedInvalidStore};
 			return {
 				.disposition = OpenDisposition::NativeFile,
-				.host_path = candidate.string(),
+				.host_path = result.record.path.string(),
+				.size = result.record.size,
 			};
 		}
 
@@ -256,9 +245,8 @@ namespace AVPE::NativeAssets
 			return {.disposition = file.disposition};
 		}
 
-		std::error_code error;
-		const u64 size = std::filesystem::file_size(file.host_path, error);
-		if (error || size == 0 || size > std::numeric_limits<u32>::max())
+		const u64 size = file.size;
+		if (size == 0 || size > std::numeric_limits<u32>::max())
 		{
 			NoteRefusal(guest_path);
 			return {.disposition = OpenDisposition::RefusedInvalidStore};

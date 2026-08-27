@@ -1,8 +1,12 @@
 add_pcsx2_test(core_test
+	avpe_native_asset_store_tests.cpp
 	patch_tests.cpp
 	MockMemoryInterface.h
 	StubHost.cpp
 )
+
+target_compile_definitions(core_test PRIVATE
+	AVPE_TEST_SCRATCH_ROOT="${CMAKE_BINARY_DIR}/avpe-test-data")
 
 set(multi_isa_sources
 	GS/swizzle_test_main.cpp
