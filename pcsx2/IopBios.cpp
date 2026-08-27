@@ -265,6 +265,12 @@ namespace R3000A
 		{
 			const std::string path(full_path.substr(full_path.find(':') + 1));
 			const std::string file_path(ioman::host_path(path, false));
+			return openNative(file, file_path, flags, mode);
+		}
+
+		static int openNative(IOManFile** file, const std::string& file_path, s32 flags, u16 mode)
+		{
+			(void)mode;
 			int native_flags = O_BINARY; // necessary in Windows.
 
 			switch (flags & IOP_O_RDWR)
@@ -411,6 +417,7 @@ namespace R3000A
 		std::string full_path;
 		s32 flags;
 		u16 mode;
+		bool native_asset;
 	};
 
 	std::vector<fileHandle> handles;
@@ -420,6 +427,14 @@ namespace R3000A
 		const int firstfd = 0x100;
 		const int maxfds = 0x100;
 		int openfds = 0;
+
+		fileHandle* findFileHandle(const s32 fd)
+		{
+			const u32 fd_index = static_cast<u32>(fd) - firstfd;
+			const auto handle = std::find_if(handles.begin(), handles.end(),
+				[fd_index](const fileHandle& candidate) { return candidate.fd_index == fd_index; });
+			return handle == handles.end() ? nullptr : &*handle;
+		}
 
 		int freefdcount()
 		{
@@ -591,9 +606,30 @@ namespace R3000A
 			const std::string path = clean_path(Ra0);
 			s32 flags = a1;
 			u16 mode = a2;
-			AVPE::NativeAssets::ObserveIomanOpen(path, static_cast<u32>(flags));
+			const bool read_only = (flags & IOP_O_RDWR) == IOP_O_RDONLY &&
+			                       (flags & (IOP_O_APPEND | IOP_O_CREAT | IOP_O_TRUNC | IOP_O_EXCL)) == 0;
+			const AVPE::NativeAssets::OpenResolution native_asset =
+				AVPE::NativeAssets::ResolveIomanOpen(path, static_cast<u32>(flags), read_only);
+			const bool native_file = native_asset.disposition == AVPE::NativeAssets::OpenDisposition::NativeFile;
+			if (native_asset.disposition != AVPE::NativeAssets::OpenDisposition::Unhandled && !native_file)
+			{
+				switch (native_asset.disposition)
+				{
+					case AVPE::NativeAssets::OpenDisposition::RefusedMissing:
+						v0 = -IOP_ENOENT;
+						break;
+					case AVPE::NativeAssets::OpenDisposition::RefusedAccess:
+						v0 = -IOP_EACCES;
+						break;
+					default:
+						v0 = -IOP_EIO;
+						break;
+				}
+				pc = ra;
+				return 1;
+			}
 
-			if (is_host(path))
+			if (native_file || is_host(path))
 			{
 				if (!freefdcount())
 				{
@@ -602,7 +638,9 @@ namespace R3000A
 					return 1;
 				}
 
-				int err = HostFile::open(&file, path, flags, mode);
+				int err = native_file ?
+				              HostFile::openNative(&file, native_asset.host_path, flags, mode) :
+				              HostFile::open(&file, path, flags, mode);
 
 				if (err != 0 || !file)
 				{
@@ -624,7 +662,10 @@ namespace R3000A
 						handle.flags = flags;
 						handle.full_path = path;
 						handle.mode = mode;
+						handle.native_asset = native_file;
 						handles.push_back(handle);
+						if (native_file)
+							AVPE::NativeAssets::NoteNativeOpen(path);
 					}
 				}
 
@@ -641,6 +682,9 @@ namespace R3000A
 
 			if (getfd<IOManFile>(fd))
 			{
+				const fileHandle* const handle = findFileHandle(fd);
+				const bool native_asset = handle && handle->native_asset;
+				const std::string native_path = native_asset ? handle->full_path : std::string();
 				freefd(fd);
 
 				for (size_t i = 0; i < handles.size(); i++)
@@ -651,6 +695,8 @@ namespace R3000A
 						break;
 					}
 				}
+				if (native_asset)
+					AVPE::NativeAssets::NoteNativeClose(native_path);
 
 				v0 = 0;
 				pc = ra;
@@ -801,6 +847,9 @@ namespace R3000A
 			if (IOManFile* file = getfd<IOManFile>(fd))
 			{
 				v0 = file->lseek(offset, whence);
+				const fileHandle* const handle = findFileHandle(fd);
+				if (handle && handle->native_asset)
+					AVPE::NativeAssets::NoteNativeSeek(handle->full_path);
 				pc = ra;
 				return 1;
 			}
@@ -855,6 +904,9 @@ namespace R3000A
 				auto buf = std::make_unique<char[]>(count);
 
 				v0 = file->read(buf.get(), count);
+				const fileHandle* const handle = findFileHandle(fd);
+				if (handle && handle->native_asset)
+					AVPE::NativeAssets::NoteNativeRead(handle->full_path, count, static_cast<s32>(v0));
 
 				[[likely]]
 				if (v0 >= 0 && iopMemSafeWriteBytes(data, buf.get(), v0))

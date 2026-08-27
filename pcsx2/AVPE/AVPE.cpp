@@ -832,10 +832,47 @@ namespace AVPE
 				body += ',';
 			body += "{\"path\":\"" + json_escape(observation.path) + "\",\"flags\":";
 			body += std::to_string(observation.flags);
-			body += ",\"count\":" + std::to_string(observation.count) + '}';
+			body += ",\"count\":" + std::to_string(observation.count);
+			body += ",\"native_open_count\":" + std::to_string(observation.native_open_count);
+			body += ",\"refused_count\":" + std::to_string(observation.refused_count);
+			body += ",\"read_calls\":" + std::to_string(observation.read_calls);
+			body += ",\"bytes_read\":" + std::to_string(observation.bytes_read);
+			body += ",\"seek_calls\":" + std::to_string(observation.seek_calls);
+			body += ",\"close_count\":" + std::to_string(observation.close_count) + '}';
 		}
 		body += "]}";
 		return lucent::http::Response::json(200, "OK", body);
+	}
+
+	static lucent::http::Response handle_asset_resolve(const std::string& body)
+	{
+		const std::optional<std::string> path = json_string_field(body, "path");
+		const std::optional<std::string> access = json_string_field(body, "access");
+		if (!path || !access || (*access != "read" && *access != "write"))
+			return lucent::http::Response::text(400, "Bad Request", "need path and access=read|write\n");
+		const bool read_only = *access == "read";
+		const NativeAssets::OpenResolution resolution =
+			NativeAssets::ResolveIomanOpen(*path, read_only ? 1 : 2, read_only);
+		const char* disposition = "unhandled";
+		switch (resolution.disposition)
+		{
+			case NativeAssets::OpenDisposition::NativeFile:
+				disposition = "native-file";
+				break;
+			case NativeAssets::OpenDisposition::RefusedMissing:
+				disposition = "refused-missing";
+				break;
+			case NativeAssets::OpenDisposition::RefusedAccess:
+				disposition = "refused-access";
+				break;
+			case NativeAssets::OpenDisposition::RefusedInvalidStore:
+				disposition = "refused-invalid-store";
+				break;
+			default:
+				break;
+		}
+		return lucent::http::Response::json(200, "OK",
+			"{\"disposition\":\"" + std::string(disposition) + "\"}");
 	}
 
 	// GET /snap — current frame as BMP (24-bit), so tooling can SEE the game.
@@ -911,6 +948,8 @@ namespace AVPE
 			return handle_snap();
 		if (req.method == "POST" && path == "/mem/write")
 			return handle_mem_write(req.body);
+		if (req.method == "POST" && path == "/assets/resolve")
+			return handle_asset_resolve(req.body);
 		if (req.method == "POST" && path == "/state/save")
 			return handle_state_save(req.body);
 		if (req.method == "POST" && path == "/state/load")
@@ -939,7 +978,8 @@ namespace AVPE
 			"\"GET /assets/opens\","
 			"\"GET /ee/deferred\","
 			"\"GET /input/menu\",\"GET /input/menu-pointer\","
-			"\"GET /snap\",\"POST /mem/write\",\"POST /state/save\",\"POST /state/load\","
+			"\"GET /snap\",\"POST /mem/write\",\"POST /assets/resolve\","
+			"\"POST /state/save\",\"POST /state/load\","
 			"\"POST /input/press\",\"POST /input/move-absolute\",\"POST /input/mouse-button\","
 			"\"POST /input/menu-action\",\"POST /input/menu-pointer-move\","
 			"\"POST /input/menu-pointer-activate\","
