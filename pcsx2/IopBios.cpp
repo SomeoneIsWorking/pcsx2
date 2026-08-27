@@ -5,6 +5,7 @@
 #include "AVPE/NativeAssets.h"
 #include "AVPE/NativeAssetByteTrace.h"
 #include "AVPE/NativeAssetFile.h"
+#include "AVPE/NativeCdvdCompletion.h"
 #include "AVPE/NativeLoadTiming.h"
 #include "DebugTools/SymbolGuardian.h"
 #include "IopBios.h"
@@ -24,6 +25,7 @@
 #include <cctype>
 #include <cstring>
 #include <fmt/format.h>
+#include <optional>
 #include <sys/stat.h>
 #include <algorithm>
 
@@ -1019,6 +1021,8 @@ namespace R3000A
 
 	namespace cdvdman
 	{
+		constexpr s32 kReadError = 0x30; // CDVD "problem occurred during read".
+
 		struct CdvdFile
 		{
 			u32 lsn;
@@ -1041,6 +1045,17 @@ namespace R3000A
 				psxCpu->Clear(a2, static_cast<u32>((resolution.bytes.size() + 3) / 4));
 				v0 = 1;
 			}
+			AVPE::NativeCdvdCompletion::Record(sp, v0 == 1 ? 0 : kReadError);
+			pc = ra;
+			return 1;
+		}
+
+		int getError_HLE()
+		{
+			const std::optional<s32> error = AVPE::NativeCdvdCompletion::Consume(sp);
+			if (!error)
+				return 0;
+			v0 = *error;
 			pc = ra;
 			return 1;
 		}
@@ -1524,6 +1539,7 @@ namespace R3000A
 		MODULE(cdvdman)
 			EXPORT_H(  6, read)
 			EXPORT_H(  7, seek)
+			EXPORT_H(  8, getError)
 			EXPORT_H( 10, searchFile)
 		END_MODULE
 

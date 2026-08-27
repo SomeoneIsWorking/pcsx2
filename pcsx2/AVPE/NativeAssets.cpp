@@ -4,6 +4,7 @@
 
 #include "AVPE/AVPE.h"
 #include "AVPE/NativeAssetByteTrace.h"
+#include "AVPE/NativeCdvdCompletion.h"
 #include "AVPE/NativeAssetStore.h"
 #include "AVPE/NativeLoadTiming.h"
 #include "VMManager.h"
@@ -423,6 +424,7 @@ namespace AVPE::NativeAssets
 
 	void ResetGuestState()
 	{
+		NativeCdvdCompletion::Reset();
 		std::lock_guard lock(s_cdvd_mutex);
 		s_cdvd_assets.clear();
 		s_next_cdvd_lsn = kNativeCdvdLsnBegin;
