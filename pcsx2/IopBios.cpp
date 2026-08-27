@@ -4,6 +4,7 @@
 #include "Common.h"
 #include "AVPE/NativeAssets.h"
 #include "AVPE/NativeAssetByteTrace.h"
+#include "AVPE/NativeLoadTiming.h"
 #include "DebugTools/SymbolGuardian.h"
 #include "IopBios.h"
 #include "IopMem.h"
@@ -1019,7 +1020,14 @@ namespace R3000A
 
 		int seek_HLE()
 		{
+			AVPE::NativeLoadTiming::NoteCdvdSeek();
 			const AVPE::NativeAssets::CdvdDisposition disposition = AVPE::NativeAssets::ResolveCdvdSeek(a0);
+			AVPE::NativeLoadTiming::Backend backend = AVPE::NativeLoadTiming::Backend::Refused;
+			if (disposition == AVPE::NativeAssets::CdvdDisposition::Complete)
+				backend = AVPE::NativeLoadTiming::Backend::Native;
+			else if (disposition == AVPE::NativeAssets::CdvdDisposition::Unhandled)
+				backend = AVPE::NativeLoadTiming::Backend::Optical;
+			AVPE::NativeLoadTiming::NoteCdvdSeekBackend(backend);
 			if (disposition == AVPE::NativeAssets::CdvdDisposition::Unhandled)
 				return 0;
 			v0 = disposition == AVPE::NativeAssets::CdvdDisposition::Complete ? 1 : 0;

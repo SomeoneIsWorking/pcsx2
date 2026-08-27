@@ -4,6 +4,7 @@
 
 #include "AVPE/AVPE.h"
 #include "AVPE/NativeAssetByteTrace.h"
+#include "AVPE/NativeLoadTiming.h"
 #include "VMManager.h"
 
 #include <algorithm>
@@ -220,9 +221,20 @@ namespace AVPE::NativeAssets
 			NoteRefusal(path);
 			return {.disposition = OpenDisposition::RefusedAccess};
 		}
+		if (*parsed.relative == "TBD/TBF.TBF")
+			NativeLoadTiming::NoteTbfOpen();
 		NativeAssetByteTrace::RegisterOpticalFile(path);
 
 		OpenResolution resolution = ResolveStoreFile(path, false);
+		if (*parsed.relative == "TBD/TBF.TBF")
+		{
+			NativeLoadTiming::Backend backend = NativeLoadTiming::Backend::Refused;
+			if (resolution.disposition == OpenDisposition::NativeFile)
+				backend = NativeLoadTiming::Backend::Native;
+			else if (resolution.disposition == OpenDisposition::Unhandled)
+				backend = NativeLoadTiming::Backend::Optical;
+			NativeLoadTiming::NoteTbfBackend(backend);
+		}
 		if (resolution.disposition != OpenDisposition::NativeFile && resolution.disposition != OpenDisposition::Unhandled)
 			NoteRefusal(path);
 		return resolution;
@@ -233,6 +245,7 @@ namespace AVPE::NativeAssets
 		const std::string guest_path = CdvdGuestPath(path);
 		ObserveOpen(guest_path, 1);
 		const ParsedPath parsed = ParseSupportedPath(guest_path);
+		NativeLoadTiming::NoteCdvdSearch(parsed.relative && *parsed.relative == "STREAMS/MENU01.ZIV");
 		if (parsed.relative)
 			NativeAssetByteTrace::RegisterOpticalFile(guest_path);
 		const OpenResolution file = ResolveStoreFile(guest_path, true);

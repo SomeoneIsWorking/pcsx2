@@ -4,6 +4,7 @@
 #include "AVPE/NativeAssets.h"
 #include "AVPE/NativeAssetByteTrace.h"
 #include "AVPE/NativeInput.h"
+#include "AVPE/NativeLoadTiming.h"
 #include "AVPE/NativeMenuInput.h"
 #include "Config.h"
 #include "Host.h"
@@ -44,6 +45,7 @@ namespace AVPE
 		s_control_test_surface_verified.store(false, std::memory_order_release);
 		NativeAssets::ResetObservation();
 		NativeAssetByteTrace::Reset();
+		NativeLoadTiming::Reset();
 	}
 
 	bool IsSurfacelessControlTest()
@@ -951,6 +953,8 @@ namespace AVPE
 			return handle_asset_opens();
 		if (req.method == "GET" && path == "/assets/byte-trace")
 			return lucent::http::Response::json(200, "OK", NativeAssetByteTrace::SnapshotJson());
+		if (req.method == "GET" && path == "/assets/load-timing")
+			return lucent::http::Response::json(200, "OK", NativeLoadTiming::SnapshotJson());
 		if (req.method == "GET" && path == "/ee/deferred")
 			return handle_ee_deferred();
 		if (req.method == "GET" && path == "/input/menu")
@@ -990,7 +994,7 @@ namespace AVPE
 		lucent::warn("avpe", "no route: {} {}", req.method, path);
 		return lucent::http::Response::json(404, "Not Found",
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
-			"\"GET /assets/opens\",\"GET /assets/byte-trace\","
+			"\"GET /assets/opens\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\","
 			"\"GET /ee/deferred\","
 			"\"GET /input/menu\",\"GET /input/menu-pointer\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /assets/resolve\","

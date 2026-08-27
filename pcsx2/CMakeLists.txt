@@ -93,6 +93,7 @@ set(pcsx2Sources
 	AVPE/GuestObjects.cpp
 	AVPE/NativeAssetByteTrace.cpp
 	AVPE/NativeAssets.cpp
+	AVPE/NativeLoadTiming.cpp
 	AVPE/NativeInput.cpp
 	AVPE/NativeMenuInput.cpp
 	AVPE/NativePointerMotion.cpp
