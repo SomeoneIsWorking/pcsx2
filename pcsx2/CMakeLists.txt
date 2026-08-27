@@ -97,6 +97,7 @@ set(pcsx2Sources
 	AVPE/NativeAssetFile.cpp
 	AVPE/NativeAssetStore.cpp
 	AVPE/NativeAssets.cpp
+	AVPE/NativeCdvdCompletion.cpp
 	AVPE/NativeLoadTiming.cpp
 	AVPE/NativeInput.cpp
 	AVPE/NativeMenuInput.cpp

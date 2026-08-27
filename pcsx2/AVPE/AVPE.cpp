@@ -3,6 +3,7 @@
 #include "AVPE/EECallShuttle.h"
 #include "AVPE/NativeAssets.h"
 #include "AVPE/NativeAssetByteTrace.h"
+#include "AVPE/NativeCdvdCompletion.h"
 #include "AVPE/NativeInput.h"
 #include "AVPE/NativeLoadTiming.h"
 #include "AVPE/NativeMenuInput.h"
@@ -822,12 +823,18 @@ namespace AVPE
 	static lucent::http::Response handle_asset_opens()
 	{
 		const NativeAssets::ObservationSnapshot snapshot = NativeAssets::GetObservationSnapshot();
+		const NativeCdvdCompletion::Snapshot completion = NativeCdvdCompletion::GetSnapshot();
 		std::string body = "{\"enabled\":";
 		body += snapshot.enabled ? "true" : "false";
 		body += ",\"target_recognized\":";
 		body += snapshot.target_recognized ? "true" : "false";
 		body += ",\"total_open_calls\":" + std::to_string(snapshot.total_open_calls);
 		body += ",\"dropped_unique_paths\":" + std::to_string(snapshot.dropped_unique_paths);
+		body += ",\"cdvd_completion\":{\"recorded\":" + std::to_string(completion.recorded);
+		body += ",\"consumed\":" + std::to_string(completion.consumed);
+		body += ",\"consume_misses\":" + std::to_string(completion.consume_misses);
+		body += ",\"rejected_records\":" + std::to_string(completion.rejected_records);
+		body += ",\"active_tokens\":" + std::to_string(completion.active_tokens) + '}';
 		body += ",\"paths\":[";
 		for (size_t index = 0; index < snapshot.paths.size(); ++index)
 		{
