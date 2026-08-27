@@ -2,6 +2,7 @@
 #include "AVPE/AVPE.h"
 #include "AVPE/EECallShuttle.h"
 #include "AVPE/NativeAssets.h"
+#include "AVPE/NativeAssetStateSnapshot.h"
 #include "AVPE/NativeAssetByteTrace.h"
 #include "AVPE/NativeCdvdCompletion.h"
 #include "AVPE/NativeInput.h"
@@ -300,7 +301,9 @@ namespace AVPE
 		if (!path || path->empty())
 			return lucent::http::Response::text(400, "Bad Request", "need path\n");
 		std::string error;
+		std::string native_asset_state;
 		Host::RunOnCPUThread([&]() {
+			native_asset_state = NativeAssetStateSnapshot::CaptureJsonOnCPUThread();
 			VMManager::SaveState(path->c_str(), false, false,
 				[&error](const std::string& err) { error = err; });
 			VMManager::WaitForSaveStateFlush();
@@ -308,8 +311,11 @@ namespace AVPE
 			true);
 		const bool ok = error.empty();
 		lucent::info("avpe", "savestate -> {} ({})", *path, ok ? "ok" : error);
+		const std::string response = ok ?
+		                                 R"({"saved":true,"native_asset_state":)" + native_asset_state + '}' :
+		                                 R"({"saved":false})";
 		return lucent::http::Response::json(ok ? 200 : 500, ok ? "OK" : "Error",
-			ok ? "{\"saved\":true}" : "{\"saved\":false}");
+			response);
 	}
 
 	// POST /state/load {"path":"..."} — runs on the CPU thread, blocking.
@@ -320,18 +326,23 @@ namespace AVPE
 			return lucent::http::Response::text(400, "Bad Request", "need path\n");
 		Error error;
 		bool ok = false;
+		std::string native_asset_state;
 		Host::RunOnCPUThread([&]() {
 			ok = VMManager::LoadState(path->c_str(), &error);
 			if (ok)
 			{
+				native_asset_state = NativeAssetStateSnapshot::CaptureJsonOnCPUThread();
 				EECallShuttle::ResetAfterStateLoad();
 				NativeInput::ResetAfterStateLoad();
 			}
 		},
 			true);
 		lucent::info("avpe", "loadstate {} ({})", *path, ok ? "ok" : error.GetDescription());
+		const std::string response = ok ?
+		                                 R"({"loaded":true,"native_asset_state":)" + native_asset_state + '}' :
+		                                 R"({"loaded":false})";
 		return lucent::http::Response::json(ok ? 200 : 500, ok ? "OK" : "Error",
-			ok ? "{\"loaded\":true}" : "{\"loaded\":false}");
+			response);
 	}
 
 	static lucent::http::Response handle_shutdown()

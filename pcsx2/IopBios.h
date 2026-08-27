@@ -3,6 +3,10 @@
 
 #pragma once
 
+#include <string>
+#include <string_view>
+#include <vector>
+
 #define IOP_ENOENT 2
 #define IOP_EIO 5
 #define IOP_ENOMEM 12
@@ -70,8 +74,16 @@ namespace R3000A
 
 	namespace ioman
 	{
+		struct NativeAssetHandleState
+		{
+			int fd = 0;
+			std::string path;
+			int cursor = 0;
+		};
+
 		void reset();
 		void closeNativeAssetHandles();
+		std::vector<NativeAssetHandleState> getNativeAssetHandleState();
 		bool is_host(const std::string_view path);
 		std::string host_path(const std::string_view path, bool allow_open_host_root);
 	} // namespace ioman
