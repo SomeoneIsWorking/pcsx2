@@ -91,6 +91,7 @@ set(pcsx2Sources
 	AVPE/AVPE.cpp
 	AVPE/EECallShuttle.cpp
 	AVPE/GuestObjects.cpp
+	AVPE/NativeAssets.cpp
 	AVPE/NativeInput.cpp
 	AVPE/NativeMenuInput.cpp
 	AVPE/NativePointerMotion.cpp
