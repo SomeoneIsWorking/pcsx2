@@ -915,8 +915,14 @@ void SYSCALL()
 	else
 		call = cpuRegs.GPR.n.v1.UC[0];
 
-	AVPE::NativeBiosTrace::RecordEeSyscall(call, R5900::bios[call], cpuRegs.GPR.n.a0.UL[0],
-		cpuRegs.GPR.n.a1.UL[0], cpuRegs.GPR.n.a2.UL[0], cpuRegs.GPR.n.a3.UL[0]);
+	const u32 arg0 = cpuRegs.GPR.n.a0.UL[0];
+	const u32 arg1 = cpuRegs.GPR.n.a1.UL[0];
+	const u32 arg2 = cpuRegs.GPR.n.a2.UL[0];
+	const u32 arg3 = cpuRegs.GPR.n.a3.UL[0];
+	const auto record_syscall = [&]() {
+		AVPE::NativeBiosTrace::RecordEeSyscall(call, R5900::bios[call], arg0, arg1, arg2, arg3,
+			static_cast<s32>(cpuRegs.GPR.n.v0.UL[0]));
+	};
 	BIOS_LOG("Bios call: %s (%x)", R5900::bios[call], call);
 
 
@@ -1059,6 +1065,7 @@ void SYSCALL()
 					else
 						memWrite8(memaddr++, configParams2.UC[offset++]);
 				}
+				record_syscall();
 				return;
 			}
 			break;
@@ -1195,6 +1202,7 @@ void SYSCALL()
 			if (CHECK_EXTRAMEM)
 			{
 				cpuRegs.GPR.n.v0.UL[0] = Ps2MemSize::ExposedRam;
+				record_syscall();
 				return;
 			}
 			break;
@@ -1204,6 +1212,7 @@ void SYSCALL()
 			break;
 	}
 
+	record_syscall();
 	cpuRegs.pc -= 4;
 	cpuException(0x20, cpuRegs.branch);
 }
