@@ -12,10 +12,15 @@ namespace AVPE::GuestObjects
 	static constexpr u32 TARGET_STATIC_END = 0x00400000;
 	static constexpr u32 HANDLE_ARRAY = 0x00371020;
 
+	bool ReadBytes(const u32 address, void* const destination, const u32 size)
+	{
+		return vtlb_memSafeReadBytes(address, destination, size);
+	}
+
 	bool ReadWord(const u32 address, u32* value)
 	{
 		std::array<u8, 4> bytes{};
-		if (!vtlb_memSafeReadBytes(address, bytes.data(), bytes.size()))
+		if (!ReadBytes(address, bytes.data(), static_cast<u32>(bytes.size())))
 			return false;
 		*value = static_cast<u32>(bytes[0]) |
 		         (static_cast<u32>(bytes[1]) << 8) |

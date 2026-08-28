@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
+#include "AVPE/NativeMissionLoadTiming.h"
 #include "R5900OpcodeTables.h"
 #include "x86/iR5900.h"
 
@@ -74,6 +75,11 @@ void recJAL()
 void recJR()
 {
 	EE::Profiler.EmitOp(eeOpcode::JR);
+	if (AVPE::NativeMissionLoadTiming::ShouldInstrumentEePc(pc))
+	{
+		iFlushCall(FLUSH_EVERYTHING | FLUSH_PC);
+		xFastCall((void*)AVPE::NativeMissionLoadTiming::ObserveEeExecution, pc);
+	}
 
 	const bool swap = EmuConfig.Gamefixes.GoemonTlbHack ? false : TrySwapDelaySlot(_Rs_, 0, 0, true);
 	if (!swap)

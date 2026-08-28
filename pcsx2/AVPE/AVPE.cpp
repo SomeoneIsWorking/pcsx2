@@ -7,6 +7,7 @@
 #include "AVPE/NativeCdvdCompletion.h"
 #include "AVPE/NativeInput.h"
 #include "AVPE/NativeLoadTiming.h"
+#include "AVPE/NativeMissionLoadTiming.h"
 #include "AVPE/NativeMenuInput.h"
 #include "Config.h"
 #include "Host.h"
@@ -48,6 +49,7 @@ namespace AVPE
 		NativeAssets::ResetObservation();
 		NativeAssetByteTrace::Reset();
 		NativeLoadTiming::Reset();
+		NativeMissionLoadTiming::Reset();
 	}
 
 	bool IsSurfacelessControlTest()
@@ -736,7 +738,20 @@ namespace AVPE
 		if (const auto cycle_budget = json_u32_field(body, "cycle_budget"))
 			request.cycle_budget = *cycle_budget;
 
-		const EECallShuttle::Result result = EECallShuttle::Call(request);
+		const auto stack_argument = json_u32_field(body, "stack_argument");
+		const auto stack_hex = json_string_field(body, "stack_hex");
+		if (stack_argument.has_value() != stack_hex.has_value())
+			return lucent::http::Response::text(400, "Bad Request", "stack_argument and stack_hex must be paired\n");
+		std::vector<u8> stack_bytes;
+		if (stack_hex && (!hex_to_bytes(*stack_hex, &stack_bytes) || stack_bytes.empty()))
+			return lucent::http::Response::text(400, "Bad Request", "stack_hex must contain bytes\n");
+
+		EECallShuttle::Result result;
+		EECallShuttle::RunTransaction([&](EECallShuttle::Transaction& transaction) {
+			result = stack_argument ?
+			             transaction.CallWithStackBuffer(request, *stack_argument, stack_bytes) :
+			             transaction.Call(request);
+		});
 		if (!result.Succeeded())
 		{
 			int status = 500;
@@ -763,11 +778,12 @@ namespace AVPE
 			return lucent::http::Response::text(status, "EE Call Failed", std::string(result.error) + "\n");
 		}
 
-		char response[256];
+		char response[384];
 		std::snprintf(response, sizeof(response),
-			R"({"v0":"0x%016llX","v1":"0x%016llX","stopped_pc":"0x%08X","elapsed_cycles":%llu})",
+			R"({"v0":"0x%016llX","v1":"0x%016llX","stopped_pc":"0x%08X","staging_address":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu})",
 			static_cast<unsigned long long>(result.v0), static_cast<unsigned long long>(result.v1),
-			result.stopped_pc, static_cast<unsigned long long>(result.elapsed_cycles));
+			result.stopped_pc, result.staging_address, result.stack_restored ? "true" : "false",
+			static_cast<unsigned long long>(result.elapsed_cycles));
 		lucent::info("avpe", "EE call {:08x} returned after {} cycles", request.function, result.elapsed_cycles);
 		return lucent::http::Response::json(200, "OK", response);
 	}
@@ -992,6 +1008,8 @@ namespace AVPE
 			return lucent::http::Response::json(200, "OK", NativeAssetByteTrace::SnapshotJson());
 		if (req.method == "GET" && path == "/assets/load-timing")
 			return lucent::http::Response::json(200, "OK", NativeLoadTiming::SnapshotJson());
+		if (req.method == "GET" && path == "/assets/mission-load-timing")
+			return lucent::http::Response::json(200, "OK", NativeMissionLoadTiming::SnapshotJson());
 		if (req.method == "GET" && path == "/ee/deferred")
 			return handle_ee_deferred();
 		if (req.method == "GET" && path == "/input/menu")

@@ -3,12 +3,9 @@
 #include "AVPE/NativeLoadTiming.h"
 
 #include "AVPE/AVPE.h"
-#include "Counters.h"
-#include "R3000A.h"
-#include "R5900.h"
+#include "AVPE/LoadTimingPoint.h"
 #include "VMManager.h"
 
-#include <chrono>
 #include <cstdlib>
 #include <mutex>
 #include <optional>
@@ -22,18 +19,9 @@ namespace AVPE::NativeLoadTiming
 		constexpr std::string_view kTargetSerial = "SLUS-20147";
 		constexpr std::string_view kModeEnvironment = "AVPE_LOAD_TIMING";
 
-		struct Point
-		{
-			u64 ordinal = 0;
-			u64 ee_cycle = 0;
-			u64 iop_cycle = 0;
-			u32 frame = 0;
-			u64 host_time_ns = 0;
-		};
-
 		std::mutex s_mutex;
-		std::optional<Point> s_start;
-		std::optional<Point> s_end;
+		std::optional<LoadTimingPoint::Point> s_start;
+		std::optional<LoadTimingPoint::Point> s_end;
 		u64 s_ordinal = 0;
 		u64 s_sequence_errors = 0;
 		bool s_menu_search_pending = false;
@@ -54,19 +42,6 @@ namespace AVPE::NativeLoadTiming
 			return IsSurfacelessControlTest() && VMManager::GetDiscSerial() == kTargetSerial && Mode().has_value();
 		}
 
-		Point CapturePoint()
-		{
-			const auto host_time = std::chrono::steady_clock::now().time_since_epoch();
-			return {
-				.ordinal = ++s_ordinal,
-				.ee_cycle = cpuRegs.cycle,
-				.iop_cycle = psxRegs.cycle,
-				.frame = g_FrameCount,
-				.host_time_ns = static_cast<u64>(
-					std::chrono::duration_cast<std::chrono::nanoseconds>(host_time).count()),
-			};
-		}
-
 		std::string_view BackendName(const Backend backend)
 		{
 			switch (backend)
@@ -81,7 +56,8 @@ namespace AVPE::NativeLoadTiming
 			return "refused";
 		}
 
-		void AppendPoint(std::string& body, const std::string_view kind, const std::string_view path, const Point& point)
+		void AppendPoint(std::string& body, const std::string_view kind, const std::string_view path,
+			const LoadTimingPoint::Point& point)
 		{
 			body += "{\"kind\":\"" + std::string(kind) + "\",\"path\":\"" + std::string(path) + "\"";
 			body += ",\"ordinal\":" + std::to_string(point.ordinal);
@@ -106,7 +82,7 @@ namespace AVPE::NativeLoadTiming
 			return;
 		std::lock_guard lock(s_mutex);
 		if (!s_start && !s_end)
-			s_start = CapturePoint();
+			s_start = LoadTimingPoint::CaptureNext(s_ordinal);
 	}
 
 	void NoteTbfBackend(const Backend backend)
@@ -158,7 +134,7 @@ namespace AVPE::NativeLoadTiming
 		if (s_end || !s_menu_search_pending)
 			return;
 		s_menu_search_pending = false;
-		s_end = CapturePoint();
+		s_end = LoadTimingPoint::CaptureNext(s_ordinal);
 	}
 
 	std::string SnapshotJson()

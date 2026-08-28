@@ -3,6 +3,7 @@
 
 #include "Common.h"
 #include "AVPE/EECallShuttle.h"
+#include "AVPE/NativeMissionLoadTiming.h"
 #include "R5900OpcodeTables.h"
 #include "VMManager.h"
 #include "Elfheader.h"
@@ -177,6 +178,8 @@ static void execI()
 #endif
 
 	const u32 pc = cpuRegs.pc;
+	if (AVPE::NativeMissionLoadTiming::ShouldInstrumentEePc(pc))
+		AVPE::NativeMissionLoadTiming::ObserveEeExecution(pc);
 	// We need to increase the pc before executing the memRead32. An exception could appears
 	// and it expects the PC counter to be pre-incremented
 	cpuRegs.pc += 4;
