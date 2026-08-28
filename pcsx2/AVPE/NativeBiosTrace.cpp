@@ -133,6 +133,7 @@ namespace AVPE::NativeBiosTrace
 				json += ",\"number\":" + std::to_string(event.number);
 				AppendString(json, "name", event.name);
 				AppendArguments(json, event.arguments);
+				json += ",\"result\":" + std::to_string(event.result);
 			}
 			else if (event.kind == "exception")
 			{
@@ -202,13 +203,14 @@ namespace AVPE::NativeBiosTrace
 	}
 
 	void RecordEeSyscall(const u8 number, const std::string_view name,
-		const u32 a0, const u32 a1, const u32 a2, const u32 a3)
+		const u32 a0, const u32 a1, const u32 a2, const u32 a3, const s32 result)
 	{
 		AddEvent([&](Event& event) {
 			event.kind = "ee_syscall";
 			event.number = number;
 			event.name = name;
 			event.arguments = {a0, a1, a2, a3};
+			event.result = result;
 		});
 	}
 
