@@ -5,6 +5,7 @@
 #include <cmath>
 
 #include "Common.h"
+#include "AVPE/NativeBiosTrace.h"
 #include "R3000A.h"
 #include "Counters.h"
 #include "IopCounters.h"
@@ -683,15 +684,19 @@ static __fi void _cpuTestTarget(int i)
 	if (counters[i].count < counters[i].target)
 		return;
 
+	bool delivered = false;
 	if (counters[i].mode.TargetInterrupt)
 	{
 		EECNT_LOG("EE Counter[%d] TARGET reached - mode=%x, count=%x, target=%x", i, counters[i].mode, counters[i].count, counters[i].target);
 		if (!counters[i].mode.TargetReached)
 		{
 			counters[i].mode.TargetReached = 1;
+			delivered = true;
 			hwIntcIrq(counters[i].interrupt);
 		}
 	}
+	AVPE::NativeBiosTrace::RecordTimer("ee", static_cast<u32>(i), false, counters[i].count,
+		counters[i].target, cpuRegs.cycle, delivered);
 
 	if (counters[i].mode.ZeroReturn)
 		counters[i].count -= counters[i].target; // Reset on target
@@ -704,15 +709,19 @@ static __fi void _cpuTestOverflow(int i)
 	if (counters[i].count <= 0xffff)
 		return;
 
+	bool delivered = false;
 	if (counters[i].mode.OverflowInterrupt)
 	{
 		EECNT_LOG("EE Counter[%d] OVERFLOW - mode=%x, count=%x", i, counters[i].mode, counters[i].count);
 		if (!counters[i].mode.OverflowReached)
 		{
 			counters[i].mode.OverflowReached = 1;
+			delivered = true;
 			hwIntcIrq(counters[i].interrupt);
 		}
 	}
+	AVPE::NativeBiosTrace::RecordTimer("ee", static_cast<u32>(i), true, counters[i].count,
+		counters[i].target, cpuRegs.cycle, delivered);
 
 	// wrap counter back around zero, and enable the future target:
 	counters[i].count -= 0x10000;
