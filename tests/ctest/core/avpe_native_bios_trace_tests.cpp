@@ -60,6 +60,42 @@ TEST(NativeBiosTraceTest, EnforcesBoundedCapacity)
 	EXPECT_EQ(snapshot.find("\"rpc_id\":4096"), std::string::npos);
 }
 
+TEST(NativeBiosTraceTest, CoalescesRepeatedImportIdentity)
+{
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 1, 2, 3, 4, 0, true, false);
+	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 5, 6, 7, 8, -1, true, false);
+
+	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
+	EXPECT_NE(snapshot.find("\"calls\":2"), std::string::npos);
+	EXPECT_EQ(snapshot.find("\"sequence\":2"), std::string::npos);
+}
+
+TEST(NativeBiosTraceTest, CoalescesRepeatedTimerShape)
+{
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	AVPE::NativeBiosTrace::RecordTimer("ee", 1, true, 10, 20, 30, false);
+	AVPE::NativeBiosTrace::RecordTimer("ee", 1, true, 40, 50, 60, false);
+
+	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
+	EXPECT_NE(snapshot.find("\"calls\":2"), std::string::npos);
+	EXPECT_EQ(snapshot.find("\"sequence\":2"), std::string::npos);
+}
+
+TEST(NativeBiosTraceTest, CoalescesRepeatedSyscallAndExceptionIdentity)
+{
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	AVPE::NativeBiosTrace::RecordEeSyscall(122, "sceSifGetReg", 1, 2, 3, 4, 0);
+	AVPE::NativeBiosTrace::RecordEeSyscall(122, "sceSifGetReg", 5, 6, 7, 8, 0);
+	AVPE::NativeBiosTrace::RecordException("ee", 32, 0x1234, false);
+	AVPE::NativeBiosTrace::RecordException("ee", 32, 0x1234, false);
+
+	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
+	EXPECT_NE(snapshot.find("\"calls\":2"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"sequence\":2"), std::string::npos);
+	EXPECT_EQ(snapshot.find("\"sequence\":3"), std::string::npos);
+}
+
 TEST(NativeBiosTraceTest, CaptureDisablesFurtherEvents)
 {
 	AVPE::NativeBiosTrace::SetEnabled(true);

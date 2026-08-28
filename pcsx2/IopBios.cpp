@@ -1654,6 +1654,19 @@ namespace R3000A
 		irxImportLog(iopMemReadString(import_table + 12, 8), index, funcname);
 	}
 
+	void irxImportTrace(u32 import_table, u16 index)
+	{
+		if (!import_table || !AVPE::NativeBiosTrace::IsEnabled())
+			return;
+
+		const std::string libname = iopMemReadString(import_table + 12, 8);
+		const char* funcname = irxImportFuncname(libname, index);
+		const irxHLE hle = irxImportHLE(libname, index);
+		const irxDEBUG debug = irxImportDebug(libname, index);
+		AVPE::NativeBiosTrace::RecordImport(libname, index, funcname ? funcname : "unknown",
+			a0, a1, a2, a3, static_cast<s32>(v0), hle != nullptr, debug != nullptr);
+	}
+
 	int irxImportExec(u32 import_table, u16 index)
 	{
 		if (!import_table)
@@ -1673,8 +1686,12 @@ namespace R3000A
 		int result = 0;
 		if (hle)
 			result = hle();
-		AVPE::NativeBiosTrace::RecordImport(libname, index, funcname ? funcname : "unknown",
-			arguments[0], arguments[1], arguments[2], arguments[3], result, hle != nullptr, debug != nullptr);
+		if (hle || debug)
+		{
+			AVPE::NativeBiosTrace::RecordImport(libname, index, funcname ? funcname : "unknown",
+				arguments[0], arguments[1], arguments[2], arguments[3], static_cast<s32>(v0),
+				hle != nullptr, debug != nullptr);
+		}
 		return result;
 	}
 

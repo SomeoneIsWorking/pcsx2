@@ -9,6 +9,7 @@
 #include "IopBios.h"
 #include "IopHw.h"
 #include "Common.h"
+#include "AVPE/NativeBiosTrace.h"
 #include "common/HeapArray.h"
 #include "VMManager.h"
 
@@ -741,8 +742,18 @@ static void psxRecompileIrxImport()
 	if (hle)
 	{
 		xFastCall((void*)hle);
+		if (AVPE::NativeBiosTrace::IsEnabled())
+		{
+			xPUSH(eax);
+			xFastCall((void*)irxImportTrace, import_table, index);
+			xPOP(eax);
+		}
 		xTEST(eax, eax);
 		xJNZ(iopDispatcherReg);
+	}
+	else if (debug && AVPE::NativeBiosTrace::IsEnabled())
+	{
+		xFastCall((void*)irxImportTrace, import_table, index);
 	}
 }
 
