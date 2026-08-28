@@ -59,3 +59,18 @@ TEST(NativeBiosTraceTest, EnforcesBoundedCapacity)
 	EXPECT_NE(snapshot.find("\"rpc_id\":4095"), std::string::npos);
 	EXPECT_EQ(snapshot.find("\"rpc_id\":4096"), std::string::npos);
 }
+
+TEST(NativeBiosTraceTest, CaptureDisablesFurtherEvents)
+{
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 1, 2, 3, 4, 0, true, false);
+
+	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotAndDisableJson();
+	AVPE::NativeBiosTrace::RecordRpc(99);
+	const std::string after = AVPE::NativeBiosTrace::SnapshotJson();
+
+	EXPECT_NE(snapshot.find("\"enabled\":true"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"kind\":\"import\""), std::string::npos);
+	EXPECT_NE(after.find("\"enabled\":false"), std::string::npos);
+	EXPECT_EQ(after.find("\"rpc_id\":99"), std::string::npos);
+}
