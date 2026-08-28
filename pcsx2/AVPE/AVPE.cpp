@@ -13,6 +13,7 @@
 #include "Host.h"
 #include "Host/AudioStreamTypes.h"
 #include "MTGS.h"
+#include "R5900.h"
 #include "VMManager.h"
 #include "vtlb.h"
 
@@ -842,8 +843,8 @@ namespace AVPE
 		char buf[512];
 		const std::string fifo = LastFifo();
 		std::snprintf(buf, sizeof(buf),
-			R"({"transfers":%u,"lastfifo":"%s","inject":"%04x"})",
-			TransferCount(), fifo.c_str(), ActiveButtonMask());
+			R"({"transfers":%u,"lastfifo":"%s","inject":"%04x","ee_pc":"0x%08X"})",
+			TransferCount(), fifo.c_str(), ActiveButtonMask(), cpuRegs.pc);
 		return lucent::http::Response::json(200, "OK", buf);
 	}
 
