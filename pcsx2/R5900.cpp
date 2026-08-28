@@ -13,6 +13,7 @@
 #include "COP0.h"
 #include "MTVU.h"
 #include "VMManager.h"
+#include "AVPE/NativeBiosTrace.h"
 
 #include "Hardware.h"
 #include "IPU/IPUdma.h"
@@ -94,6 +95,7 @@ void cpuReset()
 
 __ri void cpuException(u32 code, u32 bd)
 {
+	AVPE::NativeBiosTrace::RecordException("ee", code, cpuRegs.pc, bd != 0);
 	bool errLevel2, checkStatus;
 	u32 offset = 0;
 

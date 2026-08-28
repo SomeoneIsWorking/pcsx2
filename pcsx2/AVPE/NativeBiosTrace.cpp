@@ -3,6 +3,7 @@
 #include "AVPE/NativeBiosTrace.h"
 
 #include <array>
+#include <atomic>
 #include <mutex>
 #include <vector>
 
@@ -19,9 +20,12 @@ namespace AVPE::NativeBiosTrace
 			std::string operation;
 			std::string module;
 			std::string name;
+			std::string domain;
 			u16 ordinal = 0;
 			std::array<u32, 4> arguments{};
 			s32 result = 0;
+			u32 code = 0;
+			u32 pc = 0;
 			u8 major = 0;
 			u8 minor = 0;
 			u32 number = 0;
@@ -29,6 +33,7 @@ namespace AVPE::NativeBiosTrace
 			u32 rpc_id = 0;
 			bool hle = false;
 			bool debug = false;
+			bool branch_delay = false;
 		};
 
 		std::mutex s_mutex;
@@ -36,7 +41,7 @@ namespace AVPE::NativeBiosTrace
 		u64 s_next_sequence = 0;
 		u64 s_overflow = 0;
 
-		bool s_enabled = false;
+		std::atomic_bool s_enabled{false};
 
 		std::string JsonEscape(const std::string_view value)
 		{
@@ -72,8 +77,10 @@ namespace AVPE::NativeBiosTrace
 		template <typename Fill>
 		void AddEvent(Fill&& fill)
 		{
+			if (!s_enabled.load(std::memory_order_acquire))
+				return;
 			std::lock_guard lock(s_mutex);
-			if (!s_enabled)
+			if (!s_enabled.load(std::memory_order_relaxed))
 				return;
 			if (s_events.size() >= MaximumEvents)
 			{
@@ -127,6 +134,13 @@ namespace AVPE::NativeBiosTrace
 				AppendString(json, "name", event.name);
 				AppendArguments(json, event.arguments);
 			}
+			else if (event.kind == "exception")
+			{
+				AppendString(json, "domain", event.domain);
+				json += ",\"code\":" + std::to_string(event.code);
+				json += ",\"pc\":" + std::to_string(event.pc);
+				json += ",\"branch_delay\":" + std::string(event.branch_delay ? "true" : "false");
+			}
 			else if (event.kind == "module")
 			{
 				AppendString(json, "operation", event.operation);
@@ -159,7 +173,7 @@ namespace AVPE::NativeBiosTrace
 	void SetEnabled(const bool enabled)
 	{
 		std::lock_guard lock(s_mutex);
-		s_enabled = enabled;
+		s_enabled.store(enabled, std::memory_order_release);
 		s_events.clear();
 		s_next_sequence = 0;
 		s_overflow = 0;
@@ -168,7 +182,7 @@ namespace AVPE::NativeBiosTrace
 	bool IsEnabled()
 	{
 		std::lock_guard lock(s_mutex);
-		return s_enabled;
+		return s_enabled.load(std::memory_order_relaxed);
 	}
 
 	void RecordImport(const std::string_view library, const u16 ordinal, const std::string_view function,
@@ -195,6 +209,18 @@ namespace AVPE::NativeBiosTrace
 			event.number = number;
 			event.name = name;
 			event.arguments = {a0, a1, a2, a3};
+		});
+	}
+
+	void RecordException(const std::string_view domain, const u32 code, const u32 pc,
+		const bool branch_delay)
+	{
+		AddEvent([&](Event& event) {
+			event.kind = "exception";
+			event.domain = domain;
+			event.code = code;
+			event.pc = pc;
+			event.branch_delay = branch_delay;
 		});
 	}
 
@@ -232,7 +258,7 @@ namespace AVPE::NativeBiosTrace
 	{
 		std::lock_guard lock(s_mutex);
 		std::string json = "{\"schema\":\"avpe-bios-trace-v1\",\"enabled\":";
-		json += s_enabled ? "true" : "false";
+		json += s_enabled.load(std::memory_order_relaxed) ? "true" : "false";
 		json += ",\"capacity\":" + std::to_string(MaximumEvents);
 		json += ",\"overflow\":" + std::to_string(s_overflow);
 		json += ",\"events\":[";
