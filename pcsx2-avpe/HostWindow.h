@@ -5,6 +5,7 @@
 
 #include "common/WindowInfo.h"
 
+#include <QtCore/QTimer>
 #include <QtWidgets/QMainWindow>
 
 #include <optional>
@@ -49,6 +50,7 @@ namespace AVPE
 		RenderSurface* m_surface = nullptr;
 		QWidget* m_surface_container = nullptr;
 		HostInputRouter m_input_router;
+		QTimer m_input_timer;
 		bool m_closing = false;
 	};
 

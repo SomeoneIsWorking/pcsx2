@@ -3,9 +3,9 @@
 #include "AVPE/NativePointerMotion.h"
 
 #include "AVPE/GuestObjects.h"
+#include "AVPE/NativeInputData.h"
 
 #include <array>
-#include <bit>
 #include <cmath>
 
 namespace AVPE::NativePointerMotion
@@ -28,21 +28,6 @@ namespace AVPE::NativePointerMotion
 			return false;
 		*value = std::bit_cast<float>(bits);
 		return std::isfinite(*value);
-	}
-
-	static std::array<u8, 8> EncodeCoordinates(const float x, const float y)
-	{
-		const u32 words[] = {std::bit_cast<u32>(x), std::bit_cast<u32>(y)};
-		std::array<u8, 8> bytes{};
-		for (u32 word_index = 0; word_index < 2; ++word_index)
-		{
-			for (u32 byte_index = 0; byte_index < 4; ++byte_index)
-			{
-				bytes[word_index * 4 + byte_index] =
-					static_cast<u8>(words[word_index] >> (byte_index * 8));
-			}
-		}
-		return bytes;
 	}
 
 	bool CoordinatesAreValid(const float normalized_x, const float normalized_y)
@@ -88,7 +73,7 @@ namespace AVPE::NativePointerMotion
 		const float height = static_cast<float>(bounds[3] - bounds[1]);
 		const float screen_x = static_cast<float>(bounds[0]) + normalized_x * (width - 1.0f);
 		const float screen_y = static_cast<float>(bounds[1]) + normalized_y * (height - 1.0f);
-		const std::array<u8, 8> input_data = EncodeCoordinates(screen_x, screen_y);
+		const std::array<u8, 8> input_data = NativeInputData::EncodeFloatPair(screen_x, screen_y);
 
 		EECallShuttle::Request update_request{.function = UPDATE_POSITION_ABSOLUTE};
 		update_request.arguments[0] = pointer;
