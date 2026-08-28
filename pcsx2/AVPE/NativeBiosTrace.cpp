@@ -177,6 +177,26 @@ namespace AVPE::NativeBiosTrace
 			}
 			json += '}';
 		}
+
+		std::string SnapshotJsonLocked(const bool disable_after_snapshot)
+		{
+			const bool enabled = s_enabled.load(std::memory_order_relaxed);
+			if (disable_after_snapshot)
+				s_enabled.store(false, std::memory_order_release);
+			std::string json = "{\"schema\":\"avpe-bios-trace-v1\",\"enabled\":";
+			json += enabled ? "true" : "false";
+			json += ",\"capacity\":" + std::to_string(MaximumEvents);
+			json += ",\"overflow\":" + std::to_string(s_overflow);
+			json += ",\"events\":[";
+			for (size_t i = 0; i < s_events.size(); ++i)
+			{
+				if (i != 0)
+					json += ',';
+				AppendEvent(json, s_events[i]);
+			}
+			json += "]}";
+			return json;
+		}
 	} // namespace
 
 	void Reset()
@@ -290,18 +310,12 @@ namespace AVPE::NativeBiosTrace
 	std::string SnapshotJson()
 	{
 		std::lock_guard lock(s_mutex);
-		std::string json = "{\"schema\":\"avpe-bios-trace-v1\",\"enabled\":";
-		json += s_enabled.load(std::memory_order_relaxed) ? "true" : "false";
-		json += ",\"capacity\":" + std::to_string(MaximumEvents);
-		json += ",\"overflow\":" + std::to_string(s_overflow);
-		json += ",\"events\":[";
-		for (size_t i = 0; i < s_events.size(); ++i)
-		{
-			if (i != 0)
-				json += ',';
-			AppendEvent(json, s_events[i]);
-		}
-		json += "]}";
-		return json;
+		return SnapshotJsonLocked(false);
+	}
+
+	std::string SnapshotAndDisableJson()
+	{
+		std::lock_guard lock(s_mutex);
+		return SnapshotJsonLocked(true);
 	}
 } // namespace AVPE::NativeBiosTrace

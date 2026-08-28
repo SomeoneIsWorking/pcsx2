@@ -976,6 +976,8 @@ namespace AVPE
 			return lucent::http::Response::json(200, "OK", NativeMissionLoadTiming::SnapshotJson());
 		if (req.method == "GET" && path == "/bios/trace")
 			return handle_bios_trace();
+		if (req.method == "POST" && path == "/bios/trace/capture")
+			return lucent::http::Response::json(200, "OK", NativeBiosTrace::SnapshotAndDisableJson());
 		if (req.method == "GET" && path == "/ee/deferred")
 			return handle_ee_deferred();
 		if (req.method == "GET" && path == "/input/menu")
@@ -1019,7 +1021,7 @@ namespace AVPE
 		lucent::warn("avpe", "no route: {} {}", req.method, path);
 		return lucent::http::Response::json(404, "Not Found",
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
-			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\",\"GET /bios/trace\","
+			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\",\"GET /bios/trace\",\"POST /bios/trace/capture\","
 			"\"GET /ee/deferred\","
 			"\"GET /input/menu\",\"GET /input/menu-pointer\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /assets/resolve\","

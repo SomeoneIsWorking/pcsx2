@@ -27,4 +27,5 @@ namespace AVPE::NativeBiosTrace
 	void RecordRpc(u32 rpc_id);
 
 	std::string SnapshotJson();
+	std::string SnapshotAndDisableJson();
 } // namespace AVPE::NativeBiosTrace
