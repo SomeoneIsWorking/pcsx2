@@ -6,6 +6,7 @@
 
 namespace AVPE::GuestObjects
 {
+	bool ReadBytes(u32 address, void* destination, u32 size);
 	bool ReadWord(u32 address, u32* value);
 	bool IsPlausibleAddress(u32 address);
 	bool IsPlausibleObject(u32 address);

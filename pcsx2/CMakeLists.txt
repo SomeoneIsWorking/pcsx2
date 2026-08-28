@@ -92,6 +92,7 @@ set(pcsx2Sources
 	AVPE/AVPE.cpp
 	AVPE/EECallShuttle.cpp
 	AVPE/GuestObjects.cpp
+	AVPE/LoadTimingPoint.cpp
 	AVPE/NativeAssetByteTrace.cpp
 	AVPE/NativeAssetCache.cpp
 	AVPE/NativeAssetFile.cpp
@@ -100,6 +101,7 @@ set(pcsx2Sources
 	AVPE/NativeAssetStateSnapshot.cpp
 	AVPE/NativeCdvdCompletion.cpp
 	AVPE/NativeLoadTiming.cpp
+	AVPE/NativeMissionLoadTiming.cpp
 	AVPE/NativeInput.cpp
 	AVPE/NativeMenuInput.cpp
 	AVPE/NativePointerMotion.cpp

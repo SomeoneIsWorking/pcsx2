@@ -22,8 +22,9 @@ namespace AVPE::EECallShuttle
 	static constexpr u32 TARGET_TEXT_BEGIN = 0x00100000;
 	static constexpr u32 TARGET_TEXT_END = 0x00366D00;
 	static constexpr u64 MAX_CYCLE_BUDGET = 30'000'000;
-	static constexpr u32 GUEST_CALL_FRAME_SIZE = 0x20;
+	static constexpr u32 GUEST_CALL_FRAME_SIZE = 0x40;
 	static constexpr u32 GUEST_ARGUMENT_HOME_SIZE = 0x10;
+	static constexpr u32 GUEST_STACK_BUFFER_SIZE = GUEST_CALL_FRAME_SIZE - GUEST_ARGUMENT_HOME_SIZE;
 	static std::atomic_bool s_faulted{false};
 	static std::atomic_bool s_active{false};
 
@@ -68,7 +69,7 @@ namespace AVPE::EECallShuttle
 	public:
 		bool Stage(const std::span<const u8> bytes)
 		{
-			if (bytes.empty() || bytes.size() > GUEST_CALL_FRAME_SIZE - GUEST_ARGUMENT_HOME_SIZE)
+			if (bytes.empty() || bytes.size() > GUEST_STACK_BUFFER_SIZE)
 				return false;
 
 			const u32 interrupted_sp = cpuRegs.GPR.n.sp.UL[0];
@@ -181,10 +182,10 @@ namespace AVPE::EECallShuttle
 			return Fail(Status::Busy, "a deferred EE call is still running");
 		if (stack_argument.has_value() &&
 			(*stack_argument >= request.arguments.size() || stack_bytes.empty() ||
-				stack_bytes.size() > GUEST_CALL_FRAME_SIZE - GUEST_ARGUMENT_HOME_SIZE))
+				stack_bytes.size() > GUEST_STACK_BUFFER_SIZE))
 		{
 			return Fail(Status::InvalidRequest,
-				"guest stack argument must name a0..a3 and contain at most 16 bytes");
+				"guest stack argument must name a0..a3 and contain at most 48 bytes");
 		}
 		if (!stack_argument.has_value() && !stack_bytes.empty())
 			return Fail(Status::InvalidRequest, "guest stack bytes require an argument index");
