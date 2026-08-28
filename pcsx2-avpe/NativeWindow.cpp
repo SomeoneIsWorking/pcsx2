@@ -69,6 +69,9 @@ namespace AVPE::NativeWindow
 		}
 #endif
 
+		if (!HasRequiredNativeHandles(info))
+			return std::nullopt;
+
 		const qreal scale = [&window]() {
 			if constexpr (std::is_base_of_v<QWidget, T>)
 				return window.devicePixelRatioF();
