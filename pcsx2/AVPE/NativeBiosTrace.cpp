@@ -26,6 +26,10 @@ namespace AVPE::NativeBiosTrace
 			s32 result = 0;
 			u32 code = 0;
 			u32 pc = 0;
+			u32 counter = 0;
+			u64 count = 0;
+			u64 target = 0;
+			u64 cycle = 0;
 			u8 major = 0;
 			u8 minor = 0;
 			u32 number = 0;
@@ -34,6 +38,8 @@ namespace AVPE::NativeBiosTrace
 			bool hle = false;
 			bool debug = false;
 			bool branch_delay = false;
+			bool overflow = false;
+			bool delivered = false;
 		};
 
 		std::mutex s_mutex;
@@ -142,6 +148,16 @@ namespace AVPE::NativeBiosTrace
 				json += ",\"pc\":" + std::to_string(event.pc);
 				json += ",\"branch_delay\":" + std::string(event.branch_delay ? "true" : "false");
 			}
+			else if (event.kind == "timer")
+			{
+				AppendString(json, "domain", event.domain);
+				json += ",\"counter\":" + std::to_string(event.counter);
+				json += ",\"overflow\":" + std::string(event.overflow ? "true" : "false");
+				json += ",\"count\":" + std::to_string(event.count);
+				json += ",\"target\":" + std::to_string(event.target);
+				json += ",\"cycle\":" + std::to_string(event.cycle);
+				json += ",\"delivered\":" + std::string(event.delivered ? "true" : "false");
+			}
 			else if (event.kind == "module")
 			{
 				AppendString(json, "operation", event.operation);
@@ -223,6 +239,21 @@ namespace AVPE::NativeBiosTrace
 			event.code = code;
 			event.pc = pc;
 			event.branch_delay = branch_delay;
+		});
+	}
+
+	void RecordTimer(const std::string_view domain, const u32 index, const bool overflow,
+		const u64 count, const u64 target, const u64 cycle, const bool delivered)
+	{
+		AddEvent([&](Event& event) {
+			event.kind = "timer";
+			event.domain = domain;
+			event.counter = index;
+			event.overflow = overflow;
+			event.count = count;
+			event.target = target;
+			event.cycle = cycle;
+			event.delivered = delivered;
 		});
 	}
 

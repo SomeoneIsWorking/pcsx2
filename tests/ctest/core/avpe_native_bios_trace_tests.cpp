@@ -22,6 +22,7 @@ TEST(NativeBiosTraceTest, RecordsOrderedEventsAndReturnStatus)
 	AVPE::NativeBiosTrace::RecordRpc(0x80000100);
 	AVPE::NativeBiosTrace::RecordEeSyscall(34, "StartThread", 5, 6, 7, 8, -2);
 	AVPE::NativeBiosTrace::RecordException("ee", 8, 0x1000, true);
+	AVPE::NativeBiosTrace::RecordTimer("iop", 2, true, 0x10001, 0xffff, 1234, false);
 	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 1, 2, 3, 4, -1, false, false);
 
 	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
@@ -36,6 +37,10 @@ TEST(NativeBiosTraceTest, RecordsOrderedEventsAndReturnStatus)
 	EXPECT_NE(snapshot.find("\"kind\":\"exception\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"domain\":\"ee\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"branch_delay\":true"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"kind\":\"timer\""), std::string::npos);
+	EXPECT_NE(snapshot.find("\"counter\":2"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"overflow\":true"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"delivered\":false"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"result\":-1"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"hle\":false"), std::string::npos);
 }

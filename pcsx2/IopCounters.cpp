@@ -6,6 +6,7 @@
 // The EventText function will pick it up.
 
 #include "IopCounters.h"
+#include "AVPE/NativeBiosTrace.h"
 #include "R3000A.h"
 #include "Common.h"
 #include "SPU2/spu2.h"
@@ -207,12 +208,14 @@ void psxRcntInit()
 static void _rcntFireInterrupt(int i, bool isOverflow)
 {
 	bool updateIntr = psxCounters[i].currentIrqMode.repeatInterrupt;
+	bool delivered = false;
 
 	if (psxCounters[i].mode.intrEnable)
 	{
 		bool already_set = isOverflow ? psxCounters[i].mode.overflowFlag : psxCounters[i].mode.targetFlag;
 		if (updateIntr || !already_set)
 		{
+			delivered = true;
 			// IRQ fired
 			//DevCon.Warning("Counter %d %s IRQ Fired count %x target %x psx Cycle %d", i, isOverflow ? "Overflow" : "Target", psxCounters[i].count, psxCounters[i].target, psxRegs.cycle);
 			psxHu32(HW_ISTAT) |= psxCounters[i].interrupt;
@@ -234,6 +237,9 @@ static void _rcntFireInterrupt(int i, bool isOverflow)
 			psxCounters[i].mode.intrEnable = false; // Interrupt flag set low
 		}
 	}
+
+	AVPE::NativeBiosTrace::RecordTimer("iop", static_cast<u32>(i), isOverflow,
+		psxCounters[i].count, psxCounters[i].target, psxRegs.cycle, delivered);
 }
 
 static void _rcntTestTarget(int i)

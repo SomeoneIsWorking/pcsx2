@@ -20,6 +20,8 @@ namespace AVPE::NativeBiosTrace
 	void RecordEeSyscall(u8 number, std::string_view name, u32 a0, u32 a1, u32 a2, u32 a3,
 		s32 result);
 	void RecordException(std::string_view domain, u32 code, u32 pc, bool branch_delay);
+	void RecordTimer(std::string_view domain, u32 index, bool overflow, u64 count, u64 target,
+		u64 cycle, bool delivered);
 	void RecordModule(std::string_view module, u8 major, u8 minor, std::string_view operation);
 	void RecordInterrupt(u32 number, std::string_view name, u32 handler);
 	void RecordRpc(u32 rpc_id);
