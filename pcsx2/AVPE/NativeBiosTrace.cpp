@@ -4,6 +4,7 @@
 
 #include <array>
 #include <atomic>
+#include <condition_variable>
 #include <mutex>
 #include <vector>
 
@@ -44,9 +45,12 @@ namespace AVPE::NativeBiosTrace
 		};
 
 		std::mutex s_mutex;
+		std::condition_variable s_capture_condition;
 		std::vector<Event> s_events;
 		u64 s_next_sequence = 0;
 		u64 s_overflow = 0;
+		bool s_capture_requested = false;
+		std::string s_capture_result;
 
 		std::atomic_bool s_enabled{false};
 
@@ -210,6 +214,9 @@ namespace AVPE::NativeBiosTrace
 		s_events.clear();
 		s_next_sequence = 0;
 		s_overflow = 0;
+		s_capture_requested = false;
+		s_capture_result.clear();
+		s_capture_condition.notify_all();
 	}
 
 	void SetEnabled(const bool enabled)
@@ -219,6 +226,9 @@ namespace AVPE::NativeBiosTrace
 		s_events.clear();
 		s_next_sequence = 0;
 		s_overflow = 0;
+		s_capture_requested = false;
+		s_capture_result.clear();
+		s_capture_condition.notify_all();
 	}
 
 	bool IsEnabled()
@@ -405,5 +415,31 @@ namespace AVPE::NativeBiosTrace
 	{
 		std::lock_guard lock(s_mutex);
 		return SnapshotJsonLocked(true);
+	}
+
+	std::string CaptureAtGuestBoundaryJson(const std::chrono::milliseconds timeout)
+	{
+		std::unique_lock lock(s_mutex);
+		if (!s_enabled.load(std::memory_order_relaxed))
+			return {};
+
+		s_capture_requested = true;
+		s_capture_result.clear();
+		if (!s_capture_condition.wait_for(lock, timeout, []() { return !s_capture_requested; }))
+		{
+			s_capture_requested = false;
+			return {};
+		}
+		return std::move(s_capture_result);
+	}
+
+	void OnGuestFrameBoundary()
+	{
+		std::lock_guard lock(s_mutex);
+		if (!s_capture_requested)
+			return;
+		s_capture_result = SnapshotJsonLocked(true);
+		s_capture_requested = false;
+		s_capture_condition.notify_all();
 	}
 } // namespace AVPE::NativeBiosTrace

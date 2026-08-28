@@ -4,6 +4,7 @@
 
 #include "common/Pcsx2Defs.h"
 
+#include <chrono>
 #include <string>
 #include <string_view>
 
@@ -28,4 +29,8 @@ namespace AVPE::NativeBiosTrace
 
 	std::string SnapshotJson();
 	std::string SnapshotAndDisableJson();
+	// Wait for the next guest CPU frame boundary, then atomically capture and disable.
+	// An empty result means no boundary arrived before the deadline.
+	std::string CaptureAtGuestBoundaryJson(std::chrono::milliseconds timeout);
+	void OnGuestFrameBoundary();
 } // namespace AVPE::NativeBiosTrace

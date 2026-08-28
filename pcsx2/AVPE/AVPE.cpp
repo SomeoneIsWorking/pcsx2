@@ -872,6 +872,15 @@ namespace AVPE
 		return lucent::http::Response::json(200, "OK", snapshot);
 	}
 
+	static lucent::http::Response handle_bios_trace_capture_at_guest_boundary()
+	{
+		const std::string snapshot = NativeBiosTrace::CaptureAtGuestBoundaryJson(std::chrono::seconds(5));
+		if (snapshot.empty())
+			return lucent::http::Response::text(504, "Gateway Timeout",
+				"guest CPU frame boundary was not observed before the BIOS trace deadline\n");
+		return lucent::http::Response::json(200, "OK", snapshot);
+	}
+
 	static lucent::http::Response handle_bios_trace_start()
 	{
 		NativeBiosTrace::SetEnabled(true);
@@ -994,6 +1003,8 @@ namespace AVPE
 			return handle_bios_trace_start();
 		if (req.method == "POST" && path == "/bios/trace/capture")
 			return handle_bios_trace_capture();
+		if (req.method == "POST" && path == "/bios/trace/capture-at-guest-boundary")
+			return handle_bios_trace_capture_at_guest_boundary();
 		if (req.method == "GET" && path == "/ee/deferred")
 			return handle_ee_deferred();
 		if (req.method == "GET" && path == "/input/menu")
@@ -1037,7 +1048,7 @@ namespace AVPE
 		lucent::warn("avpe", "no route: {} {}", req.method, path);
 		return lucent::http::Response::json(404, "Not Found",
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
-			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\",\"GET /bios/trace\",\"POST /bios/trace/start\",\"POST /bios/trace/capture\","
+			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\",\"GET /bios/trace\",\"POST /bios/trace/start\",\"POST /bios/trace/capture\",\"POST /bios/trace/capture-at-guest-boundary\","
 			"\"GET /ee/deferred\","
 			"\"GET /input/menu\",\"GET /input/menu-pointer\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /assets/resolve\","
