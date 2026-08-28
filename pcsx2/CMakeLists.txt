@@ -94,6 +94,7 @@ set(pcsx2Sources
 	AVPE/GuestObjects.cpp
 	AVPE/LoadTimingPoint.cpp
 	AVPE/NativeAssetByteTrace.cpp
+	AVPE/NativeBiosTrace.cpp
 	AVPE/NativeAssetCache.cpp
 	AVPE/NativeAssetFile.cpp
 	AVPE/NativeAssetStore.cpp

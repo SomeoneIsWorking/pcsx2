@@ -5,6 +5,7 @@
 #include "AVPE/NativeAssets.h"
 #include "AVPE/NativeAssetByteTrace.h"
 #include "AVPE/NativeAssetFile.h"
+#include "AVPE/NativeBiosTrace.h"
 #include "AVPE/NativeCdvdCompletion.h"
 #include "AVPE/NativeLoadTiming.h"
 #include "DebugTools/SymbolGuardian.h"
@@ -24,6 +25,7 @@
 
 #include <cctype>
 #include <cstring>
+#include <array>
 #include <fmt/format.h>
 #include <optional>
 #include <sys/stat.h>
@@ -1426,9 +1428,12 @@ namespace R3000A
 
 		int RegisterLibraryEntries_HLE()
 		{
+			const std::string modname = iopMemReadString(a0 + 12);
+			const u8 version_major = iopMemRead8(a0 + 9);
+			const u8 version_minor = iopMemRead8(a0 + 8);
+			AVPE::NativeBiosTrace::RecordModule(modname, version_major, version_minor, "register");
 			LoadFuncs(a0);
 
-			const std::string modname = iopMemReadString(a0 + 12);
 			if (modname == "thbase")
 			{
 				const u32 version = iopMemRead32(a0 + 8);
@@ -1441,6 +1446,10 @@ namespace R3000A
 
 		int ReleaseLibraryEntries_HLE()
 		{
+			const std::string modname = iopMemReadString(a0 + 12);
+			const u8 version_major = iopMemRead8(a0 + 9);
+			const u8 version_minor = iopMemRead8(a0 + 8);
+			AVPE::NativeBiosTrace::RecordModule(modname, version_major, version_minor, "release");
 			ReleaseFuncs(a0);
 			return 0;
 		}
@@ -1472,6 +1481,8 @@ namespace R3000A
 
 		void RegisterIntrHandler_DEBUG()
 		{
+			const char* name = a0 < std::size(intrname) - 1 ? intrname[a0] : "unknown";
+			AVPE::NativeBiosTrace::RecordInterrupt(a0, name, a2);
 			if (a0 < std::size(intrname) - 1)
 			{
 				DevCon.WriteLn(Color_Gray, "RegisterIntrHandler: intr %s, handler %x", intrname[a0], a2);
@@ -1487,6 +1498,7 @@ namespace R3000A
 	{
 		void sceSifRegisterRpc_DEBUG()
 		{
+			AVPE::NativeBiosTrace::RecordRpc(a1);
 			DevCon.WriteLn(Color_Gray, "sifcmd sceSifRegisterRpc: rpc_id %x", a1);
 		}
 	} // namespace sifcmd
@@ -1651,16 +1663,19 @@ namespace R3000A
 		const char* funcname = irxImportFuncname(libname, index);
 		irxHLE hle = irxImportHLE(libname, index);
 		irxDEBUG debug = irxImportDebug(libname, index);
+		const std::array<u32, 4> arguments = {a0, a1, a2, a3};
 
 		irxImportLog(libname, index, funcname);
 
 		if (debug)
 			debug();
 
+		int result = 0;
 		if (hle)
-			return hle();
-		else
-			return 0;
+			result = hle();
+		AVPE::NativeBiosTrace::RecordImport(libname, index, funcname ? funcname : "unknown",
+			arguments[0], arguments[1], arguments[2], arguments[3], result, hle != nullptr, debug != nullptr);
+		return result;
 	}
 
 } // end namespace R3000A
