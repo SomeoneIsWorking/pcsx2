@@ -20,6 +20,7 @@ TEST(NativeBiosTraceTest, RecordsOrderedEventsAndReturnStatus)
 	AVPE::NativeBiosTrace::RecordModule("ioman", 2, 0, "register");
 	AVPE::NativeBiosTrace::RecordInterrupt(0, "INT_VBLANK", 0x1234);
 	AVPE::NativeBiosTrace::RecordRpc(0x80000100);
+	AVPE::NativeBiosTrace::RecordEeSyscall(34, "StartThread", 5, 6, 7, 8);
 	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 1, 2, 3, 4, -1, false, false);
 
 	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
@@ -27,6 +28,9 @@ TEST(NativeBiosTraceTest, RecordsOrderedEventsAndReturnStatus)
 	EXPECT_NE(snapshot.find("\"kind\":\"module\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"kind\":\"interrupt\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"kind\":\"rpc\""), std::string::npos);
+	EXPECT_NE(snapshot.find("\"kind\":\"ee_syscall\""), std::string::npos);
+	EXPECT_NE(snapshot.find("\"name\":\"StartThread\""), std::string::npos);
+	EXPECT_NE(snapshot.find("\"arguments\":[5,6,7,8]"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"result\":-1"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"hle\":false"), std::string::npos);
 }
