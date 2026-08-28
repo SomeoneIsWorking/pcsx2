@@ -14,6 +14,8 @@
 #include "pcsx2/MTGS.h"
 #include "pcsx2/VMManager.h"
 
+#include "AVPE/NativeBiosTrace.h"
+
 #include "common/ProgressCallback.h"
 
 #include <lucent/log.h>
@@ -214,7 +216,8 @@ void Host::OnSaveStateLoading(const std::string_view filename)
 void Host::OnSaveStateLoaded(const std::string_view filename, const bool was_successful)
 {
 	(void)filename;
-	(void)was_successful;
+	if (was_successful)
+		AVPE::NativeBiosTrace::Reset();
 }
 
 void Host::OnSaveStateSaved(const std::string_view filename)
