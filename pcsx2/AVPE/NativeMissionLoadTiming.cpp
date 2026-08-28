@@ -26,10 +26,10 @@ namespace AVPE::NativeMissionLoadTiming
 		constexpr std::string_view kMissionTarget = "mission";
 		constexpr std::string_view kMissionPath = "M01/background.tbd";
 		constexpr u32 kShellLoadLevelPc = 0x0016F910;
-		// Grounded post-return loop entry: MainLoop calls ShellLoadLevel at
-		// 0x16f784 and begins its next iteration at 0x16f744 after the call
-		// returns. This avoids delay-slot and recompiler return-block edges.
-		constexpr u32 kShellLoadLevelReturnPc = 0x0016F744;
+		// Grounded post-load boundary: ShellLoadLevel calls CTbdFile::Load at
+		// 0x16fa44 and resumes at 0x16fa4c. This is the first ordinary
+		// instruction after the actual mission archive load returns.
+		constexpr u32 kShellLoadLevelReturnPc = 0x0016FA4C;
 		constexpr u32 kShellSingletonAddress = 0x003672F0;
 
 		std::mutex s_mutex;
