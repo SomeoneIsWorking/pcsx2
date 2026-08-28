@@ -17,6 +17,7 @@ namespace AVPE::NativeBiosTrace
 
 	void RecordImport(std::string_view library, u16 ordinal, std::string_view function,
 		u32 a0, u32 a1, u32 a2, u32 a3, s32 result, bool hle, bool debug);
+	void RecordEeSyscall(u8 number, std::string_view name, u32 a0, u32 a1, u32 a2, u32 a3);
 	void RecordModule(std::string_view module, u8 major, u8 minor, std::string_view operation);
 	void RecordInterrupt(u32 number, std::string_view name, u32 handler);
 	void RecordRpc(u32 rpc_id);

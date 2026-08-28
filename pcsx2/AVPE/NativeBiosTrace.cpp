@@ -95,6 +95,18 @@ namespace AVPE::NativeBiosTrace
 			json += '"';
 		}
 
+		void AppendArguments(std::string& json, const std::array<u32, 4>& arguments)
+		{
+			json += ",\"arguments\":[";
+			for (u32 i = 0; i < arguments.size(); ++i)
+			{
+				if (i != 0)
+					json += ',';
+				json += std::to_string(arguments[i]);
+			}
+			json += ']';
+		}
+
 		void AppendEvent(std::string& json, const Event& event)
 		{
 			json += "{\"sequence\":" + std::to_string(event.sequence);
@@ -104,16 +116,16 @@ namespace AVPE::NativeBiosTrace
 				AppendString(json, "library", event.library);
 				json += ",\"ordinal\":" + std::to_string(event.ordinal);
 				AppendString(json, "function", event.function);
-				json += ",\"arguments\":[";
-				for (u32 i = 0; i < event.arguments.size(); ++i)
-				{
-					if (i != 0)
-						json += ',';
-					json += std::to_string(event.arguments[i]);
-				}
-				json += "],\"result\":" + std::to_string(event.result);
+				AppendArguments(json, event.arguments);
+				json += ",\"result\":" + std::to_string(event.result);
 				json += ",\"hle\":" + std::string(event.hle ? "true" : "false");
 				json += ",\"debug\":" + std::string(event.debug ? "true" : "false");
+			}
+			else if (event.kind == "ee_syscall")
+			{
+				json += ",\"number\":" + std::to_string(event.number);
+				AppendString(json, "name", event.name);
+				AppendArguments(json, event.arguments);
 			}
 			else if (event.kind == "module")
 			{
@@ -172,6 +184,17 @@ namespace AVPE::NativeBiosTrace
 			event.result = result;
 			event.hle = hle;
 			event.debug = debug;
+		});
+	}
+
+	void RecordEeSyscall(const u8 number, const std::string_view name,
+		const u32 a0, const u32 a1, const u32 a2, const u32 a3)
+	{
+		AddEvent([&](Event& event) {
+			event.kind = "ee_syscall";
+			event.number = number;
+			event.name = name;
+			event.arguments = {a0, a1, a2, a3};
 		});
 	}
 

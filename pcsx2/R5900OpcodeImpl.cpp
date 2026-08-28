@@ -13,6 +13,7 @@
 #include "DebugTools/Breakpoints.h"
 #include "Host.h"
 #include "VMManager.h"
+#include "AVPE/NativeBiosTrace.h"
 
 #include "fmt/format.h"
 
@@ -914,6 +915,8 @@ void SYSCALL()
 	else
 		call = cpuRegs.GPR.n.v1.UC[0];
 
+	AVPE::NativeBiosTrace::RecordEeSyscall(call, R5900::bios[call], cpuRegs.GPR.n.a0.UL[0],
+		cpuRegs.GPR.n.a1.UL[0], cpuRegs.GPR.n.a2.UL[0], cpuRegs.GPR.n.a3.UL[0]);
 	BIOS_LOG("Bios call: %s (%x)", R5900::bios[call], call);
 
 
