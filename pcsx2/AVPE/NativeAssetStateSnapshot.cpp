@@ -67,7 +67,8 @@ namespace AVPE::NativeAssetStateSnapshot
 		const u32 next_lsn = NativeAssets::GetNextCdvdLsn();
 		const NativeCdvdCompletion::Snapshot completion = NativeCdvdCompletion::GetSnapshot();
 
-		std::string body = "{\"descriptors\":[";
+		std::string body = "{\"guest_reset_epoch\":" +
+		                   std::to_string(NativeAssets::GetGuestResetEpoch()) + ",\"descriptors\":[";
 		for (std::size_t index = 0; index < descriptors.size(); ++index)
 		{
 			if (index != 0)

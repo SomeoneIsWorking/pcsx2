@@ -6,6 +6,7 @@
 #include "AVPE/NativeAssetByteTrace.h"
 #include "AVPE/NativeCdvdCompletion.h"
 #include "AVPE/NativeInput.h"
+#include "AVPE/NativeGuestReset.h"
 #include "AVPE/NativeLoadTiming.h"
 #include "AVPE/NativeMissionLoadTiming.h"
 #include "AVPE/NativeMenuInput.h"
@@ -1025,6 +1026,8 @@ namespace AVPE
 			return handle_asset_resolve(req.body);
 		if (req.method == "POST" && path == "/assets/capture-iso-oracle")
 			return handle_asset_oracle_capture();
+		if (req.method == "POST" && path == "/guest/reset")
+			return NativeGuestReset::Handle();
 		if (req.method == "POST" && path == "/state/save")
 			return handle_state_save(req.body);
 		if (req.method == "POST" && path == "/state/load")
@@ -1055,6 +1058,7 @@ namespace AVPE
 			"\"GET /input/menu\",\"GET /input/menu-pointer\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /assets/resolve\","
 			"\"POST /assets/capture-iso-oracle\","
+			"\"POST /guest/reset\","
 			"\"POST /state/save\",\"POST /state/load\","
 			"\"POST /input/press\",\"POST /input/move-absolute\",\"POST /input/mouse-button\","
 			"\"POST /input/menu-action\",\"POST /input/menu-pointer-move\","

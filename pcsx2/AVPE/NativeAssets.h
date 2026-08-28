@@ -97,6 +97,8 @@ namespace AVPE::NativeAssets
 	CacheSnapshot GetCacheSnapshot();
 	void DropCache();
 	void ResetGuestState();
+	void RecordGuestReset();
+	u64 GetGuestResetEpoch();
 	void UnbindStore();
 	void NoteOriginalFallback(std::string_view path);
 	void NoteCdvdOriginalFallback(std::string_view path);
