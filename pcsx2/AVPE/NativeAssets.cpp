@@ -46,6 +46,7 @@ namespace AVPE::NativeAssets
 		};
 		std::vector<CdvdAsset> s_cdvd_assets;
 		u32 s_next_cdvd_lsn = kNativeCdvdLsnBegin;
+		u64 s_guest_reset_epoch = 0;
 		struct ParsedPath
 		{
 			bool supported_namespace = false;
@@ -428,6 +429,16 @@ namespace AVPE::NativeAssets
 		std::lock_guard lock(s_cdvd_mutex);
 		s_cdvd_assets.clear();
 		s_next_cdvd_lsn = kNativeCdvdLsnBegin;
+	}
+
+	void RecordGuestReset()
+	{
+		++s_guest_reset_epoch;
+	}
+
+	u64 GetGuestResetEpoch()
+	{
+		return s_guest_reset_epoch;
 	}
 
 	void UnbindStore()

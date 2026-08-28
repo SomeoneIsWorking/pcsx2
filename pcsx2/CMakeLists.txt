@@ -100,6 +100,7 @@ set(pcsx2Sources
 	AVPE/NativeAssets.cpp
 	AVPE/NativeAssetStateSnapshot.cpp
 	AVPE/NativeCdvdCompletion.cpp
+	AVPE/NativeGuestReset.cpp
 	AVPE/NativeLoadTiming.cpp
 	AVPE/NativeMissionLoadTiming.cpp
 	AVPE/NativeInput.cpp

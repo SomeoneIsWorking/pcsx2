@@ -53,6 +53,7 @@ void psxReset()
 	PSXCLK = 36864000;
 	ioman::reset();
 	AVPE::NativeAssets::ResetGuestState();
+	AVPE::NativeAssets::RecordGuestReset();
 	psxBiosReset();
 }
 
