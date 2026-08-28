@@ -14,6 +14,7 @@
 #include <QtGui/QGuiApplication>
 #include <QtGui/QKeyEvent>
 #include <QtGui/QMouseEvent>
+#include <QtGui/QWheelEvent>
 #include <QtWidgets/QWidget>
 
 #include <algorithm>
@@ -30,6 +31,10 @@ namespace AVPE
 		g_host_window = this;
 		setWindowTitle(QStringLiteral("Aliens Versus Predator: Extinction"));
 		resize(960, 672);
+		m_input_timer.setInterval(16);
+		m_input_timer.setTimerType(Qt::PreciseTimer);
+		connect(&m_input_timer, &QTimer::timeout, this, [this]() { m_input_router.Tick(); });
+		m_input_timer.start();
 		m_backend.ConnectWindow(*this);
 	}
 
@@ -168,6 +173,13 @@ namespace AVPE
 					return m_input_router.HandlePointerButton(
 						*button, event->type() == QEvent::MouseButtonPress);
 				}
+			}
+			if (watched == m_surface && event->type() == QEvent::Wheel)
+			{
+				const QWheelEvent* const wheel_event = static_cast<QWheelEvent*>(event);
+				const float steps = static_cast<float>(wheel_event->angleDelta().y()) / 120.0f;
+				if (m_input_router.HandleWheel(steps))
+					return true;
 			}
 		}
 		return QMainWindow::eventFilter(watched, event);

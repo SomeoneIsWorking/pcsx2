@@ -104,6 +104,10 @@ set(pcsx2Sources
 	AVPE/NativeLoadTiming.cpp
 	AVPE/NativeMissionLoadTiming.cpp
 	AVPE/NativeInput.cpp
+	AVPE/NativeInputData.cpp
+	AVPE/NativeCameraInput.cpp
+	AVPE/NativeCameraRoute.cpp
+	AVPE/HttpJson.cpp
 	AVPE/NativeMenuInput.cpp
 	AVPE/NativePointerMotion.cpp
 	Mdec.cpp

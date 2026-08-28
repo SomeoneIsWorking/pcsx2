@@ -6,6 +6,8 @@
 #include "AVPE/NativeAssetByteTrace.h"
 #include "AVPE/NativeCdvdCompletion.h"
 #include "AVPE/NativeInput.h"
+#include "AVPE/NativeCameraRoute.h"
+#include "AVPE/HttpJson.h"
 #include "AVPE/NativeGuestReset.h"
 #include "AVPE/NativeLoadTiming.h"
 #include "AVPE/NativeMissionLoadTiming.h"
@@ -199,25 +201,6 @@ namespace AVPE
 		return escaped;
 	}
 
-	// Minimal JSON string-field extractor: finds "key":"value" (no escapes).
-	static std::optional<std::string> json_string_field(const std::string& body, const std::string& key)
-	{
-		const std::string needle = "\"" + key + "\"";
-		size_t p = body.find(needle);
-		if (p == std::string::npos)
-			return std::nullopt;
-		p = body.find(':', p + needle.size());
-		if (p == std::string::npos)
-			return std::nullopt;
-		p = body.find('"', p + 1);
-		if (p == std::string::npos)
-			return std::nullopt;
-		const size_t e = body.find('"', p + 1);
-		if (e == std::string::npos)
-			return std::nullopt;
-		return body.substr(p + 1, e - p - 1);
-	}
-
 	// ------------------------------------------------------------- handlers
 
 	static lucent::http::Response handle_status()
@@ -282,8 +265,8 @@ namespace AVPE
 	// POST /mem/write {"addr":"0x...","hex":"aabbcc"}
 	static lucent::http::Response handle_mem_write(const std::string& body)
 	{
-		const auto addrs = json_string_field(body, "addr");
-		const auto hexs = json_string_field(body, "hex");
+		const auto addrs = HttpJson::StringField(body, "addr");
+		const auto hexs = HttpJson::StringField(body, "hex");
 		if (!addrs || !hexs)
 			return lucent::http::Response::text(400, "Bad Request", "need addr+hex\n");
 		u32 addr = 0;
@@ -301,7 +284,7 @@ namespace AVPE
 	// POST /state/save {"path":"..."} — runs on the CPU thread, blocking.
 	static lucent::http::Response handle_state_save(const std::string& body)
 	{
-		const auto path = json_string_field(body, "path");
+		const auto path = HttpJson::StringField(body, "path");
 		if (!path || path->empty())
 			return lucent::http::Response::text(400, "Bad Request", "need path\n");
 		std::string error;
@@ -325,7 +308,7 @@ namespace AVPE
 	// POST /state/load {"path":"..."} — runs on the CPU thread, blocking.
 	static lucent::http::Response handle_state_load(const std::string& body)
 	{
-		const auto path = json_string_field(body, "path");
+		const auto path = HttpJson::StringField(body, "path");
 		if (!path || path->empty())
 			return lucent::http::Response::text(400, "Bad Request", "need path\n");
 		Error error;
@@ -390,7 +373,7 @@ namespace AVPE
 			++p;
 		if (p < body.size() && body[p] == '"')
 		{
-			const auto s = json_string_field(body, key);
+			const auto s = HttpJson::StringField(body, key);
 			if (!s)
 				return std::nullopt;
 			u32 qv = 0;
@@ -414,34 +397,6 @@ namespace AVPE
 		return v;
 	}
 
-	static std::optional<float> json_float_field(const std::string& body, const std::string& key)
-	{
-		const std::string needle = "\"" + key + "\"";
-		size_t position = body.find(needle);
-		if (position == std::string::npos)
-			return std::nullopt;
-		position = body.find(':', position + needle.size());
-		if (position == std::string::npos)
-			return std::nullopt;
-		++position;
-		while (position < body.size() && (body[position] == ' ' || body[position] == '\t'))
-			++position;
-		if (position >= body.size())
-			return std::nullopt;
-
-		const char* const start = body.c_str() + position;
-		char* end = nullptr;
-		errno = 0;
-		const float value = std::strtof(start, &end);
-		if (end == start || errno == ERANGE || !std::isfinite(value))
-			return std::nullopt;
-		while (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n')
-			++end;
-		if (*end != ',' && *end != '}')
-			return std::nullopt;
-		return value;
-	}
-
 	// POST /input/press {"mask":512,"ms":250} — PadDualshock2::Inputs bit space.
 	static lucent::http::Response handle_input_press(const std::string& body)
 	{
@@ -457,8 +412,8 @@ namespace AVPE
 
 	static lucent::http::Response handle_input_move_absolute(const std::string& body)
 	{
-		const auto x = json_float_field(body, "x");
-		const auto y = json_float_field(body, "y");
+		const auto x = HttpJson::FloatField(body, "x");
+		const auto y = HttpJson::FloatField(body, "y");
 		if (!x || !y)
 			return lucent::http::Response::text(400, "Bad Request", "need finite numeric x+y\n");
 
@@ -496,8 +451,8 @@ namespace AVPE
 
 	static lucent::http::Response handle_input_mouse_button(const std::string& body)
 	{
-		const auto button_name = json_string_field(body, "button");
-		const auto edge_name = json_string_field(body, "edge");
+		const auto button_name = HttpJson::StringField(body, "button");
+		const auto edge_name = HttpJson::StringField(body, "edge");
 		if (!button_name || !edge_name)
 			return lucent::http::Response::text(400, "Bad Request", "need button+edge\n");
 
@@ -548,7 +503,7 @@ namespace AVPE
 
 	static lucent::http::Response handle_input_menu_action(const std::string& body)
 	{
-		const auto action_name = json_string_field(body, "action");
+		const auto action_name = HttpJson::StringField(body, "action");
 		if (!action_name)
 			return lucent::http::Response::text(400, "Bad Request", "need action\n");
 
@@ -666,8 +621,8 @@ namespace AVPE
 
 	static lucent::http::Response handle_input_menu_pointer_move(const std::string& body)
 	{
-		const auto x = json_float_field(body, "x");
-		const auto y = json_float_field(body, "y");
+		const auto x = HttpJson::FloatField(body, "x");
+		const auto y = HttpJson::FloatField(body, "y");
 		if (!x || !y)
 			return lucent::http::Response::text(400, "Bad Request", "need finite numeric x+y\n");
 
@@ -741,7 +696,7 @@ namespace AVPE
 			request.cycle_budget = *cycle_budget;
 
 		const auto stack_argument = json_u32_field(body, "stack_argument");
-		const auto stack_hex = json_string_field(body, "stack_hex");
+		const auto stack_hex = HttpJson::StringField(body, "stack_hex");
 		if (stack_argument.has_value() != stack_hex.has_value())
 			return lucent::http::Response::text(400, "Bad Request", "stack_argument and stack_hex must be paired\n");
 		std::vector<u8> stack_bytes;
@@ -800,7 +755,7 @@ namespace AVPE
 		if (!parse_u32_hex(query_param(req, "end"), &end) || end <= start ||
 			end - start > 0x400000)
 			return lucent::http::Response::text(400, "Bad Request", "bad end (range<=4MiB)\n");
-		const auto hexs = json_string_field(req.body, "hex");
+		const auto hexs = HttpJson::StringField(req.body, "hex");
 		std::vector<u8> pat;
 		const std::string qpat = query_param(req, "hex");
 		if (!hex_to_bytes(!qpat.empty() ? qpat : (hexs ? *hexs : ""), &pat) ||
@@ -904,8 +859,8 @@ namespace AVPE
 
 	static lucent::http::Response handle_asset_resolve(const std::string& body)
 	{
-		const std::optional<std::string> path = json_string_field(body, "path");
-		const std::optional<std::string> access = json_string_field(body, "access");
+		const std::optional<std::string> path = HttpJson::StringField(body, "path");
+		const std::optional<std::string> access = HttpJson::StringField(body, "access");
 		if (!path || !access || (*access != "read" && *access != "write"))
 			return lucent::http::Response::text(400, "Bad Request", "need path and access=read|write\n");
 		const bool read_only = *access == "read";
@@ -1038,6 +993,8 @@ namespace AVPE
 			return handle_input_move_absolute(req.body);
 		if (req.method == "POST" && path == "/input/mouse-button")
 			return handle_input_mouse_button(req.body);
+		if (req.method == "POST" && path == "/input/camera")
+			return NativeCameraRoute::Handle(req.body);
 		if (req.method == "POST" && path == "/input/menu-action")
 			return handle_input_menu_action(req.body);
 		if (req.method == "POST" && path == "/input/menu-pointer-move")
@@ -1060,7 +1017,7 @@ namespace AVPE
 			"\"POST /assets/capture-iso-oracle\","
 			"\"POST /guest/reset\","
 			"\"POST /state/save\",\"POST /state/load\","
-			"\"POST /input/press\",\"POST /input/move-absolute\",\"POST /input/mouse-button\","
+			"\"POST /input/press\",\"POST /input/move-absolute\",\"POST /input/mouse-button\",\"POST /input/camera\","
 			"\"POST /input/menu-action\",\"POST /input/menu-pointer-move\","
 			"\"POST /input/menu-pointer-activate\","
 			"\"POST /ee/call\",\"POST /shutdown\"]}");
