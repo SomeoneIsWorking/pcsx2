@@ -490,6 +490,7 @@ static __fi void VSyncStart(u64 sCycle)
 	// End-of-frame tasks.
 	DoFMVSwitch();
 	VMManager::Internal::VSyncOnCPUThread();
+	AVPE::NativeBiosTrace::OnGuestFrameBoundary();
 
 	// Don't bother throttling if we're going to pause.
 	if (!VMManager::Internal::IsExecutionInterrupted())

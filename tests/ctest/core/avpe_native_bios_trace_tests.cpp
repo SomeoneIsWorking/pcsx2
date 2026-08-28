@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <string>
 
 TEST(NativeBiosTraceTest, DisabledTraceDoesNotRetainEvents)
@@ -109,4 +110,28 @@ TEST(NativeBiosTraceTest, CaptureDisablesFurtherEvents)
 	EXPECT_NE(snapshot.find("\"kind\":\"import\""), std::string::npos);
 	EXPECT_NE(after.find("\"enabled\":false"), std::string::npos);
 	EXPECT_EQ(after.find("\"rpc_id\":99"), std::string::npos);
+}
+
+TEST(NativeBiosTraceTest, GuestBoundaryCaptureTimesOutWithoutBoundary)
+{
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	AVPE::NativeBiosTrace::RecordRpc(7);
+
+	const std::string snapshot = AVPE::NativeBiosTrace::CaptureAtGuestBoundaryJson(
+		std::chrono::milliseconds(1));
+
+	EXPECT_TRUE(snapshot.empty());
+	EXPECT_NE(AVPE::NativeBiosTrace::SnapshotJson().find("\"rpc_id\":7"), std::string::npos);
+}
+
+TEST(NativeBiosTraceTest, GuestBoundaryWithoutRequestPreservesTrace)
+{
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	AVPE::NativeBiosTrace::RecordRpc(7);
+	AVPE::NativeBiosTrace::OnGuestFrameBoundary();
+
+	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
+
+	EXPECT_NE(snapshot.find("\"enabled\":true"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"rpc_id\":7"), std::string::npos);
 }
