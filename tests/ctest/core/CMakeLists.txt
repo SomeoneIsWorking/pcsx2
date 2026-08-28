@@ -1,5 +1,6 @@
 add_pcsx2_test(core_test
 	avpe_native_cdvd_completion_tests.cpp
+	avpe_native_bios_trace_tests.cpp
 	avpe_native_asset_store_tests.cpp
 	patch_tests.cpp
 	MockMemoryInterface.h

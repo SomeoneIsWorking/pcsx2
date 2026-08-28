@@ -1,0 +1,25 @@
+// AVP:E BIOS/IOP observation trace. Fork-local; not for upstream PCSX2.
+
+#pragma once
+
+#include "common/Pcsx2Defs.h"
+
+#include <string>
+#include <string_view>
+
+namespace AVPE::NativeBiosTrace
+{
+	constexpr u32 MaximumEvents = 4096;
+
+	void Reset();
+	void SetEnabled(bool enabled);
+	bool IsEnabled();
+
+	void RecordImport(std::string_view library, u16 ordinal, std::string_view function,
+		u32 a0, u32 a1, u32 a2, u32 a3, s32 result, bool hle, bool debug);
+	void RecordModule(std::string_view module, u8 major, u8 minor, std::string_view operation);
+	void RecordInterrupt(u32 number, std::string_view name, u32 handler);
+	void RecordRpc(u32 rpc_id);
+
+	std::string SnapshotJson();
+} // namespace AVPE::NativeBiosTrace

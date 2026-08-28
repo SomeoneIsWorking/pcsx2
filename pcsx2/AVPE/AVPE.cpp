@@ -4,6 +4,7 @@
 #include "AVPE/NativeAssets.h"
 #include "AVPE/NativeAssetStateSnapshot.h"
 #include "AVPE/NativeAssetByteTrace.h"
+#include "AVPE/NativeBiosTrace.h"
 #include "AVPE/NativeCdvdCompletion.h"
 #include "AVPE/NativeInput.h"
 #include "AVPE/NativeCameraRoute.h"
@@ -54,6 +55,7 @@ namespace AVPE
 		NativeAssetByteTrace::Reset();
 		NativeLoadTiming::Reset();
 		NativeMissionLoadTiming::Reset();
+		NativeBiosTrace::SetEnabled(enabled);
 	}
 
 	bool IsSurfacelessControlTest()
@@ -857,6 +859,11 @@ namespace AVPE
 		return lucent::http::Response::json(200, "OK", body);
 	}
 
+	static lucent::http::Response handle_bios_trace()
+	{
+		return lucent::http::Response::json(200, "OK", NativeBiosTrace::SnapshotJson());
+	}
+
 	static lucent::http::Response handle_asset_resolve(const std::string& body)
 	{
 		const std::optional<std::string> path = HttpJson::StringField(body, "path");
@@ -967,6 +974,8 @@ namespace AVPE
 			return lucent::http::Response::json(200, "OK", NativeLoadTiming::SnapshotJson());
 		if (req.method == "GET" && path == "/assets/mission-load-timing")
 			return lucent::http::Response::json(200, "OK", NativeMissionLoadTiming::SnapshotJson());
+		if (req.method == "GET" && path == "/bios/trace")
+			return handle_bios_trace();
 		if (req.method == "GET" && path == "/ee/deferred")
 			return handle_ee_deferred();
 		if (req.method == "GET" && path == "/input/menu")
@@ -1010,7 +1019,7 @@ namespace AVPE
 		lucent::warn("avpe", "no route: {} {}", req.method, path);
 		return lucent::http::Response::json(404, "Not Found",
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
-			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\","
+			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\",\"GET /bios/trace\","
 			"\"GET /ee/deferred\","
 			"\"GET /input/menu\",\"GET /input/menu-pointer\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /assets/resolve\","
