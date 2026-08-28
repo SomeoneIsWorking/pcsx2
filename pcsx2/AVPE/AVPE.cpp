@@ -864,6 +864,14 @@ namespace AVPE
 		return lucent::http::Response::json(200, "OK", NativeBiosTrace::SnapshotJson());
 	}
 
+	static lucent::http::Response handle_bios_trace_capture()
+	{
+		std::string snapshot;
+		Host::RunOnCPUThread(
+			[&snapshot]() { snapshot = NativeBiosTrace::SnapshotAndDisableJson(); }, true);
+		return lucent::http::Response::json(200, "OK", snapshot);
+	}
+
 	static lucent::http::Response handle_bios_trace_start()
 	{
 		NativeBiosTrace::SetEnabled(true);
@@ -985,7 +993,7 @@ namespace AVPE
 		if (req.method == "POST" && path == "/bios/trace/start")
 			return handle_bios_trace_start();
 		if (req.method == "POST" && path == "/bios/trace/capture")
-			return lucent::http::Response::json(200, "OK", NativeBiosTrace::SnapshotAndDisableJson());
+			return handle_bios_trace_capture();
 		if (req.method == "GET" && path == "/ee/deferred")
 			return handle_ee_deferred();
 		if (req.method == "GET" && path == "/input/menu")
