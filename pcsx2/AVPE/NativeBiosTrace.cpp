@@ -30,6 +30,7 @@ namespace AVPE::NativeBiosTrace
 			u64 count = 0;
 			u64 target = 0;
 			u64 cycle = 0;
+			u64 calls = 0;
 			u8 major = 0;
 			u8 minor = 0;
 			u32 number = 0;
@@ -133,6 +134,7 @@ namespace AVPE::NativeBiosTrace
 				json += ",\"result\":" + std::to_string(event.result);
 				json += ",\"hle\":" + std::string(event.hle ? "true" : "false");
 				json += ",\"debug\":" + std::string(event.debug ? "true" : "false");
+				json += ",\"calls\":" + std::to_string(event.calls);
 			}
 			else if (event.kind == "ee_syscall")
 			{
@@ -140,6 +142,7 @@ namespace AVPE::NativeBiosTrace
 				AppendString(json, "name", event.name);
 				AppendArguments(json, event.arguments);
 				json += ",\"result\":" + std::to_string(event.result);
+				json += ",\"calls\":" + std::to_string(event.calls);
 			}
 			else if (event.kind == "exception")
 			{
@@ -147,6 +150,7 @@ namespace AVPE::NativeBiosTrace
 				json += ",\"code\":" + std::to_string(event.code);
 				json += ",\"pc\":" + std::to_string(event.pc);
 				json += ",\"branch_delay\":" + std::string(event.branch_delay ? "true" : "false");
+				json += ",\"calls\":" + std::to_string(event.calls);
 			}
 			else if (event.kind == "timer")
 			{
@@ -157,6 +161,7 @@ namespace AVPE::NativeBiosTrace
 				json += ",\"target\":" + std::to_string(event.target);
 				json += ",\"cycle\":" + std::to_string(event.cycle);
 				json += ",\"delivered\":" + std::string(event.delivered ? "true" : "false");
+				json += ",\"calls\":" + std::to_string(event.calls);
 			}
 			else if (event.kind == "module")
 			{
@@ -226,55 +231,138 @@ namespace AVPE::NativeBiosTrace
 		const u32 a0, const u32 a1, const u32 a2, const u32 a3, const s32 result,
 		const bool hle, const bool debug)
 	{
-		AddEvent([&](Event& event) {
-			event.kind = "import";
-			event.library = library;
-			event.ordinal = ordinal;
-			event.function = function;
-			event.arguments = {a0, a1, a2, a3};
-			event.result = result;
-			event.hle = hle;
-			event.debug = debug;
-		});
+		if (!s_enabled.load(std::memory_order_acquire))
+			return;
+		std::lock_guard lock(s_mutex);
+		if (!s_enabled.load(std::memory_order_relaxed))
+			return;
+		for (Event& event : s_events)
+		{
+			if (event.kind == "import" && event.library == library && event.ordinal == ordinal &&
+				event.function == function && event.hle == hle && event.debug == debug)
+			{
+				++event.calls;
+				return;
+			}
+		}
+		if (s_events.size() >= MaximumEvents)
+		{
+			++s_overflow;
+			return;
+		}
+		Event event;
+		event.sequence = ++s_next_sequence;
+		event.kind = "import";
+		event.library = library;
+		event.ordinal = ordinal;
+		event.function = function;
+		event.arguments = {a0, a1, a2, a3};
+		event.result = result;
+		event.hle = hle;
+		event.debug = debug;
+		event.calls = 1;
+		s_events.emplace_back(std::move(event));
 	}
 
 	void RecordEeSyscall(const u8 number, const std::string_view name,
 		const u32 a0, const u32 a1, const u32 a2, const u32 a3, const s32 result)
 	{
-		AddEvent([&](Event& event) {
-			event.kind = "ee_syscall";
-			event.number = number;
-			event.name = name;
-			event.arguments = {a0, a1, a2, a3};
-			event.result = result;
-		});
+		if (!s_enabled.load(std::memory_order_acquire))
+			return;
+		std::lock_guard lock(s_mutex);
+		if (!s_enabled.load(std::memory_order_relaxed))
+			return;
+		for (Event& event : s_events)
+		{
+			if (event.kind == "ee_syscall" && event.number == number && event.name == name)
+			{
+				++event.calls;
+				return;
+			}
+		}
+		if (s_events.size() >= MaximumEvents)
+		{
+			++s_overflow;
+			return;
+		}
+		Event event;
+		event.sequence = ++s_next_sequence;
+		event.kind = "ee_syscall";
+		event.number = number;
+		event.name = name;
+		event.arguments = {a0, a1, a2, a3};
+		event.result = result;
+		event.calls = 1;
+		s_events.emplace_back(std::move(event));
 	}
 
 	void RecordException(const std::string_view domain, const u32 code, const u32 pc,
 		const bool branch_delay)
 	{
-		AddEvent([&](Event& event) {
-			event.kind = "exception";
-			event.domain = domain;
-			event.code = code;
-			event.pc = pc;
-			event.branch_delay = branch_delay;
-		});
+		if (!s_enabled.load(std::memory_order_acquire))
+			return;
+		std::lock_guard lock(s_mutex);
+		if (!s_enabled.load(std::memory_order_relaxed))
+			return;
+		for (Event& event : s_events)
+		{
+			if (event.kind == "exception" && event.domain == domain && event.code == code &&
+				event.pc == pc && event.branch_delay == branch_delay)
+			{
+				++event.calls;
+				return;
+			}
+		}
+		if (s_events.size() >= MaximumEvents)
+		{
+			++s_overflow;
+			return;
+		}
+		Event event;
+		event.sequence = ++s_next_sequence;
+		event.kind = "exception";
+		event.domain = domain;
+		event.code = code;
+		event.pc = pc;
+		event.branch_delay = branch_delay;
+		event.calls = 1;
+		s_events.emplace_back(std::move(event));
 	}
 
 	void RecordTimer(const std::string_view domain, const u32 index, const bool overflow,
 		const u64 count, const u64 target, const u64 cycle, const bool delivered)
 	{
-		AddEvent([&](Event& event) {
-			event.kind = "timer";
-			event.domain = domain;
-			event.counter = index;
-			event.overflow = overflow;
-			event.count = count;
-			event.target = target;
-			event.cycle = cycle;
-			event.delivered = delivered;
-		});
+		if (!s_enabled.load(std::memory_order_acquire))
+			return;
+		std::lock_guard lock(s_mutex);
+		if (!s_enabled.load(std::memory_order_relaxed))
+			return;
+		for (Event& event : s_events)
+		{
+			if (event.kind == "timer" && event.domain == domain && event.counter == index &&
+				event.overflow == overflow && event.delivered == delivered)
+			{
+				++event.calls;
+				return;
+			}
+		}
+		if (s_events.size() >= MaximumEvents)
+		{
+			++s_overflow;
+			return;
+		}
+		Event event;
+		event.sequence = ++s_next_sequence;
+		event.kind = "timer";
+		event.domain = domain;
+		event.counter = index;
+		event.overflow = overflow;
+		event.count = count;
+		event.target = target;
+		event.cycle = cycle;
+		event.delivered = delivered;
+		event.calls = 1;
+		s_events.emplace_back(std::move(event));
 	}
 
 	void RecordModule(const std::string_view module, const u8 major, const u8 minor,
