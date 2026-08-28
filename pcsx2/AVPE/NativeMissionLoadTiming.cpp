@@ -26,7 +26,11 @@ namespace AVPE::NativeMissionLoadTiming
 		constexpr std::string_view kMissionTarget = "mission";
 		constexpr std::string_view kMissionPath = "M01/background.tbd";
 		constexpr u32 kShellLoadLevelPc = 0x0016F910;
-		constexpr u32 kShellLoadLevelReturnPc = 0x0016FAD4;
+		// Grounded epilogue boundary: the function restores s0 at 0x16fad0
+		// immediately before its 0x16fad4 jr ra. The recompiler's JR hook is
+		// not guaranteed to execute for this return path, while this boundary
+		// is an ordinary instruction in both execution engines.
+		constexpr u32 kShellLoadLevelReturnPc = 0x0016FAD0;
 		constexpr u32 kShellSingletonAddress = 0x003672F0;
 
 		std::mutex s_mutex;
