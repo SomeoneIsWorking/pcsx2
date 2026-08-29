@@ -889,16 +889,23 @@ namespace AVPE
 
 	static lucent::http::Response handle_bios_trace_start_mission()
 	{
-		NativeBiosTrace::StartMissionBoundary();
+		Host::RunOnCPUThread([]() {
+			NativeBiosTrace::StartMissionBoundary();
+		},
+			true);
 		return lucent::http::Response::json(200, "OK", "{\"started\":true,\"boundary\":\"shell-load-level\"}");
 	}
 
 	static lucent::http::Response handle_bios_trace_capture_mission()
 	{
-		const std::string snapshot = NativeBiosTrace::CaptureMissionBoundaryJson(std::chrono::seconds(5));
+		// GAvPWorld becomes non-null before ShellLoadLevel returns. Wait for the
+		// grounded guest return, not for a host-sized interval after that endpoint.
+		const std::string snapshot = NativeBiosTrace::CaptureMissionBoundaryJson(std::chrono::seconds(120));
 		if (snapshot.empty())
 			return lucent::http::Response::text(504, "Gateway Timeout",
 				"grounded ShellLoadLevel return was not observed before the BIOS trace deadline\n");
+		if (snapshot.find("\"complete\":false") != std::string::npos)
+			return lucent::http::Response::json(504, "Gateway Timeout", snapshot);
 		return lucent::http::Response::json(200, "OK", snapshot);
 	}
 

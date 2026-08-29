@@ -58,6 +58,7 @@ namespace AVPE::NativeBiosTrace
 		std::string s_mission_result;
 		std::optional<LoadTimingPoint::Point> s_mission_entry;
 		std::optional<LoadTimingPoint::Point> s_mission_return;
+		std::optional<LoadTimingPoint::Point> s_mission_load_return;
 		u64 s_mission_ordinal = 0;
 		u32 s_mission_sequence_errors = 0;
 
@@ -66,6 +67,7 @@ namespace AVPE::NativeBiosTrace
 
 		constexpr u32 MissionEntryPc = 0x0016F910;
 		constexpr u32 MissionReturnPc = 0x0016FA4C;
+		constexpr u32 MissionLoadReturnPc = 0x00173AD8;
 
 		std::string JsonEscape(const std::string_view value)
 		{
@@ -226,6 +228,7 @@ namespace AVPE::NativeBiosTrace
 			s_mission_result.clear();
 			s_mission_entry.reset();
 			s_mission_return.reset();
+			s_mission_load_return.reset();
 			s_mission_ordinal = 0;
 			s_mission_sequence_errors = 0;
 		}
@@ -274,9 +277,15 @@ namespace AVPE::NativeBiosTrace
 				AppendMissionPoint(json, *s_mission_return, MissionReturnPc);
 			else
 				json += "null";
+			json += ",\"load_return\":";
+			if (s_mission_load_return)
+				AppendMissionPoint(json, *s_mission_load_return, MissionLoadReturnPc);
+			else
+				json += "null";
 			json += "}}";
 			return json;
 		}
+
 	} // namespace
 
 	void Reset()
@@ -518,8 +527,11 @@ namespace AVPE::NativeBiosTrace
 
 	bool ShouldInstrumentMissionBoundary(const u32 pc)
 	{
-		return s_mission_armed.load(std::memory_order_acquire) &&
-		       (pc == MissionEntryPc || pc == MissionReturnPc);
+		// This predicate runs while the EE recompiler translates blocks, before
+		// the control request can arm a phase. Keep the grounded mission PCs
+		// instrumented permanently; the observe functions apply the runtime arm
+		// gate so pre-phase execution cannot become evidence.
+		return pc == MissionEntryPc || pc == MissionReturnPc || pc == MissionLoadReturnPc;
 	}
 
 	void ObserveMissionBoundary(const u32 pc)
@@ -548,6 +560,15 @@ namespace AVPE::NativeBiosTrace
 		s_mission_condition.notify_all();
 	}
 
+	void ObserveMissionLoadReturn(const u32 pc, const u32 return_pc)
+	{
+		if (pc != MissionLoadReturnPc || return_pc != MissionReturnPc)
+			return;
+		std::lock_guard lock(s_mutex);
+		if (s_mission_armed.load(std::memory_order_relaxed) && !s_mission_load_return)
+			s_mission_load_return = LoadTimingPoint::CaptureNext(s_mission_ordinal);
+	}
+
 	std::string CaptureMissionBoundaryJson(const std::chrono::milliseconds timeout)
 	{
 		std::unique_lock lock(s_mutex);
@@ -558,7 +579,7 @@ namespace AVPE::NativeBiosTrace
 		{
 			s_mission_armed.store(false, std::memory_order_release);
 			s_enabled.store(false, std::memory_order_release);
-			return {};
+			s_mission_result = BuildMissionResultLocked();
 		}
 		return std::move(s_mission_result);
 	}

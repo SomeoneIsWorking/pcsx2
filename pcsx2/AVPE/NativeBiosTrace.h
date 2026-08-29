@@ -38,6 +38,8 @@ namespace AVPE::NativeBiosTrace
 	void StartMissionBoundary();
 	bool ShouldInstrumentMissionBoundary(u32 pc);
 	void ObserveMissionBoundary(u32 pc);
-	// An empty result means the grounded return was not observed before the deadline.
+	void ObserveMissionLoadReturn(u32 pc, u32 return_pc);
+	// A structured incomplete result identifies a missing grounded return; an
+	// empty result means no mission phase was active.
 	std::string CaptureMissionBoundaryJson(std::chrono::milliseconds timeout);
 } // namespace AVPE::NativeBiosTrace
