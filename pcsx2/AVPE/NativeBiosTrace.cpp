@@ -2,10 +2,13 @@
 
 #include "AVPE/NativeBiosTrace.h"
 
+#include "AVPE/LoadTimingPoint.h"
+
 #include <array>
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
+#include <optional>
 #include <vector>
 
 namespace AVPE::NativeBiosTrace
@@ -46,13 +49,23 @@ namespace AVPE::NativeBiosTrace
 
 		std::mutex s_mutex;
 		std::condition_variable s_capture_condition;
+		std::condition_variable s_mission_condition;
 		std::vector<Event> s_events;
 		u64 s_next_sequence = 0;
 		u64 s_overflow = 0;
 		bool s_capture_requested = false;
 		std::string s_capture_result;
+		std::string s_mission_result;
+		std::optional<LoadTimingPoint::Point> s_mission_entry;
+		std::optional<LoadTimingPoint::Point> s_mission_return;
+		u64 s_mission_ordinal = 0;
+		u32 s_mission_sequence_errors = 0;
 
 		std::atomic_bool s_enabled{false};
+		std::atomic_bool s_mission_armed{false};
+
+		constexpr u32 MissionEntryPc = 0x0016F910;
+		constexpr u32 MissionReturnPc = 0x0016FA4C;
 
 		std::string JsonEscape(const std::string_view value)
 		{
@@ -206,29 +219,81 @@ namespace AVPE::NativeBiosTrace
 			json += "]}";
 			return json;
 		}
+
+		void ResetMissionLocked()
+		{
+			s_mission_armed.store(false, std::memory_order_release);
+			s_mission_result.clear();
+			s_mission_entry.reset();
+			s_mission_return.reset();
+			s_mission_ordinal = 0;
+			s_mission_sequence_errors = 0;
+		}
+
+		void ResetObservationsLocked()
+		{
+			s_events.clear();
+			s_next_sequence = 0;
+			s_overflow = 0;
+			s_capture_requested = false;
+			s_capture_result.clear();
+			ResetMissionLocked();
+		}
+
+		void AppendMissionPoint(std::string& json, const LoadTimingPoint::Point& point, const u32 pc)
+		{
+			json += "{\"pc\":" + std::to_string(pc);
+			json += ",\"ordinal\":" + std::to_string(point.ordinal);
+			json += ",\"ee_cycle\":" + std::to_string(point.ee_cycle);
+			json += ",\"iop_cycle\":" + std::to_string(point.iop_cycle);
+			json += ",\"frame\":" + std::to_string(point.frame);
+			json += ",\"host_time_ns\":" + std::to_string(point.host_time_ns) + '}';
+		}
+
+		std::string BuildMissionResultLocked()
+		{
+			std::string json = SnapshotJsonLocked(true);
+			if (json.empty() || json.back() != '}')
+				return {};
+			json.pop_back();
+			json += ",\"mission_boundary\":{\"entry_pc\":" + std::to_string(MissionEntryPc);
+			json += ",\"return_pc\":" + std::to_string(MissionReturnPc);
+			json += ",\"complete\":";
+			const bool complete = s_mission_entry && s_mission_return && s_mission_sequence_errors == 0 &&
+			                      s_mission_return->ee_cycle > s_mission_entry->ee_cycle &&
+			                      s_mission_return->iop_cycle > s_mission_entry->iop_cycle;
+			json += complete ? "true" : "false";
+			json += ",\"sequence_errors\":" + std::to_string(s_mission_sequence_errors);
+			json += ",\"entry\":";
+			if (s_mission_entry)
+				AppendMissionPoint(json, *s_mission_entry, MissionEntryPc);
+			else
+				json += "null";
+			json += ",\"return\":";
+			if (s_mission_return)
+				AppendMissionPoint(json, *s_mission_return, MissionReturnPc);
+			else
+				json += "null";
+			json += "}}";
+			return json;
+		}
 	} // namespace
 
 	void Reset()
 	{
 		std::lock_guard lock(s_mutex);
-		s_events.clear();
-		s_next_sequence = 0;
-		s_overflow = 0;
-		s_capture_requested = false;
-		s_capture_result.clear();
+		ResetObservationsLocked();
 		s_capture_condition.notify_all();
+		s_mission_condition.notify_all();
 	}
 
 	void SetEnabled(const bool enabled)
 	{
 		std::lock_guard lock(s_mutex);
 		s_enabled.store(enabled, std::memory_order_release);
-		s_events.clear();
-		s_next_sequence = 0;
-		s_overflow = 0;
-		s_capture_requested = false;
-		s_capture_result.clear();
+		ResetObservationsLocked();
 		s_capture_condition.notify_all();
+		s_mission_condition.notify_all();
 	}
 
 	bool IsEnabled()
@@ -441,5 +506,60 @@ namespace AVPE::NativeBiosTrace
 		s_capture_result = SnapshotJsonLocked(true);
 		s_capture_requested = false;
 		s_capture_condition.notify_all();
+	}
+
+	void StartMissionBoundary()
+	{
+		std::lock_guard lock(s_mutex);
+		ResetObservationsLocked();
+		s_enabled.store(true, std::memory_order_release);
+		s_mission_armed.store(true, std::memory_order_release);
+	}
+
+	bool ShouldInstrumentMissionBoundary(const u32 pc)
+	{
+		return s_mission_armed.load(std::memory_order_acquire) &&
+		       (pc == MissionEntryPc || pc == MissionReturnPc);
+	}
+
+	void ObserveMissionBoundary(const u32 pc)
+	{
+		if (!ShouldInstrumentMissionBoundary(pc))
+			return;
+		std::lock_guard lock(s_mutex);
+		if (!s_mission_armed.load(std::memory_order_relaxed))
+			return;
+		if (pc == MissionEntryPc)
+		{
+			if (s_mission_entry || s_mission_return)
+				++s_mission_sequence_errors;
+			else
+				s_mission_entry = LoadTimingPoint::CaptureNext(s_mission_ordinal);
+			return;
+		}
+		if (!s_mission_entry || s_mission_return)
+		{
+			++s_mission_sequence_errors;
+			return;
+		}
+		s_mission_return = LoadTimingPoint::CaptureNext(s_mission_ordinal);
+		s_mission_armed.store(false, std::memory_order_release);
+		s_mission_result = BuildMissionResultLocked();
+		s_mission_condition.notify_all();
+	}
+
+	std::string CaptureMissionBoundaryJson(const std::chrono::milliseconds timeout)
+	{
+		std::unique_lock lock(s_mutex);
+		if (!s_enabled.load(std::memory_order_relaxed) && s_mission_result.empty())
+			return {};
+		if (s_mission_result.empty() &&
+			!s_mission_condition.wait_for(lock, timeout, []() { return !s_mission_result.empty(); }))
+		{
+			s_mission_armed.store(false, std::memory_order_release);
+			s_enabled.store(false, std::memory_order_release);
+			return {};
+		}
+		return std::move(s_mission_result);
 	}
 } // namespace AVPE::NativeBiosTrace

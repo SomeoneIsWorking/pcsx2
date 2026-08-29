@@ -33,4 +33,11 @@ namespace AVPE::NativeBiosTrace
 	// An empty result means no boundary arrived before the deadline.
 	std::string CaptureAtGuestBoundaryJson(std::chrono::milliseconds timeout);
 	void OnGuestFrameBoundary();
+
+	// Arm a one-shot boundary around the grounded Marine M1 ShellLoadLevel call.
+	void StartMissionBoundary();
+	bool ShouldInstrumentMissionBoundary(u32 pc);
+	void ObserveMissionBoundary(u32 pc);
+	// An empty result means the grounded return was not observed before the deadline.
+	std::string CaptureMissionBoundaryJson(std::chrono::milliseconds timeout);
 } // namespace AVPE::NativeBiosTrace
