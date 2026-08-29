@@ -887,6 +887,21 @@ namespace AVPE
 		return lucent::http::Response::json(200, "OK", "{\"started\":true}");
 	}
 
+	static lucent::http::Response handle_bios_trace_start_mission()
+	{
+		NativeBiosTrace::StartMissionBoundary();
+		return lucent::http::Response::json(200, "OK", "{\"started\":true,\"boundary\":\"shell-load-level\"}");
+	}
+
+	static lucent::http::Response handle_bios_trace_capture_mission()
+	{
+		const std::string snapshot = NativeBiosTrace::CaptureMissionBoundaryJson(std::chrono::seconds(5));
+		if (snapshot.empty())
+			return lucent::http::Response::text(504, "Gateway Timeout",
+				"grounded ShellLoadLevel return was not observed before the BIOS trace deadline\n");
+		return lucent::http::Response::json(200, "OK", snapshot);
+	}
+
 	static lucent::http::Response handle_asset_resolve(const std::string& body)
 	{
 		const std::optional<std::string> path = HttpJson::StringField(body, "path");
@@ -1001,8 +1016,12 @@ namespace AVPE
 			return handle_bios_trace();
 		if (req.method == "POST" && path == "/bios/trace/start")
 			return handle_bios_trace_start();
+		if (req.method == "POST" && path == "/bios/trace/start-mission")
+			return handle_bios_trace_start_mission();
 		if (req.method == "POST" && path == "/bios/trace/capture")
 			return handle_bios_trace_capture();
+		if (req.method == "POST" && path == "/bios/trace/capture-mission")
+			return handle_bios_trace_capture_mission();
 		if (req.method == "POST" && path == "/bios/trace/capture-at-guest-boundary")
 			return handle_bios_trace_capture_at_guest_boundary();
 		if (req.method == "GET" && path == "/ee/deferred")
@@ -1048,7 +1067,7 @@ namespace AVPE
 		lucent::warn("avpe", "no route: {} {}", req.method, path);
 		return lucent::http::Response::json(404, "Not Found",
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
-			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\",\"GET /bios/trace\",\"POST /bios/trace/start\",\"POST /bios/trace/capture\",\"POST /bios/trace/capture-at-guest-boundary\","
+			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\",\"GET /bios/trace\",\"POST /bios/trace/start\",\"POST /bios/trace/start-mission\",\"POST /bios/trace/capture\",\"POST /bios/trace/capture-mission\",\"POST /bios/trace/capture-at-guest-boundary\","
 			"\"GET /ee/deferred\","
 			"\"GET /input/menu\",\"GET /input/menu-pointer\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /assets/resolve\","

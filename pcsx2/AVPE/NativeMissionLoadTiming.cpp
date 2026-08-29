@@ -5,6 +5,7 @@
 #include "AVPE/AVPE.h"
 #include "AVPE/GuestObjects.h"
 #include "AVPE/LoadTimingPoint.h"
+#include "AVPE/NativeBiosTrace.h"
 #include "R5900.h"
 #include "VMManager.h"
 
@@ -102,11 +103,13 @@ namespace AVPE::NativeMissionLoadTiming
 		// The recompiler can see MainLoop blocks before VMManager publishes the
 		// final disc identity. Split configured timing PCs from process start;
 		// ObserveEeExecution performs the exact live title/control-test gate.
-		return IsObservedPc(pc) && HasMissionTarget() && Mode().has_value();
+		return NativeBiosTrace::ShouldInstrumentMissionBoundary(pc) ||
+		       (IsObservedPc(pc) && HasMissionTarget() && Mode().has_value());
 	}
 
 	void ObserveEeExecution(const u32 pc)
 	{
+		NativeBiosTrace::ObserveMissionBoundary(pc);
 		if (!IsObservedPc(pc) || !IsEnabled())
 			return;
 
