@@ -31,6 +31,7 @@ namespace AVPE::NativeMissionLoadTiming
 		// 0x16fa44 and resumes at 0x16fa4c. This is the first ordinary
 		// instruction after the actual mission archive load returns.
 		constexpr u32 kShellLoadLevelReturnPc = 0x0016FA4C;
+		constexpr u32 kTbdLoadReturnPc = 0x00173AD8;
 		constexpr u32 kShellSingletonAddress = 0x003672F0;
 
 		std::mutex s_mutex;
@@ -109,6 +110,11 @@ namespace AVPE::NativeMissionLoadTiming
 
 	void ObserveEeExecution(const u32 pc)
 	{
+		if (pc == kTbdLoadReturnPc)
+		{
+			NativeBiosTrace::ObserveMissionLoadReturn(pc, cpuRegs.GPR.n.ra.UL[0]);
+			return;
+		}
 		NativeBiosTrace::ObserveMissionBoundary(pc);
 		if (!IsObservedPc(pc) || !IsEnabled())
 			return;
