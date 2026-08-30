@@ -25,6 +25,7 @@ namespace AVPE
 		void Start(VMBootParameters boot_parameters);
 		void Stop();
 		void Run(std::function<void()> function, bool block);
+		void PumpEvents();
 		void Wake();
 		bool IsCurrentThread() const;
 

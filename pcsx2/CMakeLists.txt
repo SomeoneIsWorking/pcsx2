@@ -103,6 +103,8 @@ set(pcsx2Sources
 	AVPE/NativeCdvdCompletion.cpp
 	AVPE/NativeGuestReset.cpp
 	AVPE/NativeLoadTiming.cpp
+	AVPE/NativeEeExecutionHooks.cpp
+	AVPE/NativeHostYield.cpp
 	AVPE/NativeMissionLoadTiming.cpp
 	AVPE/NativeInput.cpp
 	AVPE/NativeInputData.cpp
@@ -110,6 +112,7 @@ set(pcsx2Sources
 	AVPE/NativeCameraRoute.cpp
 	AVPE/HttpJson.cpp
 	AVPE/NativeMenuInput.cpp
+	AVPE/NativeMenuRoute.cpp
 	AVPE/NativePointerMotion.cpp
 	Mdec.cpp
 	Memory.cpp

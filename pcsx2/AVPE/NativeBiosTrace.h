@@ -42,6 +42,10 @@ namespace AVPE::NativeBiosTrace
 	void ObserveMissionLoadProgress(u32 pc, u32 chunk_size, u32 callback_pc,
 		u32 stack_remaining, bool stack_remaining_valid);
 	void ObserveMissionPostReadProgress(u32 pc, u32 chunk_descriptor);
+	void ObserveMissionTypeInitializer(u32 pc, u32 target, u32 object, u32 descriptor,
+		u32 remaining, u32 stack_pointer, u32 symbol, u32 metadata, bool descriptor_valid);
+	void ObserveMissionObjectFactory(u32 pc, u32 target, u32 class_entry, u32 handle,
+		u32 fill_data, u32 stack_pointer);
 	// A structured incomplete result identifies a missing grounded return; an
 	// empty result means no mission phase was active.
 	std::string CaptureMissionBoundaryJson(std::chrono::milliseconds timeout);
