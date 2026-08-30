@@ -23,6 +23,7 @@ namespace AVPE::NativeBiosTrace
 			std::string library;
 			std::string function;
 			std::string operation;
+			std::string outcome;
 			std::string module;
 			std::string name;
 			std::string domain;
@@ -46,6 +47,7 @@ namespace AVPE::NativeBiosTrace
 			bool branch_delay = false;
 			bool overflow = false;
 			bool delivered = false;
+			bool result_valid = false;
 		};
 
 		struct TimingTotals
@@ -253,9 +255,12 @@ namespace AVPE::NativeBiosTrace
 			json += '"';
 		}
 
-		void AppendArguments(std::string& json, const std::array<u32, 4>& arguments)
+		void AppendArguments(std::string& json, const std::string_view key,
+			const std::array<u32, 4>& arguments)
 		{
-			json += ",\"arguments\":[";
+			json += ",\"";
+			json += key;
+			json += "\":[";
 			for (u32 i = 0; i < arguments.size(); ++i)
 			{
 				if (i != 0)
@@ -307,18 +312,24 @@ namespace AVPE::NativeBiosTrace
 				AppendString(json, "library", event.library);
 				json += ",\"ordinal\":" + std::to_string(event.ordinal);
 				AppendString(json, "function", event.function);
-				AppendArguments(json, event.arguments);
-				json += ",\"result\":" + std::to_string(event.result);
-				json += ",\"hle\":" + std::string(event.hle ? "true" : "false");
-				json += ",\"debug\":" + std::string(event.debug ? "true" : "false");
+				AppendArguments(json, "first_arguments", event.arguments);
+				AppendString(json, "outcome", event.outcome);
+				json += ",\"result_valid\":" + std::string(event.result_valid ? "true" : "false");
+				if (event.result_valid)
+					json += ",\"result\":" + std::to_string(event.result);
+				json += ",\"hle_available\":" + std::string(event.hle ? "true" : "false");
+				json += ",\"debug_available\":" + std::string(event.debug ? "true" : "false");
 				json += ",\"calls\":" + std::to_string(event.calls);
 			}
 			else if (event.kind == "ee_syscall")
 			{
 				json += ",\"number\":" + std::to_string(event.number);
 				AppendString(json, "name", event.name);
-				AppendArguments(json, event.arguments);
-				json += ",\"result\":" + std::to_string(event.result);
+				AppendArguments(json, "first_arguments", event.arguments);
+				AppendString(json, "outcome", event.outcome);
+				json += ",\"result_valid\":" + std::string(event.result_valid ? "true" : "false");
+				if (event.result_valid)
+					json += ",\"result\":" + std::to_string(event.result);
 				json += ",\"calls\":" + std::to_string(event.calls);
 			}
 			else if (event.kind == "exception")
@@ -365,7 +376,7 @@ namespace AVPE::NativeBiosTrace
 			const bool enabled = s_enabled.load(std::memory_order_relaxed);
 			if (disable_after_snapshot)
 				s_enabled.store(false, std::memory_order_release);
-			std::string json = "{\"schema\":\"avpe-bios-trace-v1\",\"enabled\":";
+			std::string json = "{\"schema\":\"avpe-bios-trace-v2\",\"enabled\":";
 			json += enabled ? "true" : "false";
 			json += ",\"capacity\":" + std::to_string(MaximumEvents);
 			json += ",\"overflow\":" + std::to_string(s_overflow);
@@ -647,13 +658,12 @@ namespace AVPE::NativeBiosTrace
 
 	bool IsEnabled()
 	{
-		std::lock_guard lock(s_mutex);
-		return s_enabled.load(std::memory_order_relaxed);
+		return s_enabled.load(std::memory_order_acquire);
 	}
 
 	void RecordImport(const std::string_view library, const u16 ordinal, const std::string_view function,
 		const u32 a0, const u32 a1, const u32 a2, const u32 a3, const s32 result,
-		const bool hle, const bool debug)
+		const bool hle, const bool debug, const bool handled)
 	{
 		if (!s_enabled.load(std::memory_order_acquire))
 			return;
@@ -663,7 +673,8 @@ namespace AVPE::NativeBiosTrace
 		for (Event& event : s_events)
 		{
 			if (event.kind == "import" && event.library == library && event.ordinal == ordinal &&
-				event.function == function && event.hle == hle && event.debug == debug)
+				event.function == function && event.hle == hle && event.debug == debug &&
+				event.result_valid == handled && (!handled || event.result == result))
 			{
 				++event.calls;
 				return;
@@ -682,6 +693,8 @@ namespace AVPE::NativeBiosTrace
 		event.function = function;
 		event.arguments = {a0, a1, a2, a3};
 		event.result = result;
+		event.result_valid = handled;
+		event.outcome = handled ? "hle" : "oracle";
 		event.hle = hle;
 		event.debug = debug;
 		event.calls = 1;
@@ -689,7 +702,8 @@ namespace AVPE::NativeBiosTrace
 	}
 
 	void RecordEeSyscall(const u8 number, const std::string_view name,
-		const u32 a0, const u32 a1, const u32 a2, const u32 a3, const s32 result)
+		const u32 a0, const u32 a1, const u32 a2, const u32 a3, const s32 result,
+		const bool result_valid)
 	{
 		if (!s_enabled.load(std::memory_order_acquire))
 			return;
@@ -698,7 +712,8 @@ namespace AVPE::NativeBiosTrace
 			return;
 		for (Event& event : s_events)
 		{
-			if (event.kind == "ee_syscall" && event.number == number && event.name == name)
+			if (event.kind == "ee_syscall" && event.number == number && event.name == name &&
+				event.result_valid == result_valid && (!result_valid || event.result == result))
 			{
 				++event.calls;
 				return;
@@ -716,6 +731,8 @@ namespace AVPE::NativeBiosTrace
 		event.name = name;
 		event.arguments = {a0, a1, a2, a3};
 		event.result = result;
+		event.result_valid = result_valid;
+		event.outcome = result_valid ? "direct" : "bios";
 		event.calls = 1;
 		s_events.emplace_back(std::move(event));
 	}

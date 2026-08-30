@@ -10,34 +10,40 @@
 TEST(NativeBiosTraceTest, DisabledTraceDoesNotRetainEvents)
 {
 	AVPE::NativeBiosTrace::SetEnabled(false);
-	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 1, 2, 3, 4, 0, true, false);
+	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 1, 2, 3, 4, 0, true, false, false);
 
 	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
 	EXPECT_NE(snapshot.find("\"enabled\":false"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"events\":[]"), std::string::npos);
 }
 
-TEST(NativeBiosTraceTest, RecordsOrderedEventsAndReturnStatus)
+TEST(NativeBiosTraceTest, RecordsOrderedEventsAndOnlyGroundedResults)
 {
 	AVPE::NativeBiosTrace::SetEnabled(true);
 	AVPE::NativeBiosTrace::RecordModule("ioman", 2, 0, "register");
 	AVPE::NativeBiosTrace::RecordInterrupt(0, "INT_VBLANK", 0x1234);
 	AVPE::NativeBiosTrace::RecordRpc(0x80000100);
-	AVPE::NativeBiosTrace::RecordEeSyscall(34, "StartThread", 5, 6, 7, 8, -2);
+	AVPE::NativeBiosTrace::RecordEeSyscall(34, "StartThread", 5, 6, 7, 8, -2, false);
+	AVPE::NativeBiosTrace::RecordEeSyscall(100, "FlushCache", 9, 10, 11, 12, 0, true);
 	AVPE::NativeBiosTrace::RecordException("ee", 8, 0x1000, true);
 	AVPE::NativeBiosTrace::RecordTimer("iop", 2, true, 0x10001, 0xffff, 1234, false);
 	AVPE::NativeBiosTrace::RecordTimer("ee", 1, false, 10, 10, 42, true);
-	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 1, 2, 3, 4, -1, false, false);
+	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 1, 2, 3, 4, -1, true, false, true);
+	AVPE::NativeBiosTrace::RecordImport("cdvdman", 8, "sceCdGetError", 5, 6, 7, 8, 123, true, false, false);
 
 	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
+	EXPECT_NE(snapshot.find("\"schema\":\"avpe-bios-trace-v2\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"sequence\":1"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"kind\":\"module\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"kind\":\"interrupt\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"kind\":\"rpc\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"kind\":\"ee_syscall\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"name\":\"StartThread\""), std::string::npos);
-	EXPECT_NE(snapshot.find("\"arguments\":[5,6,7,8]"), std::string::npos);
-	EXPECT_NE(snapshot.find("\"result\":-2"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"first_arguments\":[5,6,7,8]"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"outcome\":\"bios\",\"result_valid\":false"), std::string::npos);
+	EXPECT_EQ(snapshot.find("\"result\":-2"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"outcome\":\"direct\",\"result_valid\":true,\"result\":0"),
+		std::string::npos);
 	EXPECT_NE(snapshot.find("\"kind\":\"exception\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"domain\":\"ee\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"branch_delay\":true"), std::string::npos);
@@ -47,8 +53,11 @@ TEST(NativeBiosTraceTest, RecordsOrderedEventsAndReturnStatus)
 	EXPECT_NE(snapshot.find("\"delivered\":false"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"domain\":\"ee\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"delivered\":true"), std::string::npos);
-	EXPECT_NE(snapshot.find("\"result\":-1"), std::string::npos);
-	EXPECT_NE(snapshot.find("\"hle\":false"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"outcome\":\"hle\",\"result_valid\":true,\"result\":-1"),
+		std::string::npos);
+	EXPECT_NE(snapshot.find("\"outcome\":\"oracle\",\"result_valid\":false"), std::string::npos);
+	EXPECT_EQ(snapshot.find("\"result\":123"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"hle_available\":true"), std::string::npos);
 }
 
 TEST(NativeBiosTraceTest, EnforcesBoundedCapacity)
@@ -66,12 +75,17 @@ TEST(NativeBiosTraceTest, EnforcesBoundedCapacity)
 TEST(NativeBiosTraceTest, CoalescesRepeatedImportIdentity)
 {
 	AVPE::NativeBiosTrace::SetEnabled(true);
-	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 1, 2, 3, 4, 0, true, false);
-	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 5, 6, 7, 8, -1, true, false);
+	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 1, 2, 3, 4, 99, true, false, false);
+	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 5, 6, 7, 8, -1, true, false, false);
+	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 9, 10, 11, 12, -1, true, false, true);
+	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 13, 14, 15, 16, 8, true, false, true);
 
 	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
 	EXPECT_NE(snapshot.find("\"calls\":2"), std::string::npos);
-	EXPECT_EQ(snapshot.find("\"sequence\":2"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"sequence\":2"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"sequence\":3"), std::string::npos);
+	EXPECT_EQ(snapshot.find("\"sequence\":4"), std::string::npos);
+	EXPECT_EQ(snapshot.find("\"result\":99"), std::string::npos);
 }
 
 TEST(NativeBiosTraceTest, CoalescesRepeatedTimerShape)
@@ -88,8 +102,8 @@ TEST(NativeBiosTraceTest, CoalescesRepeatedTimerShape)
 TEST(NativeBiosTraceTest, CoalescesRepeatedSyscallAndExceptionIdentity)
 {
 	AVPE::NativeBiosTrace::SetEnabled(true);
-	AVPE::NativeBiosTrace::RecordEeSyscall(122, "sceSifGetReg", 1, 2, 3, 4, 0);
-	AVPE::NativeBiosTrace::RecordEeSyscall(122, "sceSifGetReg", 5, 6, 7, 8, 0);
+	AVPE::NativeBiosTrace::RecordEeSyscall(122, "sceSifGetReg", 1, 2, 3, 4, 99, false);
+	AVPE::NativeBiosTrace::RecordEeSyscall(122, "sceSifGetReg", 5, 6, 7, 8, 0, false);
 	AVPE::NativeBiosTrace::RecordException("ee", 32, 0x1234, false);
 	AVPE::NativeBiosTrace::RecordException("ee", 32, 0x1234, false);
 
@@ -102,7 +116,7 @@ TEST(NativeBiosTraceTest, CoalescesRepeatedSyscallAndExceptionIdentity)
 TEST(NativeBiosTraceTest, CaptureDisablesFurtherEvents)
 {
 	AVPE::NativeBiosTrace::SetEnabled(true);
-	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 1, 2, 3, 4, 0, true, false);
+	AVPE::NativeBiosTrace::RecordImport("ioman", 6, "read", 1, 2, 3, 4, 0, true, false, true);
 
 	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotAndDisableJson();
 	AVPE::NativeBiosTrace::RecordRpc(99);
