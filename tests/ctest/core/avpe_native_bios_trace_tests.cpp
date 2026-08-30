@@ -172,9 +172,9 @@ TEST(NativeBiosTraceTest, MissionBoundaryReportsBoundedTbdChunkProgress)
 	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x0016F910);
 	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173CB0, 0x00280000, 0, 0, false);
 	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x00173CB0);
-	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173D90, 0, 0x002047B0, 0x00180000, true);
+	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173D90, 0, 0x002047B0, 0x00280000, true);
 	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x00173D90);
-	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173D90, 0, 0x002047B0, 0x00080000, true);
+	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173D90, 0, 0x002047B0, 0x00180000, true);
 	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x00173D90);
 	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173E34, 0, 0, 0, false);
 	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x00173E34);
@@ -187,6 +187,11 @@ TEST(NativeBiosTraceTest, MissionBoundaryReportsBoundedTbdChunkProgress)
 	EXPECT_NE(snapshot.find("\"callbacks\":2"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"callback_pc\":2115504"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"invalid_remaining_reads\":0"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"payload_bytes\":2621440"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"payload_chunks\":1"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"multi_slice_chunks\":1"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"last_payload_size\":2621440"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"max_payload_size\":2621440"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"complete\":false"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"return\":null"), std::string::npos);
 }

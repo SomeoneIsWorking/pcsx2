@@ -4,6 +4,7 @@
 
 #include "AVPE/LoadTimingPoint.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <condition_variable>
@@ -68,6 +69,13 @@ namespace AVPE::NativeBiosTrace
 		u32 s_mission_last_remaining = 0;
 		u32 s_mission_load_callback_pc = 0;
 		u32 s_mission_invalid_remaining_reads = 0;
+		u64 s_mission_payload_bytes = 0;
+		u64 s_mission_payload_chunks = 0;
+		u64 s_mission_multi_slice_chunks = 0;
+		u32 s_mission_last_payload_size = 0;
+		u32 s_mission_max_payload_size = 0;
+		u32 s_mission_active_callbacks = 0;
+		bool s_mission_active_payload_accounted = false;
 		u64 s_mission_ordinal = 0;
 		u32 s_mission_sequence_errors = 0;
 
@@ -250,6 +258,13 @@ namespace AVPE::NativeBiosTrace
 			s_mission_last_remaining = 0;
 			s_mission_load_callback_pc = 0;
 			s_mission_invalid_remaining_reads = 0;
+			s_mission_payload_bytes = 0;
+			s_mission_payload_chunks = 0;
+			s_mission_multi_slice_chunks = 0;
+			s_mission_last_payload_size = 0;
+			s_mission_max_payload_size = 0;
+			s_mission_active_callbacks = 0;
+			s_mission_active_payload_accounted = false;
 			s_mission_ordinal = 0;
 			s_mission_sequence_errors = 0;
 		}
@@ -315,7 +330,12 @@ namespace AVPE::NativeBiosTrace
 			json += ",\"active_chunk_size\":" + std::to_string(s_mission_active_chunk_size);
 			json += ",\"last_remaining\":" + std::to_string(s_mission_last_remaining);
 			json += ",\"callback_pc\":" + std::to_string(s_mission_load_callback_pc);
-			json += ",\"invalid_remaining_reads\":" + std::to_string(s_mission_invalid_remaining_reads) + '}';
+			json += ",\"invalid_remaining_reads\":" + std::to_string(s_mission_invalid_remaining_reads);
+			json += ",\"payload_bytes\":" + std::to_string(s_mission_payload_bytes);
+			json += ",\"payload_chunks\":" + std::to_string(s_mission_payload_chunks);
+			json += ",\"multi_slice_chunks\":" + std::to_string(s_mission_multi_slice_chunks);
+			json += ",\"last_payload_size\":" + std::to_string(s_mission_last_payload_size);
+			json += ",\"max_payload_size\":" + std::to_string(s_mission_max_payload_size) + '}';
 			json += "}}";
 			return json;
 		}
@@ -624,6 +644,8 @@ namespace AVPE::NativeBiosTrace
 			++s_mission_chunks_started;
 			s_mission_active_chunk_size = chunk_size;
 			s_mission_last_remaining = chunk_size;
+			s_mission_active_callbacks = 0;
+			s_mission_active_payload_accounted = false;
 			return;
 		}
 		if (pc == MissionReadChunkReturnPc)
@@ -631,14 +653,29 @@ namespace AVPE::NativeBiosTrace
 			++s_mission_chunks_completed;
 			s_mission_active_chunk_size = 0;
 			s_mission_last_remaining = 0;
+			s_mission_active_callbacks = 0;
+			s_mission_active_payload_accounted = false;
 			return;
 		}
 		++s_mission_load_callbacks;
 		s_mission_load_callback_pc = callback_pc;
 		if (stack_remaining_valid)
+		{
 			s_mission_last_remaining = stack_remaining;
+			if (!s_mission_active_payload_accounted)
+			{
+				s_mission_payload_bytes += stack_remaining;
+				++s_mission_payload_chunks;
+				s_mission_last_payload_size = stack_remaining;
+				s_mission_max_payload_size = std::max(s_mission_max_payload_size, stack_remaining);
+				s_mission_active_payload_accounted = true;
+			}
+		}
 		else
 			++s_mission_invalid_remaining_reads;
+		if (s_mission_active_callbacks == 1)
+			++s_mission_multi_slice_chunks;
+		++s_mission_active_callbacks;
 	}
 
 	std::string CaptureMissionBoundaryJson(const std::chrono::milliseconds timeout)
