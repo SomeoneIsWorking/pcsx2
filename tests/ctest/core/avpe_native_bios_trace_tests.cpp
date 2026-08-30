@@ -161,6 +161,7 @@ TEST(NativeBiosTraceTest, MissionBoundaryInstrumentationCoversGroundedPcsBeforeA
 	EXPECT_TRUE(AVPE::NativeBiosTrace::ShouldInstrumentMissionBoundary(0x00173770));
 	EXPECT_TRUE(AVPE::NativeBiosTrace::ShouldInstrumentMissionBoundary(0x00173CB0));
 	EXPECT_TRUE(AVPE::NativeBiosTrace::ShouldInstrumentMissionBoundary(0x00173D90));
+	EXPECT_TRUE(AVPE::NativeBiosTrace::ShouldInstrumentMissionBoundary(0x00173D98));
 	EXPECT_TRUE(AVPE::NativeBiosTrace::ShouldInstrumentMissionBoundary(0x00173E34));
 	EXPECT_FALSE(AVPE::NativeBiosTrace::ShouldInstrumentMissionBoundary(0x0016FA48));
 }
@@ -174,24 +175,39 @@ TEST(NativeBiosTraceTest, MissionBoundaryReportsBoundedTbdChunkProgress)
 	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x00173CB0);
 	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173D90, 0, 0x002047B0, 0x00280000, true);
 	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x00173D90);
+	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173D98, 0, 0, 0, false);
+	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x00173D98);
 	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173D90, 0, 0x002047B0, 0x00180000, true);
 	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x00173D90);
+	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173D98, 0, 0, 0, false);
+	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x00173D98);
 	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173E34, 0, 0, 0, false);
 	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x00173E34);
+	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173CB0, 32, 0, 0, false);
+	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173D90, 0, 0x002047B0, 32, true);
+	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173D98, 0, 0, 0, false);
+	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173E34, 0, 0, 0, false);
 
 	const std::string snapshot = AVPE::NativeBiosTrace::CaptureMissionBoundaryJson(
 		std::chrono::milliseconds(1));
 
-	EXPECT_NE(snapshot.find("\"load_progress\":{\"chunks_started\":1"), std::string::npos);
-	EXPECT_NE(snapshot.find("\"chunks_completed\":1"), std::string::npos);
-	EXPECT_NE(snapshot.find("\"callbacks\":2"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"load_progress\":{\"chunks_started\":2"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"chunks_completed\":2"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"callbacks\":3"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"callback_pc\":2115504"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"invalid_remaining_reads\":0"), std::string::npos);
-	EXPECT_NE(snapshot.find("\"payload_bytes\":2621440"), std::string::npos);
-	EXPECT_NE(snapshot.find("\"payload_chunks\":1"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"payload_bytes\":2621472"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"payload_chunks\":2"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"multi_slice_chunks\":1"), std::string::npos);
-	EXPECT_NE(snapshot.find("\"last_payload_size\":2621440"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"last_payload_size\":32"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"max_payload_size\":2621440"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"timing_sequence_errors\":0"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"first_chunk_entry\":{\"pc\":1522864"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"last_chunk_return\":{\"pc\":1523252"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"chunk_timing\":{\"samples\":2"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"callback_timing\":{\"samples\":3"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"payload_timing\":{\"samples\":3"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"inter_chunk_timing\":{\"samples\":1"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"complete\":false"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"return\":null"), std::string::npos);
 }

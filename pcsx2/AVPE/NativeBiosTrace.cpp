@@ -48,6 +48,15 @@ namespace AVPE::NativeBiosTrace
 			bool delivered = false;
 		};
 
+		struct TimingTotals
+		{
+			u64 samples = 0;
+			u64 ee_cycles = 0;
+			u64 iop_cycles = 0;
+			u64 frames = 0;
+			u64 host_time_ns = 0;
+		};
+
 		std::mutex s_mutex;
 		std::condition_variable s_capture_condition;
 		std::condition_variable s_mission_condition;
@@ -76,6 +85,17 @@ namespace AVPE::NativeBiosTrace
 		u32 s_mission_max_payload_size = 0;
 		u32 s_mission_active_callbacks = 0;
 		bool s_mission_active_payload_accounted = false;
+		std::optional<LoadTimingPoint::Point> s_mission_chunk_timing_start;
+		std::optional<LoadTimingPoint::Point> s_mission_callback_timing_start;
+		std::optional<LoadTimingPoint::Point> s_mission_payload_timing_start;
+		std::optional<LoadTimingPoint::Point> s_mission_first_chunk_entry;
+		std::optional<LoadTimingPoint::Point> s_mission_previous_chunk_return;
+		TimingTotals s_mission_chunk_timing;
+		TimingTotals s_mission_callback_timing;
+		TimingTotals s_mission_payload_timing;
+		TimingTotals s_mission_inter_chunk_timing;
+		u64 s_mission_progress_ordinal = 0;
+		u32 s_mission_timing_sequence_errors = 0;
 		u64 s_mission_ordinal = 0;
 		u32 s_mission_sequence_errors = 0;
 
@@ -87,6 +107,7 @@ namespace AVPE::NativeBiosTrace
 		constexpr u32 MissionLoadErrorPc = 0x00173770;
 		constexpr u32 MissionReadChunkEntryPc = 0x00173CB0;
 		constexpr u32 MissionReadChunkCallbackPc = 0x00173D90;
+		constexpr u32 MissionReadChunkCallbackReturnPc = 0x00173D98;
 		constexpr u32 MissionReadChunkReturnPc = 0x00173E34;
 
 		std::string JsonEscape(const std::string_view value)
@@ -158,6 +179,31 @@ namespace AVPE::NativeBiosTrace
 				json += std::to_string(arguments[i]);
 			}
 			json += ']';
+		}
+
+		void AppendTimingTotals(std::string& json, const TimingTotals& totals)
+		{
+			json += "{\"samples\":" + std::to_string(totals.samples);
+			json += ",\"ee_cycles\":" + std::to_string(totals.ee_cycles);
+			json += ",\"iop_cycles\":" + std::to_string(totals.iop_cycles);
+			json += ",\"frames\":" + std::to_string(totals.frames);
+			json += ",\"host_time_ns\":" + std::to_string(totals.host_time_ns) + '}';
+		}
+
+		void AccumulateTiming(const LoadTimingPoint::Point& start, const LoadTimingPoint::Point& end,
+			TimingTotals& totals)
+		{
+			if (end.ee_cycle < start.ee_cycle || end.iop_cycle < start.iop_cycle || end.frame < start.frame ||
+				end.host_time_ns < start.host_time_ns)
+			{
+				++s_mission_timing_sequence_errors;
+				return;
+			}
+			++totals.samples;
+			totals.ee_cycles += end.ee_cycle - start.ee_cycle;
+			totals.iop_cycles += end.iop_cycle - start.iop_cycle;
+			totals.frames += end.frame - start.frame;
+			totals.host_time_ns += end.host_time_ns - start.host_time_ns;
 		}
 
 		void AppendEvent(std::string& json, const Event& event)
@@ -265,6 +311,17 @@ namespace AVPE::NativeBiosTrace
 			s_mission_max_payload_size = 0;
 			s_mission_active_callbacks = 0;
 			s_mission_active_payload_accounted = false;
+			s_mission_chunk_timing_start.reset();
+			s_mission_callback_timing_start.reset();
+			s_mission_payload_timing_start.reset();
+			s_mission_first_chunk_entry.reset();
+			s_mission_previous_chunk_return.reset();
+			s_mission_chunk_timing = {};
+			s_mission_callback_timing = {};
+			s_mission_payload_timing = {};
+			s_mission_inter_chunk_timing = {};
+			s_mission_progress_ordinal = 0;
+			s_mission_timing_sequence_errors = 0;
 			s_mission_ordinal = 0;
 			s_mission_sequence_errors = 0;
 		}
@@ -335,7 +392,27 @@ namespace AVPE::NativeBiosTrace
 			json += ",\"payload_chunks\":" + std::to_string(s_mission_payload_chunks);
 			json += ",\"multi_slice_chunks\":" + std::to_string(s_mission_multi_slice_chunks);
 			json += ",\"last_payload_size\":" + std::to_string(s_mission_last_payload_size);
-			json += ",\"max_payload_size\":" + std::to_string(s_mission_max_payload_size) + '}';
+			json += ",\"max_payload_size\":" + std::to_string(s_mission_max_payload_size);
+			json += ",\"timing_sequence_errors\":" + std::to_string(s_mission_timing_sequence_errors);
+			json += ",\"first_chunk_entry\":";
+			if (s_mission_first_chunk_entry)
+				AppendMissionPoint(json, *s_mission_first_chunk_entry, MissionReadChunkEntryPc);
+			else
+				json += "null";
+			json += ",\"last_chunk_return\":";
+			if (s_mission_previous_chunk_return)
+				AppendMissionPoint(json, *s_mission_previous_chunk_return, MissionReadChunkReturnPc);
+			else
+				json += "null";
+			json += ",\"chunk_timing\":";
+			AppendTimingTotals(json, s_mission_chunk_timing);
+			json += ",\"callback_timing\":";
+			AppendTimingTotals(json, s_mission_callback_timing);
+			json += ",\"payload_timing\":";
+			AppendTimingTotals(json, s_mission_payload_timing);
+			json += ",\"inter_chunk_timing\":";
+			AppendTimingTotals(json, s_mission_inter_chunk_timing);
+			json += '}';
 			json += "}}";
 			return json;
 		}
@@ -587,7 +664,8 @@ namespace AVPE::NativeBiosTrace
 		// gate so pre-phase execution cannot become evidence.
 		return pc == MissionEntryPc || pc == MissionReturnPc || pc == MissionLoadErrorPc ||
 		       pc == MissionReadChunkEntryPc ||
-		       pc == MissionReadChunkCallbackPc || pc == MissionReadChunkReturnPc;
+		       pc == MissionReadChunkCallbackPc || pc == MissionReadChunkCallbackReturnPc ||
+		       pc == MissionReadChunkReturnPc;
 	}
 
 	void ObserveMissionBoundary(const u32 pc)
@@ -634,13 +712,24 @@ namespace AVPE::NativeBiosTrace
 	void ObserveMissionLoadProgress(const u32 pc, const u32 chunk_size, const u32 callback_pc,
 		const u32 stack_remaining, const bool stack_remaining_valid)
 	{
-		if (pc != MissionReadChunkEntryPc && pc != MissionReadChunkCallbackPc && pc != MissionReadChunkReturnPc)
+		if (pc != MissionReadChunkEntryPc && pc != MissionReadChunkCallbackPc &&
+			pc != MissionReadChunkCallbackReturnPc && pc != MissionReadChunkReturnPc)
 			return;
 		std::lock_guard lock(s_mutex);
 		if (!s_mission_armed.load(std::memory_order_relaxed) || !s_mission_entry)
 			return;
 		if (pc == MissionReadChunkEntryPc)
 		{
+			if (s_mission_chunk_timing_start || s_mission_callback_timing_start || s_mission_payload_timing_start)
+				++s_mission_timing_sequence_errors;
+			const LoadTimingPoint::Point start = LoadTimingPoint::CaptureNext(s_mission_progress_ordinal);
+			if (!s_mission_first_chunk_entry)
+				s_mission_first_chunk_entry = start;
+			if (s_mission_previous_chunk_return)
+				AccumulateTiming(*s_mission_previous_chunk_return, start, s_mission_inter_chunk_timing);
+			s_mission_chunk_timing_start = start;
+			s_mission_callback_timing_start.reset();
+			s_mission_payload_timing_start.reset();
 			++s_mission_chunks_started;
 			s_mission_active_chunk_size = chunk_size;
 			s_mission_last_remaining = chunk_size;
@@ -650,6 +739,25 @@ namespace AVPE::NativeBiosTrace
 		}
 		if (pc == MissionReadChunkReturnPc)
 		{
+			const LoadTimingPoint::Point end = LoadTimingPoint::CaptureNext(s_mission_progress_ordinal);
+			if (s_mission_callback_timing_start)
+			{
+				++s_mission_timing_sequence_errors;
+				s_mission_callback_timing_start.reset();
+			}
+			if (s_mission_payload_timing_start)
+			{
+				AccumulateTiming(*s_mission_payload_timing_start, end, s_mission_payload_timing);
+				s_mission_payload_timing_start.reset();
+			}
+			if (s_mission_chunk_timing_start)
+			{
+				AccumulateTiming(*s_mission_chunk_timing_start, end, s_mission_chunk_timing);
+				s_mission_chunk_timing_start.reset();
+			}
+			else
+				++s_mission_timing_sequence_errors;
+			s_mission_previous_chunk_return = end;
 			++s_mission_chunks_completed;
 			s_mission_active_chunk_size = 0;
 			s_mission_last_remaining = 0;
@@ -657,6 +765,27 @@ namespace AVPE::NativeBiosTrace
 			s_mission_active_payload_accounted = false;
 			return;
 		}
+		const LoadTimingPoint::Point now = LoadTimingPoint::CaptureNext(s_mission_progress_ordinal);
+		if (pc == MissionReadChunkCallbackReturnPc)
+		{
+			if (s_mission_callback_timing_start)
+			{
+				AccumulateTiming(*s_mission_callback_timing_start, now, s_mission_callback_timing);
+				s_mission_callback_timing_start.reset();
+			}
+			else
+				++s_mission_timing_sequence_errors;
+			s_mission_payload_timing_start = now;
+			return;
+		}
+		if (s_mission_payload_timing_start)
+		{
+			AccumulateTiming(*s_mission_payload_timing_start, now, s_mission_payload_timing);
+			s_mission_payload_timing_start.reset();
+		}
+		if (s_mission_callback_timing_start)
+			++s_mission_timing_sequence_errors;
+		s_mission_callback_timing_start = now;
 		++s_mission_load_callbacks;
 		s_mission_load_callback_pc = callback_pc;
 		if (stack_remaining_valid)
