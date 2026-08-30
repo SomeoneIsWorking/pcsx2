@@ -70,7 +70,9 @@ namespace R3000A
 	irxDEBUG irxImportDebug(const std::string& libname, u16 index);
 	void irxImportLog(const std::string& libnameptr, u16 index, const char* funcname);
 	void irxImportLog_rec(u32 import_table, u16 index, const char* funcname);
-	void irxImportTrace(u32 import_table, u16 index);
+	void irxImportTraceStart(u32 import_table, u16 index);
+	void irxImportTraceHandled();
+	void irxImportTraceFallback();
 	int irxImportExec(u32 import_table, u16 index);
 
 	namespace ioman

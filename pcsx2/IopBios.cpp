@@ -828,7 +828,7 @@ namespace R3000A
 			{
 				if (IOManDir* dir = getfd<IOManDir>(fh))
 				{
-					char buf[sizeof(fxio_dirent_t)];
+					char buf[sizeof(fxio_dirent_t)]{};
 					v0 = dir->read(&buf, iomanX); /* Flawfinder: ignore */
 
 					for (s32 i = 0; i < (s32)sizeof(fxio_dirent_t); i++)
@@ -842,7 +842,7 @@ namespace R3000A
 			{
 				if (IOManDir* dir = getfd<IOManDir>(fh))
 				{
-					char buf[sizeof(fio_dirent_t)];
+					char buf[sizeof(fio_dirent_t)]{};
 					v0 = dir->read(&buf); /* Flawfinder: ignore */
 
 					for (s32 i = 0; i < (s32)sizeof(fio_dirent_t); i++)
@@ -1654,17 +1654,70 @@ namespace R3000A
 		irxImportLog(iopMemReadString(import_table + 12, 8), index, funcname);
 	}
 
-	void irxImportTrace(u32 import_table, u16 index)
+	namespace
+	{
+		struct ImportTraceCall
+		{
+			std::string library;
+			std::string function;
+			std::array<u32, 4> arguments{};
+			u16 ordinal = 0;
+			bool hle = false;
+			bool debug = false;
+		};
+
+		std::optional<ImportTraceCall> s_import_trace_call;
+
+		void StartImportTraceCall(const std::string& library, const u16 ordinal,
+			const char* function, const irxHLE hle, const irxDEBUG debug)
+		{
+			s_import_trace_call.reset();
+			if (!AVPE::NativeBiosTrace::IsEnabled() || (!hle && !debug))
+				return;
+			s_import_trace_call = ImportTraceCall{
+				.library = library,
+				.function = function ? function : "unknown",
+				.arguments = {a0, a1, a2, a3},
+				.ordinal = ordinal,
+				.hle = hle != nullptr,
+				.debug = debug != nullptr,
+			};
+		}
+
+		void CompleteImportTrace(const bool handled)
+		{
+			if (!s_import_trace_call)
+				return;
+			const ImportTraceCall call = std::move(*s_import_trace_call);
+			s_import_trace_call.reset();
+			AVPE::NativeBiosTrace::RecordImport(call.library, call.ordinal, call.function,
+				call.arguments[0], call.arguments[1], call.arguments[2], call.arguments[3],
+				static_cast<s32>(v0), call.hle, call.debug, handled);
+		}
+	} // namespace
+
+	void irxImportTraceStart(u32 import_table, u16 index)
 	{
 		if (!import_table || !AVPE::NativeBiosTrace::IsEnabled())
+		{
+			s_import_trace_call.reset();
 			return;
-
+		}
 		const std::string libname = iopMemReadString(import_table + 12, 8);
 		const char* funcname = irxImportFuncname(libname, index);
 		const irxHLE hle = irxImportHLE(libname, index);
 		const irxDEBUG debug = irxImportDebug(libname, index);
-		AVPE::NativeBiosTrace::RecordImport(libname, index, funcname ? funcname : "unknown",
-			a0, a1, a2, a3, static_cast<s32>(v0), hle != nullptr, debug != nullptr);
+		StartImportTraceCall(libname, index, funcname, hle, debug);
+	}
+
+	void irxImportTraceHandled()
+	{
+		CompleteImportTrace(true);
+	}
+
+	void irxImportTraceFallback()
+	{
+		CompleteImportTrace(false);
 	}
 
 	int irxImportExec(u32 import_table, u16 index)
@@ -1676,7 +1729,7 @@ namespace R3000A
 		const char* funcname = irxImportFuncname(libname, index);
 		irxHLE hle = irxImportHLE(libname, index);
 		irxDEBUG debug = irxImportDebug(libname, index);
-		const std::array<u32, 4> arguments = {a0, a1, a2, a3};
+		StartImportTraceCall(libname, index, funcname, hle, debug);
 
 		irxImportLog(libname, index, funcname);
 
@@ -1687,11 +1740,7 @@ namespace R3000A
 		if (hle)
 			result = hle();
 		if (hle || debug)
-		{
-			AVPE::NativeBiosTrace::RecordImport(libname, index, funcname ? funcname : "unknown",
-				arguments[0], arguments[1], arguments[2], arguments[3], static_cast<s32>(v0),
-				hle != nullptr, debug != nullptr);
-		}
+			CompleteImportTrace(result != 0);
 		return result;
 	}
 
