@@ -4,6 +4,7 @@
 #include "Common.h"
 #include "AVPE/EECallShuttle.h"
 #include "AVPE/NativeEeExecutionHooks.h"
+#include "AVPE/NativeBiosTrace.h"
 #include "CDVD/CDVD.h"
 #include "DebugTools/Breakpoints.h"
 #include "Elfheader.h"
@@ -795,6 +796,9 @@ void R5900::Dynarec::OpcodeImpl::recSYSCALL()
 		// If it's FlushCache or iFlushCache, we can skip it since we don't support cache in the JIT.
 		if (g_cpuConstRegs[3].UC[0] == 0x64 || g_cpuConstRegs[3].UC[0] == 0x68)
 		{
+			xFastCall((void*)AVPE::NativeBiosTrace::RecordCurrentEeSyscall,
+				g_cpuConstRegs[3].UC[0],
+				static_cast<u32>(AVPE::NativeBiosTrace::EeSyscallOutcome::DirectNoResult));
 			// Emulate the amount of cycles it takes for the exception handlers to run
 			// This number was found by using github.com/F0bes/flushcache-cycles
 			s_nBlockCycles += 5650;

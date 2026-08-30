@@ -3,6 +3,8 @@
 #include "AVPE/NativeBiosTrace.h"
 
 #include "AVPE/LoadTimingPoint.h"
+#include "Memory.h"
+#include "R5900.h"
 
 #include <algorithm>
 #include <array>
@@ -16,40 +18,6 @@ namespace AVPE::NativeBiosTrace
 {
 	namespace
 	{
-		struct Event
-		{
-			u64 sequence = 0;
-			std::string kind;
-			std::string library;
-			std::string function;
-			std::string operation;
-			std::string outcome;
-			std::string module;
-			std::string name;
-			std::string domain;
-			u16 ordinal = 0;
-			std::array<u32, 4> arguments{};
-			s32 result = 0;
-			u32 code = 0;
-			u32 pc = 0;
-			u32 counter = 0;
-			u64 count = 0;
-			u64 target = 0;
-			u64 cycle = 0;
-			u64 calls = 0;
-			u8 major = 0;
-			u8 minor = 0;
-			u32 number = 0;
-			u32 handler = 0;
-			u32 rpc_id = 0;
-			bool hle = false;
-			bool debug = false;
-			bool branch_delay = false;
-			bool overflow = false;
-			bool delivered = false;
-			bool result_valid = false;
-		};
-
 		struct TimingTotals
 		{
 			u64 samples = 0;
@@ -98,9 +66,7 @@ namespace AVPE::NativeBiosTrace
 		std::mutex s_mutex;
 		std::condition_variable s_capture_condition;
 		std::condition_variable s_mission_condition;
-		std::vector<Event> s_events;
-		u64 s_next_sequence = 0;
-		u64 s_overflow = 0;
+		NativeBiosEventStore::Store s_event_store{MaximumEvents};
 		bool s_capture_requested = false;
 		std::string s_capture_result;
 		std::string s_mission_result;
@@ -196,80 +162,6 @@ namespace AVPE::NativeBiosTrace
 			"load_core_return",
 		};
 
-		std::string JsonEscape(const std::string_view value)
-		{
-			std::string result;
-			result.reserve(value.size());
-			for (const char character : value)
-			{
-				switch (character)
-				{
-					case '\\':
-						result += "\\\\";
-						break;
-					case '"':
-						result += "\\\"";
-						break;
-					case '\n':
-						result += "\\n";
-						break;
-					case '\r':
-						result += "\\r";
-						break;
-					case '\t':
-						result += "\\t";
-						break;
-					default:
-						result += character;
-						break;
-				}
-			}
-			return result;
-		}
-
-		template <typename Fill>
-		void AddEvent(Fill&& fill)
-		{
-			if (!s_enabled.load(std::memory_order_acquire))
-				return;
-			std::lock_guard lock(s_mutex);
-			if (!s_enabled.load(std::memory_order_relaxed))
-				return;
-			if (s_events.size() >= MaximumEvents)
-			{
-				++s_overflow;
-				return;
-			}
-			Event event;
-			event.sequence = ++s_next_sequence;
-			fill(event);
-			s_events.emplace_back(std::move(event));
-		}
-
-		void AppendString(std::string& json, const std::string_view key, const std::string_view value)
-		{
-			json += ",\"";
-			json += key;
-			json += "\":\"";
-			json += JsonEscape(value);
-			json += '"';
-		}
-
-		void AppendArguments(std::string& json, const std::string_view key,
-			const std::array<u32, 4>& arguments)
-		{
-			json += ",\"";
-			json += key;
-			json += "\":[";
-			for (u32 i = 0; i < arguments.size(); ++i)
-			{
-				if (i != 0)
-					json += ',';
-				json += std::to_string(arguments[i]);
-			}
-			json += ']';
-		}
-
 		void AppendTimingTotals(std::string& json, const TimingTotals& totals)
 		{
 			json += "{\"samples\":" + std::to_string(totals.samples);
@@ -303,91 +195,15 @@ namespace AVPE::NativeBiosTrace
 			return static_cast<size_t>(std::distance(MissionPostReadPcs.begin(), it));
 		}
 
-		void AppendEvent(std::string& json, const Event& event)
-		{
-			json += "{\"sequence\":" + std::to_string(event.sequence);
-			AppendString(json, "kind", event.kind);
-			if (event.kind == "import")
-			{
-				AppendString(json, "library", event.library);
-				json += ",\"ordinal\":" + std::to_string(event.ordinal);
-				AppendString(json, "function", event.function);
-				AppendArguments(json, "first_arguments", event.arguments);
-				AppendString(json, "outcome", event.outcome);
-				json += ",\"result_valid\":" + std::string(event.result_valid ? "true" : "false");
-				if (event.result_valid)
-					json += ",\"result\":" + std::to_string(event.result);
-				json += ",\"hle_available\":" + std::string(event.hle ? "true" : "false");
-				json += ",\"debug_available\":" + std::string(event.debug ? "true" : "false");
-				json += ",\"calls\":" + std::to_string(event.calls);
-			}
-			else if (event.kind == "ee_syscall")
-			{
-				json += ",\"number\":" + std::to_string(event.number);
-				AppendString(json, "name", event.name);
-				AppendArguments(json, "first_arguments", event.arguments);
-				AppendString(json, "outcome", event.outcome);
-				json += ",\"result_valid\":" + std::string(event.result_valid ? "true" : "false");
-				if (event.result_valid)
-					json += ",\"result\":" + std::to_string(event.result);
-				json += ",\"calls\":" + std::to_string(event.calls);
-			}
-			else if (event.kind == "exception")
-			{
-				AppendString(json, "domain", event.domain);
-				json += ",\"code\":" + std::to_string(event.code);
-				json += ",\"pc\":" + std::to_string(event.pc);
-				json += ",\"branch_delay\":" + std::string(event.branch_delay ? "true" : "false");
-				json += ",\"calls\":" + std::to_string(event.calls);
-			}
-			else if (event.kind == "timer")
-			{
-				AppendString(json, "domain", event.domain);
-				json += ",\"counter\":" + std::to_string(event.counter);
-				json += ",\"overflow\":" + std::string(event.overflow ? "true" : "false");
-				json += ",\"count\":" + std::to_string(event.count);
-				json += ",\"target\":" + std::to_string(event.target);
-				json += ",\"cycle\":" + std::to_string(event.cycle);
-				json += ",\"delivered\":" + std::string(event.delivered ? "true" : "false");
-				json += ",\"calls\":" + std::to_string(event.calls);
-			}
-			else if (event.kind == "module")
-			{
-				AppendString(json, "operation", event.operation);
-				AppendString(json, "module", event.module);
-				json += ",\"version_major\":" + std::to_string(event.major);
-				json += ",\"version_minor\":" + std::to_string(event.minor);
-			}
-			else if (event.kind == "interrupt")
-			{
-				json += ",\"number\":" + std::to_string(event.number);
-				AppendString(json, "name", event.name);
-				json += ",\"handler\":" + std::to_string(event.handler);
-			}
-			else if (event.kind == "rpc")
-			{
-				json += ",\"rpc_id\":" + std::to_string(event.rpc_id);
-			}
-			json += '}';
-		}
-
 		std::string SnapshotJsonLocked(const bool disable_after_snapshot)
 		{
 			const bool enabled = s_enabled.load(std::memory_order_relaxed);
 			if (disable_after_snapshot)
 				s_enabled.store(false, std::memory_order_release);
-			std::string json = "{\"schema\":\"avpe-bios-trace-v2\",\"enabled\":";
+			std::string json = "{\"schema\":\"avpe-bios-trace-v3\",\"enabled\":";
 			json += enabled ? "true" : "false";
-			json += ",\"capacity\":" + std::to_string(MaximumEvents);
-			json += ",\"overflow\":" + std::to_string(s_overflow);
-			json += ",\"events\":[";
-			for (size_t i = 0; i < s_events.size(); ++i)
-			{
-				if (i != 0)
-					json += ',';
-				AppendEvent(json, s_events[i]);
-			}
-			json += "]}";
+			s_event_store.AppendSnapshotFields(json);
+			json += '}';
 			return json;
 		}
 
@@ -454,9 +270,7 @@ namespace AVPE::NativeBiosTrace
 
 		void ResetObservationsLocked()
 		{
-			s_events.clear();
-			s_next_sequence = 0;
-			s_overflow = 0;
+			s_event_store.Reset();
 			s_capture_requested = false;
 			s_capture_result.clear();
 			ResetMissionLocked();
@@ -637,6 +451,161 @@ namespace AVPE::NativeBiosTrace
 			return json;
 		}
 
+		template <typename Record>
+		void RecordEvent(Record&& record)
+		{
+			if (!s_enabled.load(std::memory_order_acquire))
+				return;
+			std::lock_guard lock(s_mutex);
+			if (s_enabled.load(std::memory_order_relaxed))
+				record(s_event_store);
+		}
+
+		const char* EeSyscallName(const u8 number)
+		{
+			// ps2sdk's current syscall-number authority names these formerly
+			// reserved entries by their grounded control-transfer semantics.
+			switch (number)
+			{
+				case 4:
+					return "KExit";
+				case 5:
+					return "ResumeIntrDispatch";
+				case 6:
+					return "_LoadExecPS2";
+				case 8:
+					return "ResumeT3IntrDispatch";
+				default:
+					return R5900::bios[number] ? R5900::bios[number] : "unknown";
+			}
+		}
+
+		EeSyscallDisposition EeSyscallDispositionFor(const u8 number)
+		{
+			// Keep this aligned with ps2sdk's ee/kernel/include/kernel.h declarations
+			// and syscallnr.h identities. Unknown/reserved calls still participate in
+			// control-return pairing, but their $v0 value is not claimed as a result.
+			switch (number)
+			{
+				case 4: // KExit
+				case 5: // ResumeIntrDispatch
+				case 6: // _LoadExecPS2
+				case 8: // ResumeT3IntrDispatch
+				case 35: // ExitThread
+				case 36: // ExitDeleteThread
+				case 123: // _ExecOSD
+					return EeSyscallDisposition::NonReturning;
+
+				case 1: // ResetEE
+				case 2: // SetGsCrt
+				case 9: // RFU009
+				case 13: // SetVTLBRefillHandler
+				case 14: // SetVCommonHandler
+				case 15: // SetVInterruptHandler
+				case 39: // DisableDispatchThread
+				case 40: // EnableDispatchThread
+				case 74: // SetOsdConfigParam
+				case 75: // GetOsdConfigParam
+				case 76: // GetGsHParam
+				case 78: // SetGsHParam
+				case 79: // SetGsVParam
+				case 92: // EnableIntcHandler
+				case 93: // DisableIntcHandler
+				case 94: // EnableDmacHandler
+				case 95: // DisableDmacHandler
+				case 96: // KSeg0
+				case 100: // FlushCache
+				case 104: // iFlushCache
+				case 107: // sceSifStopDma
+				case 108: // SetCPUTimerHandler
+				case 109: // SetCPUTimer
+				case 110: // SetOsdConfigParam2
+				case 111: // GetOsdConfigParam2
+				case 114: // SetPgifHandler
+				case 115: // SetVSyncFlag
+				case 117: // print
+				case 120: // sceSifSetDChain / isceSifSetDChain
+				case 125: // PSMode
+					return EeSyscallDisposition::ReturningNoResult;
+
+				case 7: // _ExecPS2
+				case 10: // AddSbusIntcHandler
+				case 11: // RemoveSbusIntcHandler
+				case 12: // Interrupt2Iop
+				case 16: // AddIntcHandler
+				case 17: // RemoveIntcHandler
+				case 18: // AddDmacHandler
+				case 19: // RemoveDmacHandler
+				case 20: // _EnableIntc
+				case 21: // _DisableIntc
+				case 22: // _EnableDmac
+				case 23: // _DisableDmac
+				case 24: // _SetAlarm
+				case 25: // _ReleaseAlarm
+				case 26: // _iEnableIntc
+				case 27: // _iDisableIntc
+				case 28: // _iEnableDmac
+				case 29: // _iDisableDmac
+				case 30: // _iSetAlarm
+				case 31: // _iReleaseAlarm
+				case 32: // CreateThread
+				case 33: // DeleteThread
+				case 34: // StartThread
+				case 37: // TerminateThread
+				case 38: // iTerminateThread
+				case 41: // ChangeThreadPriority
+				case 42: // iChangeThreadPriority
+				case 43: // RotateThreadReadyQueue
+				case 44: // iRotateThreadReadyQueue
+				case 45: // ReleaseWaitThread
+				case 46: // iReleaseWaitThread
+				case 47: // GetThreadId
+				case 48: // ReferThreadStatus
+				case 49: // iReferThreadStatus
+				case 50: // SleepThread
+				case 51: // WakeupThread
+				case 52: // iWakeupThread
+				case 53: // CancelWakeupThread
+				case 54: // iCancelWakeupThread
+				case 55: // SuspendThread
+				case 56: // iSuspendThread
+				case 57: // ResumeThread
+				case 58: // iResumeThread
+				case 59: // RFU059
+				case 62: // EndOfHeap
+				case 64: // CreateSema
+				case 65: // DeleteSema
+				case 66: // SignalSema
+				case 67: // iSignalSema
+				case 68: // WaitSema
+				case 69: // PollSema
+				case 70: // iPollSema
+				case 71: // ReferSemaStatus
+				case 72: // iReferSemaStatus
+				case 77: // GetGsVParam
+				case 91: // GetEntryAddress
+				case 97: // EnableCache
+				case 98: // DisableCache
+				case 99: // GetCop0
+				case 102: // CpuConfig
+				case 103: // iGetCop0
+				case 106: // iCpuConfig
+				case 118: // sceSifDmaStat / sceiSifDmaStat
+				case 119: // sceSifSetDma / isceSifSetDma
+				case 121: // sceSifSetReg
+				case 122: // sceSifGetReg
+				case 124: // Deci2Call
+				case 126: // MachineType
+				case 127: // GetMemorySize
+					return EeSyscallDisposition::ReturningResult;
+
+				default:
+					// This includes GsGetIMR/GsPutIMR's u64 result and
+					// reserved calls whose result ABI is not established.
+					return EeSyscallDisposition::ReturningUnobservedResult;
+			}
+		}
+
 	} // namespace
 
 	void Reset()
@@ -665,174 +634,111 @@ namespace AVPE::NativeBiosTrace
 		const u32 a0, const u32 a1, const u32 a2, const u32 a3, const s32 result,
 		const bool hle, const bool debug, const bool handled)
 	{
-		if (!s_enabled.load(std::memory_order_acquire))
-			return;
-		std::lock_guard lock(s_mutex);
-		if (!s_enabled.load(std::memory_order_relaxed))
-			return;
-		for (Event& event : s_events)
-		{
-			if (event.kind == "import" && event.library == library && event.ordinal == ordinal &&
-				event.function == function && event.hle == hle && event.debug == debug &&
-				event.result_valid == handled && (!handled || event.result == result))
-			{
-				++event.calls;
-				return;
-			}
-		}
-		if (s_events.size() >= MaximumEvents)
-		{
-			++s_overflow;
-			return;
-		}
-		Event event;
-		event.sequence = ++s_next_sequence;
-		event.kind = "import";
-		event.library = library;
-		event.ordinal = ordinal;
-		event.function = function;
-		event.arguments = {a0, a1, a2, a3};
-		event.result = result;
-		event.result_valid = handled;
-		event.outcome = handled ? "hle" : "oracle";
-		event.hle = hle;
-		event.debug = debug;
-		event.calls = 1;
-		s_events.emplace_back(std::move(event));
+		RecordEvent([&](NativeBiosEventStore::Store& store) {
+			store.RecordImport(library, ordinal, function, a0, a1, a2, a3, result, hle, debug, handled);
+		});
 	}
 
 	void RecordEeSyscall(const u8 number, const std::string_view name,
 		const u32 a0, const u32 a1, const u32 a2, const u32 a3, const s32 result,
-		const bool result_valid)
+		const EeSyscallOutcome outcome, const EeSyscallDisposition disposition)
+	{
+		RecordEvent([&](NativeBiosEventStore::Store& store) {
+			store.RecordEeSyscall(number, name, a0, a1, a2, a3, result, outcome, disposition);
+		});
+	}
+
+	void RecordEeBiosSyscallEntry(const u8 number, const std::string_view name,
+		const u32 a0, const u32 a1, const u32 a2, const u32 a3,
+		const u32 stack_pointer, const u32 resume_pc, const EeSyscallDisposition disposition)
+	{
+		RecordEvent([&](NativeBiosEventStore::Store& store) {
+			store.RecordEeBiosSyscallEntry(
+				number, name, a0, a1, a2, a3, stack_pointer, resume_pc, disposition);
+		});
+	}
+
+	void RecordEeBiosSyscallReturn(const u32 stack_pointer, const u32 resume_pc, const s32 result)
+	{
+		RecordEvent([&](NativeBiosEventStore::Store& store) {
+			store.RecordEeBiosSyscallReturn(stack_pointer, resume_pc, result);
+		});
+	}
+
+	void RecordCurrentEeSyscall(const u8 number, const EeSyscallOutcome outcome)
 	{
 		if (!s_enabled.load(std::memory_order_acquire))
 			return;
-		std::lock_guard lock(s_mutex);
-		if (!s_enabled.load(std::memory_order_relaxed))
-			return;
-		for (Event& event : s_events)
+		const char* name = EeSyscallName(number);
+		if (outcome == EeSyscallOutcome::Bios)
 		{
-			if (event.kind == "ee_syscall" && event.number == number && event.name == name &&
-				event.result_valid == result_valid && (!result_valid || event.result == result))
-			{
-				++event.calls;
-				return;
-			}
+			RecordEeBiosSyscallEntry(number, name,
+				cpuRegs.GPR.n.a0.UL[0], cpuRegs.GPR.n.a1.UL[0], cpuRegs.GPR.n.a2.UL[0],
+				cpuRegs.GPR.n.a3.UL[0], cpuRegs.GPR.n.sp.UL[0], cpuRegs.pc,
+				EeSyscallDispositionFor(number));
 		}
-		if (s_events.size() >= MaximumEvents)
+		else
 		{
-			++s_overflow;
-			return;
+			const EeSyscallDisposition disposition = outcome == EeSyscallOutcome::DirectResult ?
+			                                             EeSyscallDisposition::ReturningResult :
+			                                             EeSyscallDisposition::ReturningNoResult;
+			RecordEeSyscall(number, name,
+				cpuRegs.GPR.n.a0.UL[0], cpuRegs.GPR.n.a1.UL[0], cpuRegs.GPR.n.a2.UL[0],
+				cpuRegs.GPR.n.a3.UL[0], static_cast<s32>(cpuRegs.GPR.n.v0.UL[0]), outcome,
+				disposition);
 		}
-		Event event;
-		event.sequence = ++s_next_sequence;
-		event.kind = "ee_syscall";
-		event.number = number;
-		event.name = name;
-		event.arguments = {a0, a1, a2, a3};
-		event.result = result;
-		event.result_valid = result_valid;
-		event.outcome = result_valid ? "direct" : "bios";
-		event.calls = 1;
-		s_events.emplace_back(std::move(event));
+	}
+
+	bool ShouldInstrumentEeSyscallReturn(const u32 pc)
+	{
+		constexpr u32 OpcodeMask = 0xFC00003F;
+		constexpr u32 SyscallOpcode = 0x0000000C;
+		return pc >= 4 && (memRead32(pc - 4) & OpcodeMask) == SyscallOpcode;
+	}
+
+	void ObserveEeSyscallReturn(const u32 pc)
+	{
+		if (!s_enabled.load(std::memory_order_acquire))
+			return;
+		RecordEeBiosSyscallReturn(cpuRegs.GPR.n.sp.UL[0], pc,
+			static_cast<s32>(cpuRegs.GPR.n.v0.UL[0]));
 	}
 
 	void RecordException(const std::string_view domain, const u32 code, const u32 pc,
 		const bool branch_delay)
 	{
-		if (!s_enabled.load(std::memory_order_acquire))
-			return;
-		std::lock_guard lock(s_mutex);
-		if (!s_enabled.load(std::memory_order_relaxed))
-			return;
-		for (Event& event : s_events)
-		{
-			if (event.kind == "exception" && event.domain == domain && event.code == code &&
-				event.pc == pc && event.branch_delay == branch_delay)
-			{
-				++event.calls;
-				return;
-			}
-		}
-		if (s_events.size() >= MaximumEvents)
-		{
-			++s_overflow;
-			return;
-		}
-		Event event;
-		event.sequence = ++s_next_sequence;
-		event.kind = "exception";
-		event.domain = domain;
-		event.code = code;
-		event.pc = pc;
-		event.branch_delay = branch_delay;
-		event.calls = 1;
-		s_events.emplace_back(std::move(event));
+		RecordEvent([&](NativeBiosEventStore::Store& store) {
+			store.RecordException(domain, code, pc, branch_delay);
+		});
 	}
 
 	void RecordTimer(const std::string_view domain, const u32 index, const bool overflow,
 		const u64 count, const u64 target, const u64 cycle, const bool delivered)
 	{
-		if (!s_enabled.load(std::memory_order_acquire))
-			return;
-		std::lock_guard lock(s_mutex);
-		if (!s_enabled.load(std::memory_order_relaxed))
-			return;
-		for (Event& event : s_events)
-		{
-			if (event.kind == "timer" && event.domain == domain && event.counter == index &&
-				event.overflow == overflow && event.delivered == delivered)
-			{
-				++event.calls;
-				return;
-			}
-		}
-		if (s_events.size() >= MaximumEvents)
-		{
-			++s_overflow;
-			return;
-		}
-		Event event;
-		event.sequence = ++s_next_sequence;
-		event.kind = "timer";
-		event.domain = domain;
-		event.counter = index;
-		event.overflow = overflow;
-		event.count = count;
-		event.target = target;
-		event.cycle = cycle;
-		event.delivered = delivered;
-		event.calls = 1;
-		s_events.emplace_back(std::move(event));
+		RecordEvent([&](NativeBiosEventStore::Store& store) {
+			store.RecordTimer(domain, index, overflow, count, target, cycle, delivered);
+		});
 	}
 
 	void RecordModule(const std::string_view module, const u8 major, const u8 minor,
 		const std::string_view operation)
 	{
-		AddEvent([&](Event& event) {
-			event.kind = "module";
-			event.operation = operation;
-			event.module = module;
-			event.major = major;
-			event.minor = minor;
+		RecordEvent([&](NativeBiosEventStore::Store& store) {
+			store.RecordModule(module, major, minor, operation);
 		});
 	}
 
 	void RecordInterrupt(const u32 number, const std::string_view name, const u32 handler)
 	{
-		AddEvent([&](Event& event) {
-			event.kind = "interrupt";
-			event.number = number;
-			event.name = name;
-			event.handler = handler;
+		RecordEvent([&](NativeBiosEventStore::Store& store) {
+			store.RecordInterrupt(number, name, handler);
 		});
 	}
 
 	void RecordRpc(const u32 rpc_id)
 	{
-		AddEvent([&](Event& event) {
-			event.kind = "rpc";
-			event.rpc_id = rpc_id;
+		RecordEvent([&](NativeBiosEventStore::Store& store) {
+			store.RecordRpc(rpc_id);
 		});
 	}
 
