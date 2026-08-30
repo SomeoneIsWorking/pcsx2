@@ -114,6 +114,7 @@ namespace AVPE::NativeMissionLoadTiming
 			GuestObjects::ReadWord(cpuRegs.GPR.n.sp.UL[0] + 0x7C, &stack_remaining);
 		NativeBiosTrace::ObserveMissionLoadProgress(
 			pc, cpuRegs.GPR.n.a2.UL[0], cpuRegs.GPR.n.v0.UL[0], stack_remaining, stack_remaining_valid);
+		NativeBiosTrace::ObserveMissionPostReadProgress(pc, cpuRegs.GPR.n.s2.UL[0]);
 		NativeBiosTrace::ObserveMissionLoadError(pc, cpuRegs.GPR.n.a0.UL[0], cpuRegs.GPR.n.ra.UL[0]);
 		NativeBiosTrace::ObserveMissionBoundary(pc);
 		if (!IsObservedPc(pc) || !IsEnabled())
