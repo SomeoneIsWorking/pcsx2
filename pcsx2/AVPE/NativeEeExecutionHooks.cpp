@@ -37,12 +37,15 @@ namespace AVPE::NativeEeExecutionHooks
 
 	bool ShouldInstrumentEePc(const u32 pc)
 	{
-		return NativeBiosTrace::ShouldInstrumentMissionBoundary(pc) ||
+		return NativeBiosTrace::ShouldInstrumentEeSyscallReturn(pc) ||
+		       NativeBiosTrace::ShouldInstrumentMissionBoundary(pc) ||
 		       NativeMissionLoadTiming::ShouldInstrumentEePc(pc) || NativeHostYield::ShouldInstrumentEePc(pc);
 	}
 
 	void ObserveEeExecution(const u32 pc)
 	{
+		if (NativeBiosTrace::ShouldInstrumentEeSyscallReturn(pc))
+			NativeBiosTrace::ObserveEeSyscallReturn(pc);
 		if (NativeBiosTrace::ShouldInstrumentMissionBoundary(pc))
 			ObserveBiosTrace(pc);
 		if (NativeMissionLoadTiming::ShouldInstrumentEePc(pc))

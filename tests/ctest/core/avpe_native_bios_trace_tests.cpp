@@ -19,12 +19,21 @@ TEST(NativeBiosTraceTest, DisabledTraceDoesNotRetainEvents)
 
 TEST(NativeBiosTraceTest, RecordsOrderedEventsAndOnlyGroundedResults)
 {
+	using Disposition = AVPE::NativeBiosTrace::EeSyscallDisposition;
+	using Outcome = AVPE::NativeBiosTrace::EeSyscallOutcome;
+
 	AVPE::NativeBiosTrace::SetEnabled(true);
 	AVPE::NativeBiosTrace::RecordModule("ioman", 2, 0, "register");
 	AVPE::NativeBiosTrace::RecordInterrupt(0, "INT_VBLANK", 0x1234);
 	AVPE::NativeBiosTrace::RecordRpc(0x80000100);
-	AVPE::NativeBiosTrace::RecordEeSyscall(34, "StartThread", 5, 6, 7, 8, -2, false);
-	AVPE::NativeBiosTrace::RecordEeSyscall(100, "FlushCache", 9, 10, 11, 12, 0, true);
+	AVPE::NativeBiosTrace::RecordEeSyscall(
+		34, "StartThread", 5, 6, 7, 8, -2, Outcome::Bios, Disposition::ReturningResult);
+	AVPE::NativeBiosTrace::RecordEeSyscall(
+		100, "FlushCache", 9, 10, 11, 12, -7, Outcome::DirectNoResult,
+		Disposition::ReturningNoResult);
+	AVPE::NativeBiosTrace::RecordEeSyscall(
+		60, "GetMemorySize", 13, 14, 15, 16, 0x02000000, Outcome::DirectResult,
+		Disposition::ReturningResult);
 	AVPE::NativeBiosTrace::RecordException("ee", 8, 0x1000, true);
 	AVPE::NativeBiosTrace::RecordTimer("iop", 2, true, 0x10001, 0xffff, 1234, false);
 	AVPE::NativeBiosTrace::RecordTimer("ee", 1, false, 10, 10, 42, true);
@@ -32,7 +41,7 @@ TEST(NativeBiosTraceTest, RecordsOrderedEventsAndOnlyGroundedResults)
 	AVPE::NativeBiosTrace::RecordImport("cdvdman", 8, "sceCdGetError", 5, 6, 7, 8, 123, true, false, false);
 
 	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
-	EXPECT_NE(snapshot.find("\"schema\":\"avpe-bios-trace-v2\""), std::string::npos);
+	EXPECT_NE(snapshot.find("\"schema\":\"avpe-bios-trace-v3\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"sequence\":1"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"kind\":\"module\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"kind\":\"interrupt\""), std::string::npos);
@@ -41,8 +50,14 @@ TEST(NativeBiosTraceTest, RecordsOrderedEventsAndOnlyGroundedResults)
 	EXPECT_NE(snapshot.find("\"name\":\"StartThread\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"first_arguments\":[5,6,7,8]"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"outcome\":\"bios\",\"result_valid\":false"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"result_expected\":true,\"return_expected\":true"),
+		std::string::npos);
 	EXPECT_EQ(snapshot.find("\"result\":-2"), std::string::npos);
-	EXPECT_NE(snapshot.find("\"outcome\":\"direct\",\"result_valid\":true,\"result\":0"),
+	EXPECT_NE(snapshot.find("\"outcome\":\"direct\",\"result_valid\":false"),
+		std::string::npos);
+	EXPECT_EQ(snapshot.find("\"result\":-7"), std::string::npos);
+	EXPECT_NE(snapshot.find(
+				  "\"outcome\":\"direct\",\"result_valid\":true,\"result\":33554432"),
 		std::string::npos);
 	EXPECT_NE(snapshot.find("\"kind\":\"exception\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"domain\":\"ee\""), std::string::npos);
@@ -101,9 +116,14 @@ TEST(NativeBiosTraceTest, CoalescesRepeatedTimerShape)
 
 TEST(NativeBiosTraceTest, CoalescesRepeatedSyscallAndExceptionIdentity)
 {
+	using Disposition = AVPE::NativeBiosTrace::EeSyscallDisposition;
+	using Outcome = AVPE::NativeBiosTrace::EeSyscallOutcome;
+
 	AVPE::NativeBiosTrace::SetEnabled(true);
-	AVPE::NativeBiosTrace::RecordEeSyscall(122, "sceSifGetReg", 1, 2, 3, 4, 99, false);
-	AVPE::NativeBiosTrace::RecordEeSyscall(122, "sceSifGetReg", 5, 6, 7, 8, 0, false);
+	AVPE::NativeBiosTrace::RecordEeSyscall(122, "sceSifGetReg", 1, 2, 3, 4, 99,
+		Outcome::Bios, Disposition::ReturningResult);
+	AVPE::NativeBiosTrace::RecordEeSyscall(122, "sceSifGetReg", 5, 6, 7, 8, 0,
+		Outcome::Bios, Disposition::ReturningResult);
 	AVPE::NativeBiosTrace::RecordException("ee", 32, 0x1234, false);
 	AVPE::NativeBiosTrace::RecordException("ee", 32, 0x1234, false);
 
@@ -111,6 +131,95 @@ TEST(NativeBiosTraceTest, CoalescesRepeatedSyscallAndExceptionIdentity)
 	EXPECT_NE(snapshot.find("\"calls\":2"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"sequence\":2"), std::string::npos);
 	EXPECT_EQ(snapshot.find("\"sequence\":3"), std::string::npos);
+}
+
+TEST(NativeBiosTraceTest, PairsBiosReturnsByStackAndResumePc)
+{
+	using Disposition = AVPE::NativeBiosTrace::EeSyscallDisposition;
+
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallEntry(
+		68, "WaitSema", 10, 0, 0, 0, 0x01FFF000, 0x00102004,
+		Disposition::ReturningResult);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallEntry(
+		66, "SignalSema", 10, 0, 0, 0, 0x01FFE000, 0x00103004,
+		Disposition::ReturningResult);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallReturn(0x01FFD000, 0x00104004, 99);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallReturn(0x01FFE000, 0x00103004, 0);
+
+	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
+	EXPECT_NE(snapshot.find("\"kind\":\"ee_syscall_return\""), std::string::npos);
+	EXPECT_NE(snapshot.find(
+				  "\"name\":\"SignalSema\",\"result_expected\":true,\"result_valid\":true,\"result\":0"),
+		std::string::npos);
+	EXPECT_NE(snapshot.find("\"first_stack_pointer\":33546240"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"first_resume_pc\":1060868"), std::string::npos);
+	EXPECT_NE(snapshot.find(
+				  "\"ee_syscall_pairing\":{\"entries\":2,\"returns\":1,\"pending\":1,"
+				  "\"sequence_errors\":0,\"overflow\":0}"),
+		std::string::npos);
+}
+
+TEST(NativeBiosTraceTest, RejectsMismatchedBiosReturnBoundary)
+{
+	using Disposition = AVPE::NativeBiosTrace::EeSyscallDisposition;
+
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallEntry(
+		68, "WaitSema", 10, 0, 0, 0, 0x01FFF000, 0x00102004,
+		Disposition::ReturningResult);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallReturn(0x01FFF000, 0x00102008, 0);
+
+	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
+	EXPECT_NE(snapshot.find("\"returns\":0,\"pending\":1,\"sequence_errors\":1"),
+		std::string::npos);
+	EXPECT_EQ(snapshot.find("\"kind\":\"ee_syscall_return\""), std::string::npos);
+}
+
+TEST(NativeBiosTraceTest, NonreturningBiosControlTransferDoesNotEnterPairingState)
+{
+	using Disposition = AVPE::NativeBiosTrace::EeSyscallDisposition;
+
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallEntry(
+		5, "ResumeIntrDispatch", 0, 0, 0, 0, 0x01FFF000, 0x00102004,
+		Disposition::NonReturning);
+
+	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
+	EXPECT_NE(snapshot.find("\"name\":\"ResumeIntrDispatch\""), std::string::npos);
+	EXPECT_NE(snapshot.find("\"return_expected\":false"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"result_expected\":false"), std::string::npos);
+	EXPECT_NE(snapshot.find(
+				  "\"ee_syscall_pairing\":{\"entries\":0,\"returns\":0,\"pending\":0,"
+				  "\"sequence_errors\":0,\"overflow\":0}"),
+		std::string::npos);
+}
+
+TEST(NativeBiosTraceTest, ReturningVoidAndUnobservedResultsRemainDistinct)
+{
+	using Disposition = AVPE::NativeBiosTrace::EeSyscallDisposition;
+
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallEntry(
+		100, "FlushCache", 0, 0, 0, 0, 0x01FFF000, 0x00102004,
+		Disposition::ReturningNoResult);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallReturn(0x01FFF000, 0x00102004, 2);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallEntry(
+		112, "GsGetIMR", 0, 0, 0, 0, 0x01FFE000, 0x00103004,
+		Disposition::ReturningUnobservedResult);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallReturn(0x01FFE000, 0x00103004, -1);
+
+	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
+	EXPECT_NE(snapshot.find(
+				  "\"name\":\"FlushCache\",\"result_expected\":false,\"result_valid\":false"),
+		std::string::npos);
+	EXPECT_NE(snapshot.find(
+				  "\"name\":\"GsGetIMR\",\"result_expected\":true,\"result_valid\":false"),
+		std::string::npos);
+	EXPECT_EQ(snapshot.find("\"result\":2"), std::string::npos);
+	EXPECT_EQ(snapshot.find("\"result\":-1"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"entries\":2,\"returns\":2,\"pending\":0"),
+		std::string::npos);
 }
 
 TEST(NativeBiosTraceTest, CaptureDisablesFurtherEvents)

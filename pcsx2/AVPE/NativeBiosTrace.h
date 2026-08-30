@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "AVPE/NativeBiosEventStore.h"
 #include "common/Pcsx2Defs.h"
 
 #include <chrono>
@@ -11,6 +12,8 @@
 namespace AVPE::NativeBiosTrace
 {
 	constexpr u32 MaximumEvents = 4096;
+	using EeSyscallDisposition = NativeBiosEventStore::EeSyscallDisposition;
+	using EeSyscallOutcome = NativeBiosEventStore::EeSyscallOutcome;
 
 	void Reset();
 	void SetEnabled(bool enabled);
@@ -19,7 +22,13 @@ namespace AVPE::NativeBiosTrace
 	void RecordImport(std::string_view library, u16 ordinal, std::string_view function,
 		u32 a0, u32 a1, u32 a2, u32 a3, s32 result, bool hle, bool debug, bool handled);
 	void RecordEeSyscall(u8 number, std::string_view name, u32 a0, u32 a1, u32 a2, u32 a3,
-		s32 result, bool result_valid);
+		s32 result, EeSyscallOutcome outcome, EeSyscallDisposition disposition);
+	void RecordEeBiosSyscallEntry(u8 number, std::string_view name, u32 a0, u32 a1, u32 a2,
+		u32 a3, u32 stack_pointer, u32 resume_pc, EeSyscallDisposition disposition);
+	void RecordEeBiosSyscallReturn(u32 stack_pointer, u32 resume_pc, s32 result);
+	void RecordCurrentEeSyscall(u8 number, EeSyscallOutcome outcome);
+	bool ShouldInstrumentEeSyscallReturn(u32 pc);
+	void ObserveEeSyscallReturn(u32 pc);
 	void RecordException(std::string_view domain, u32 code, u32 pc, bool branch_delay);
 	void RecordTimer(std::string_view domain, u32 index, bool overflow, u64 count, u64 target,
 		u64 cycle, bool delivered);
