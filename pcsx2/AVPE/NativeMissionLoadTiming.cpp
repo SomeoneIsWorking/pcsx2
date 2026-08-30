@@ -5,7 +5,6 @@
 #include "AVPE/AVPE.h"
 #include "AVPE/GuestObjects.h"
 #include "AVPE/LoadTimingPoint.h"
-#include "AVPE/NativeBiosTrace.h"
 #include "R5900.h"
 #include "VMManager.h"
 
@@ -103,20 +102,11 @@ namespace AVPE::NativeMissionLoadTiming
 		// The recompiler can see MainLoop blocks before VMManager publishes the
 		// final disc identity. Split configured timing PCs from process start;
 		// ObserveEeExecution performs the exact live title/control-test gate.
-		return NativeBiosTrace::ShouldInstrumentMissionBoundary(pc) ||
-		       (IsObservedPc(pc) && HasMissionTarget() && Mode().has_value());
+		return IsObservedPc(pc) && HasMissionTarget() && Mode().has_value();
 	}
 
 	void ObserveEeExecution(const u32 pc)
 	{
-		u32 stack_remaining = 0;
-		const bool stack_remaining_valid =
-			GuestObjects::ReadWord(cpuRegs.GPR.n.sp.UL[0] + 0x7C, &stack_remaining);
-		NativeBiosTrace::ObserveMissionLoadProgress(
-			pc, cpuRegs.GPR.n.a2.UL[0], cpuRegs.GPR.n.v0.UL[0], stack_remaining, stack_remaining_valid);
-		NativeBiosTrace::ObserveMissionPostReadProgress(pc, cpuRegs.GPR.n.s2.UL[0]);
-		NativeBiosTrace::ObserveMissionLoadError(pc, cpuRegs.GPR.n.a0.UL[0], cpuRegs.GPR.n.ra.UL[0]);
-		NativeBiosTrace::ObserveMissionBoundary(pc);
 		if (!IsObservedPc(pc) || !IsEnabled())
 			return;
 

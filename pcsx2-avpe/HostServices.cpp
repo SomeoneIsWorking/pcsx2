@@ -284,6 +284,7 @@ void Host::RequestVMShutdown(bool allow_confirm, bool allow_save_state, bool def
 
 void Host::PumpMessagesOnCPUThread()
 {
+	AVPE::Runtime::Get()->GetEmulationThread().PumpEvents();
 }
 
 s32 Host::Internal::GetTranslatedStringImpl(

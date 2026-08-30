@@ -3,7 +3,7 @@
 
 #include "Common.h"
 #include "AVPE/EECallShuttle.h"
-#include "AVPE/NativeMissionLoadTiming.h"
+#include "AVPE/NativeEeExecutionHooks.h"
 #include "CDVD/CDVD.h"
 #include "DebugTools/Breakpoints.h"
 #include "Elfheader.h"
@@ -1697,10 +1697,10 @@ bool encodeMemcheck()
 
 void recompileNextInstruction(bool delayslot, bool swapped_delay_slot)
 {
-	if (!delayslot && AVPE::NativeMissionLoadTiming::ShouldInstrumentEePc(pc))
+	if (!delayslot && AVPE::NativeEeExecutionHooks::ShouldInstrumentEePc(pc))
 	{
 		iFlushCall(FLUSH_EVERYTHING | FLUSH_PC);
-		xFastCall((void*)AVPE::NativeMissionLoadTiming::ObserveEeExecution, pc);
+		xFastCall((void*)AVPE::NativeEeExecutionHooks::ObserveEeExecution, pc);
 	}
 
 	if (EmuConfig.EnablePatches)
@@ -2349,7 +2349,7 @@ static void recRecompile(const u32 startpc)
 		BASEBLOCK* pblock = PC_GETBLOCK(i);
 		// Make an armed timing point a block entry so cpuRegs.cycle includes all
 		// preceding guest execution when its runtime callback captures the point.
-		if (i != startpc && AVPE::NativeMissionLoadTiming::ShouldInstrumentEePc(i))
+		if (i != startpc && AVPE::NativeEeExecutionHooks::ShouldInstrumentEePc(i))
 		{
 			willbranch3 = 1;
 			s_nEndBlock = i;

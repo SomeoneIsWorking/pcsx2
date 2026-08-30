@@ -10,12 +10,19 @@
 namespace AVPE::NativeMenuInput
 {
 	static constexpr u32 INPUT_DEVICE_SINGLETON = 0x00366E68;
+	static constexpr u32 MISSION_GOALS_MENU_SINGLETON = 0x00367C04;
+	static constexpr u32 MISSION_GOALS_MENU_VTABLE = 0x00342570;
+	static constexpr u32 MISSION_GOALS_EXIT_VTABLE = 0x00342370;
 	static constexpr u32 CALLBACK_ARRAY_OFFSET = 0x48;
 	static constexpr u32 FOCUSED_ITEM_HANDLE_OFFSET = 0x26C;
 	static constexpr u32 CALLBACK_STRIDE = 0x18;
 	static constexpr u32 CALLBACK_OWNER_OFFSET = 0x08;
 	static constexpr u32 CALLBACK_FUNCTION_OFFSET = 0x14;
 	static constexpr u32 MENU_INPUT = 0x00125330;
+	static constexpr u32 MENU_ITEM_FOCUS = 0x00120B70;
+	static constexpr u32 MENU_ITEM_FOCUS_VTABLE_OFFSET = 0xB8;
+	static constexpr u32 FIRST_CHILD_OFFSET = 0x08;
+	static constexpr u32 NEXT_SIBLING_OFFSET = 0x10;
 	static constexpr u32 MENU_CANCEL_VTABLE_OFFSET = 0xFC;
 	static constexpr u32 MENU_POINTER_FOCUS_HANDLE_OFFSET = 0x1AC;
 	static constexpr u32 MENU_POINTER_CHECK = 0x0012E490;
@@ -26,6 +33,7 @@ namespace AVPE::NativeMenuInput
 	static constexpr u32 UPDATE_POINTER_ABSOLUTE_VTABLE_OFFSET = 0xDC;
 	static constexpr u32 POINTER_ACTION_VTABLE_OFFSET = 0xE0;
 	static constexpr u32 MAX_CALLBACK_COUNT = 256;
+	static constexpr u32 MAX_MISSION_GOALS_OBJECTS = 256;
 	static constexpr std::array<u32, 6> MENU_CALLBACKS = {
 		0x00124BD0,
 		0x00124BE0,
@@ -39,6 +47,7 @@ namespace AVPE::NativeMenuInput
 	{
 		u32 object = 0;
 		u32 callback_count = 0;
+		Source source = Source::None;
 	};
 
 	struct CallbackRegistry
@@ -85,43 +94,90 @@ namespace AVPE::NativeMenuInput
 		CallbackRegistry registry;
 		const Status registry_status = ReadCallbackRegistry(&registry, error);
 		active->callback_count = registry.count;
-		if (registry_status != Status::Success)
+		if (registry_status != Status::Success && registry_status != Status::MenuUnavailable)
 			return registry_status;
 
-		for (u32 i = 0; i < registry.count; ++i)
+		if (registry_status == Status::Success)
 		{
-			const u32 callback = registry.entries + i * CALLBACK_STRIDE;
-			u32 function = 0;
-			if (!GuestObjects::ReadWord(callback + CALLBACK_FUNCTION_OFFSET, &function))
+			for (u32 i = 0; i < registry.count; ++i)
 			{
-				*error = "game input callback entry is unreadable";
-				return Status::GuestMemoryError;
-			}
-			if (!IsMenuCallback(function))
-				continue;
+				const u32 callback = registry.entries + i * CALLBACK_STRIDE;
+				u32 function = 0;
+				if (!GuestObjects::ReadWord(callback + CALLBACK_FUNCTION_OFFSET, &function))
+				{
+					*error = "game input callback entry is unreadable";
+					return Status::GuestMemoryError;
+				}
+				if (!IsMenuCallback(function))
+					continue;
 
-			u32 owner_handle = 0;
-			u32 owner = 0;
-			if (!GuestObjects::ReadWord(callback + CALLBACK_OWNER_OFFSET, &owner_handle) ||
-				!GuestObjects::ResolveHandle(owner_handle, &owner))
-			{
-				*error = "menu callback owner handle is invalid";
-				return Status::GuestMemoryError;
+				u32 owner_handle = 0;
+				u32 owner = 0;
+				if (!GuestObjects::ReadWord(callback + CALLBACK_OWNER_OFFSET, &owner_handle) ||
+					!GuestObjects::ResolveHandle(owner_handle, &owner))
+				{
+					*error = "menu callback owner handle is invalid";
+					return Status::GuestMemoryError;
+				}
+				if (active->object != 0 && active->object != owner)
+				{
+					*error = "more than one game menu owns active navigation callbacks";
+					return Status::AmbiguousMenu;
+				}
+				active->object = owner;
 			}
-			if (active->object != 0 && active->object != owner)
-			{
-				*error = "more than one game menu owns active navigation callbacks";
-				return Status::AmbiguousMenu;
-			}
-			active->object = owner;
 		}
 
-		if (active->object == 0)
+		u32 mission_goals_menu = 0;
+		u32 mission_goals_vtable = 0;
+		if (active->object == 0 &&
+			(!GuestObjects::ReadWord(MISSION_GOALS_MENU_SINGLETON, &mission_goals_menu) ||
+				(mission_goals_menu != 0 &&
+					!GuestObjects::ReadWord(mission_goals_menu, &mission_goals_vtable))))
 		{
-			*error = "no active game menu owns navigation callbacks";
-			return Status::MenuUnavailable;
+			*error = "mission-goals menu identity is unreadable";
+			return Status::GuestMemoryError;
 		}
-		return Status::Success;
+
+		active->source = IdentifyMenuSource(active->object, mission_goals_menu, mission_goals_vtable);
+		if (active->source == Source::CallbackRegistry)
+			return Status::Success;
+		if (active->source == Source::MissionGoalsLoad)
+		{
+			active->object = mission_goals_menu;
+			return Status::Success;
+		}
+		if (mission_goals_menu != 0)
+		{
+			*error = "mission-goals menu identity does not match the grounded class";
+			return Status::GuestMemoryError;
+		}
+		*error = "no active game menu owns navigation callbacks";
+		return Status::MenuUnavailable;
+	}
+
+	Source IdentifyMenuSource(
+		const u32 callback_menu, const u32 mission_goals_menu, const u32 mission_goals_vtable)
+	{
+		if (callback_menu != 0)
+			return Source::CallbackRegistry;
+		if (mission_goals_menu != 0 && mission_goals_vtable == MISSION_GOALS_MENU_VTABLE)
+			return Source::MissionGoalsLoad;
+		return Source::None;
+	}
+
+	const char* SourceName(const Source source)
+	{
+		switch (source)
+		{
+			case Source::CallbackRegistry:
+				return "callback-registry";
+			case Source::MissionGoalsLoad:
+				return "mission-goals-load";
+			case Source::None:
+			default:
+				return "none";
+		}
 	}
 
 	static Status FindMenuPointer(ActiveMenu* active, const char** error)
@@ -178,6 +234,77 @@ namespace AVPE::NativeMenuInput
 		       GuestObjects::ResolveHandle(focus->handle, &focus->object);
 	}
 
+	static Status FindMissionGoalsExitItem(const u32 menu, u32* exit_item, const char** error)
+	{
+		*exit_item = 0;
+		std::array<u32, MAX_MISSION_GOALS_OBJECTS> pending{};
+		std::array<u32, MAX_MISSION_GOALS_OBJECTS> visited{};
+		u32 pending_count = 0;
+		u32 visited_count = 0;
+		u32 first_child = 0;
+		if (!GuestObjects::ReadWord(menu + FIRST_CHILD_OFFSET, &first_child))
+		{
+			*error = "mission-goals child list is unreadable";
+			return Status::GuestMemoryError;
+		}
+		if (first_child != 0)
+			pending[pending_count++] = first_child;
+
+		while (pending_count != 0)
+		{
+			const u32 object = pending[--pending_count];
+			bool already_visited = false;
+			for (u32 i = 0; i < visited_count; ++i)
+				already_visited = already_visited || visited[i] == object;
+			if (already_visited)
+				continue;
+			if (visited_count >= visited.size() || !GuestObjects::IsPlausibleObject(object))
+			{
+				*error = "mission-goals object tree is invalid or exceeds its bound";
+				return Status::GuestMemoryError;
+			}
+			visited[visited_count++] = object;
+
+			u32 vtable = 0;
+			u32 child = 0;
+			u32 sibling = 0;
+			if (!GuestObjects::ReadWord(object, &vtable) ||
+				!GuestObjects::ReadWord(object + FIRST_CHILD_OFFSET, &child) ||
+				!GuestObjects::ReadWord(object + NEXT_SIBLING_OFFSET, &sibling))
+			{
+				*error = "mission-goals object tree is unreadable";
+				return Status::GuestMemoryError;
+			}
+			if (vtable == MISSION_GOALS_EXIT_VTABLE)
+			{
+				if (*exit_item != 0 && *exit_item != object)
+				{
+					*error = "more than one mission-goals exit item is active";
+					return Status::AmbiguousMenu;
+				}
+				*exit_item = object;
+			}
+
+			if ((child != 0 && pending_count >= pending.size()) ||
+				(sibling != 0 && pending_count + (child != 0 ? 1 : 0) >= pending.size()))
+			{
+				*error = "mission-goals object traversal exceeds its bound";
+				return Status::GuestMemoryError;
+			}
+			if (sibling != 0)
+				pending[pending_count++] = sibling;
+			if (child != 0)
+				pending[pending_count++] = child;
+		}
+
+		if (*exit_item == 0)
+		{
+			*error = "mission-goals exit item is not available";
+			return Status::FocusUnavailable;
+		}
+		return Status::Success;
+	}
+
 	static bool ReadPointerFocus(const u32 pointer, FocusState* focus)
 	{
 		*focus = {};
@@ -220,13 +347,70 @@ namespace AVPE::NativeMenuInput
 		result->status = FindActiveMenu(&active, &result->error);
 		result->callback_count = active.callback_count;
 		result->menu = active.object;
+		result->source = active.source;
 		if (result->status != Status::Success)
 			return;
 		if (!ReadFocus(result->menu, &result->before))
 		{
 			result->status = Status::GuestMemoryError;
 			result->error = "focused game menu item is invalid or unreadable";
+			return;
 		}
+		if (result->source == Source::MissionGoalsLoad)
+			result->status = FindMissionGoalsExitItem(result->menu, &result->action_target, &result->error);
+		else
+			result->action_target = result->before.object;
+	}
+
+	static bool AcceptCallResult(Result* result, const EECallShuttle::Result& call)
+	{
+		result->shuttle_status = call.status;
+		result->elapsed_cycles += call.elapsed_cycles;
+		result->stopped_pc = call.stopped_pc;
+		result->stack_restored = result->stack_restored && call.stack_restored;
+		if (call.Succeeded())
+			return true;
+		result->status = call.status == EECallShuttle::Status::GuestMemoryError ?
+		                     Status::GuestMemoryError :
+		                     Status::ShuttleFailure;
+		result->error = call.error;
+		return false;
+	}
+
+	static bool PrepareMissionGoalsActivation(
+		Result* result, EECallShuttle::Transaction& transaction, const Action action)
+	{
+		if (result->source != Source::MissionGoalsLoad || action != Action::Activate)
+			return true;
+
+		u32 exit_vtable = 0;
+		u32 focus_handler = 0;
+		if (!GuestObjects::ReadWord(result->action_target, &exit_vtable) ||
+			!GuestObjects::ReadWord(exit_vtable + MENU_ITEM_FOCUS_VTABLE_OFFSET, &focus_handler) ||
+			focus_handler != MENU_ITEM_FOCUS)
+		{
+			result->status = Status::GuestMemoryError;
+			result->error = "mission-goals exit item has an unexpected focus handler";
+			return false;
+		}
+
+		EECallShuttle::Request focus_request{.function = focus_handler};
+		focus_request.arguments = {
+			result->action_target,
+			1,
+			0,
+			0,
+		};
+		const EECallShuttle::Result focus_call = transaction.Call(focus_request);
+		if (!AcceptCallResult(result, focus_call))
+			return false;
+		if (!ReadFocus(result->menu, &result->before) || result->before.object != result->action_target)
+		{
+			result->status = Status::FocusUnavailable;
+			result->error = "mission-goals exit focus did not resolve to the grounded object";
+			return false;
+		}
+		return true;
 	}
 
 	Result Inspect()
@@ -244,6 +428,8 @@ namespace AVPE::NativeMenuInput
 			InspectOnCPUThread(&result);
 			if (result.status != Status::Success)
 				return;
+			if (!PrepareMissionGoalsActivation(&result, transaction, action))
+				return;
 
 			result.handler = MENU_INPUT;
 			if (action == Action::Cancel && !ReadCancelHandler(result.menu, &result.handler))
@@ -259,6 +445,16 @@ namespace AVPE::NativeMenuInput
 				0,
 				0,
 			};
+			if (result.source == Source::MissionGoalsLoad && action == Action::Activate)
+			{
+				// This runs reentrantly while NativeHostYield is observing the modal's
+				// loop PC. A deferred call could mistake that original PC for its return.
+				const EECallShuttle::Result call = transaction.Call(request);
+				if (!AcceptCallResult(&result, call))
+					return;
+				result.status = Status::Success;
+				return;
+			}
 			if (action == Action::Activate || action == Action::Cancel)
 			{
 				const EECallShuttle::DeferredTicket ticket = transaction.QueueDeferred(request);
@@ -278,16 +474,8 @@ namespace AVPE::NativeMenuInput
 			}
 
 			const EECallShuttle::Result call = transaction.Call(request);
-			result.shuttle_status = call.status;
-			result.elapsed_cycles = call.elapsed_cycles;
-			if (!call.Succeeded())
-			{
-				result.status = call.status == EECallShuttle::Status::GuestMemoryError ?
-				                    Status::GuestMemoryError :
-				                    Status::ShuttleFailure;
-				result.error = call.error;
+			if (!AcceptCallResult(&result, call))
 				return;
-			}
 			if (!ReadFocus(result.menu, &result.after))
 				result.after = {};
 			result.status = Status::Success;

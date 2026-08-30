@@ -2,6 +2,8 @@
 
 #include "AVPE/EECallShuttle.h"
 
+#include "AVPE/NativeHostYield.h"
+
 #include "Host.h"
 #include "R5900.h"
 #include "VMManager.h"
@@ -325,7 +327,9 @@ namespace AVPE::EECallShuttle
 
 		// The return address may already have a linked recompiler block. Clearing
 		// its first word forces the dispatch through TryCompleteDeferredCall before
-		// the interrupted instruction is allowed to execute.
+		// the interrupted instruction is allowed to execute. The queue operation
+		// runs from a host event callback, so request a block-end exit and return
+		// through that callback instead of fast-jumping across its stack frames.
 		Cpu->Clear(s_deferred.return_pc, 1);
 		Cpu->ExitExecution();
 		return {.status = Status::Success, .id = s_deferred.id};
@@ -385,9 +389,11 @@ namespace AVPE::EECallShuttle
 
 	void RunTransaction(const std::function<void(Transaction&)>& operation)
 	{
+		NativeHostYield::Request();
 		Host::RunOnCPUThread([&operation]() {
 			Transaction transaction;
 			operation(transaction);
+			NativeHostYield::CompleteRequest();
 		},
 			true);
 	}

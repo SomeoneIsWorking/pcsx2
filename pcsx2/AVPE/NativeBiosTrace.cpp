@@ -57,6 +57,29 @@ namespace AVPE::NativeBiosTrace
 			u64 host_time_ns = 0;
 		};
 
+		struct TypeInitializerFrame
+		{
+			LoadTimingPoint::Point call;
+			u32 target = 0;
+			u32 object = 0;
+			u32 descriptor = 0;
+			u32 remaining = 0;
+			u32 stack_pointer = 0;
+			u32 symbol = 0;
+			u32 metadata = 0;
+			bool descriptor_valid = false;
+		};
+
+		struct ObjectFactoryFrame
+		{
+			LoadTimingPoint::Point call;
+			u32 target = 0;
+			u32 class_entry = 0;
+			u32 handle = 0;
+			u32 fill_data = 0;
+			u32 stack_pointer = 0;
+		};
+
 		enum class PostReadStage : u8
 		{
 			EofDetected,
@@ -114,6 +137,23 @@ namespace AVPE::NativeBiosTrace
 		u32 s_mission_post_read_depth = 0;
 		u32 s_mission_post_read_next_stage = 0;
 		u32 s_mission_post_read_sequence_errors = 0;
+		std::array<TypeInitializerFrame, 8> s_mission_type_initializer_stack{};
+		u32 s_mission_type_initializer_depth = 0;
+		u32 s_mission_type_initializer_max_depth = 0;
+		u64 s_mission_type_initializer_calls = 0;
+		u64 s_mission_type_initializer_returns = 0;
+		u32 s_mission_type_initializer_sequence_errors = 0;
+		u32 s_mission_type_initializer_invalid_descriptors = 0;
+		std::optional<TypeInitializerFrame> s_mission_last_type_initializer;
+		std::optional<LoadTimingPoint::Point> s_mission_last_type_initializer_return;
+		std::array<ObjectFactoryFrame, 8> s_mission_object_factory_stack{};
+		u32 s_mission_object_factory_depth = 0;
+		u32 s_mission_object_factory_max_depth = 0;
+		u64 s_mission_object_factory_calls = 0;
+		u64 s_mission_object_factory_returns = 0;
+		u32 s_mission_object_factory_sequence_errors = 0;
+		std::optional<ObjectFactoryFrame> s_mission_last_object_factory;
+		std::optional<LoadTimingPoint::Point> s_mission_last_object_factory_return;
 		u64 s_mission_progress_ordinal = 0;
 		u32 s_mission_timing_sequence_errors = 0;
 		u64 s_mission_ordinal = 0;
@@ -129,6 +169,10 @@ namespace AVPE::NativeBiosTrace
 		constexpr u32 MissionReadChunkCallbackPc = 0x00173D90;
 		constexpr u32 MissionReadChunkCallbackReturnPc = 0x00173D98;
 		constexpr u32 MissionReadChunkReturnPc = 0x00173E34;
+		constexpr u32 MissionTypeInitializerCallPc = 0x0017467C;
+		constexpr u32 MissionTypeInitializerReturnPc = 0x00174684;
+		constexpr u32 MissionObjectFactoryCallPc = 0x00127EC0;
+		constexpr u32 MissionObjectFactoryReturnPc = 0x00127EC8;
 		constexpr std::array<u32, static_cast<size_t>(PostReadStage::Count)> MissionPostReadPcs = {
 			0x00173FFC,
 			0x00174164,
@@ -374,6 +418,23 @@ namespace AVPE::NativeBiosTrace
 			s_mission_post_read_depth = 0;
 			s_mission_post_read_next_stage = 0;
 			s_mission_post_read_sequence_errors = 0;
+			s_mission_type_initializer_stack = {};
+			s_mission_type_initializer_depth = 0;
+			s_mission_type_initializer_max_depth = 0;
+			s_mission_type_initializer_calls = 0;
+			s_mission_type_initializer_returns = 0;
+			s_mission_type_initializer_sequence_errors = 0;
+			s_mission_type_initializer_invalid_descriptors = 0;
+			s_mission_last_type_initializer.reset();
+			s_mission_last_type_initializer_return.reset();
+			s_mission_object_factory_stack = {};
+			s_mission_object_factory_depth = 0;
+			s_mission_object_factory_max_depth = 0;
+			s_mission_object_factory_calls = 0;
+			s_mission_object_factory_returns = 0;
+			s_mission_object_factory_sequence_errors = 0;
+			s_mission_last_object_factory.reset();
+			s_mission_last_object_factory_return.reset();
 			s_mission_progress_ordinal = 0;
 			s_mission_timing_sequence_errors = 0;
 			s_mission_ordinal = 0;
@@ -398,6 +459,34 @@ namespace AVPE::NativeBiosTrace
 			json += ",\"iop_cycle\":" + std::to_string(point.iop_cycle);
 			json += ",\"frame\":" + std::to_string(point.frame);
 			json += ",\"host_time_ns\":" + std::to_string(point.host_time_ns) + '}';
+		}
+
+		void AppendTypeInitializer(std::string& json, const TypeInitializerFrame& frame)
+		{
+			json += "{\"target\":" + std::to_string(frame.target);
+			json += ",\"object\":" + std::to_string(frame.object);
+			json += ",\"descriptor\":" + std::to_string(frame.descriptor);
+			json += ",\"remaining\":" + std::to_string(frame.remaining);
+			json += ",\"stack_pointer\":" + std::to_string(frame.stack_pointer);
+			json += ",\"symbol\":" + std::to_string(frame.symbol);
+			json += ",\"metadata\":" + std::to_string(frame.metadata);
+			json += ",\"descriptor_valid\":";
+			json += frame.descriptor_valid ? "true" : "false";
+			json += ",\"call\":";
+			AppendMissionPoint(json, frame.call, MissionTypeInitializerCallPc);
+			json += '}';
+		}
+
+		void AppendObjectFactory(std::string& json, const ObjectFactoryFrame& frame)
+		{
+			json += "{\"target\":" + std::to_string(frame.target);
+			json += ",\"class_entry\":" + std::to_string(frame.class_entry);
+			json += ",\"handle\":" + std::to_string(frame.handle);
+			json += ",\"fill_data\":" + std::to_string(frame.fill_data);
+			json += ",\"stack_pointer\":" + std::to_string(frame.stack_pointer);
+			json += ",\"call\":";
+			AppendMissionPoint(json, frame.call, MissionObjectFactoryCallPc);
+			json += '}';
 		}
 
 		std::string BuildMissionResultLocked()
@@ -482,6 +571,56 @@ namespace AVPE::NativeBiosTrace
 					json += "null";
 				json += '}';
 			}
+			json += '}';
+			json += ",\"type_initializer_progress\":{\"calls\":" +
+			        std::to_string(s_mission_type_initializer_calls);
+			json += ",\"returns\":" + std::to_string(s_mission_type_initializer_returns);
+			json += ",\"active_depth\":" + std::to_string(s_mission_type_initializer_depth);
+			json += ",\"max_depth\":" + std::to_string(s_mission_type_initializer_max_depth);
+			json += ",\"sequence_errors\":" + std::to_string(s_mission_type_initializer_sequence_errors);
+			json += ",\"invalid_descriptors\":" +
+			        std::to_string(s_mission_type_initializer_invalid_descriptors);
+			json += ",\"active\":[";
+			for (u32 i = 0; i < s_mission_type_initializer_depth; ++i)
+			{
+				if (i != 0)
+					json += ',';
+				AppendTypeInitializer(json, s_mission_type_initializer_stack[i]);
+			}
+			json += "],\"last_completed\":";
+			if (s_mission_last_type_initializer)
+				AppendTypeInitializer(json, *s_mission_last_type_initializer);
+			else
+				json += "null";
+			json += ",\"last_return\":";
+			if (s_mission_last_type_initializer_return)
+				AppendMissionPoint(json, *s_mission_last_type_initializer_return, MissionTypeInitializerReturnPc);
+			else
+				json += "null";
+			json += '}';
+			json += ",\"object_factory_progress\":{\"calls\":" +
+			        std::to_string(s_mission_object_factory_calls);
+			json += ",\"returns\":" + std::to_string(s_mission_object_factory_returns);
+			json += ",\"active_depth\":" + std::to_string(s_mission_object_factory_depth);
+			json += ",\"max_depth\":" + std::to_string(s_mission_object_factory_max_depth);
+			json += ",\"sequence_errors\":" + std::to_string(s_mission_object_factory_sequence_errors);
+			json += ",\"active\":[";
+			for (u32 i = 0; i < s_mission_object_factory_depth; ++i)
+			{
+				if (i != 0)
+					json += ',';
+				AppendObjectFactory(json, s_mission_object_factory_stack[i]);
+			}
+			json += "],\"last_completed\":";
+			if (s_mission_last_object_factory)
+				AppendObjectFactory(json, *s_mission_last_object_factory);
+			else
+				json += "null";
+			json += ",\"last_return\":";
+			if (s_mission_last_object_factory_return)
+				AppendMissionPoint(json, *s_mission_last_object_factory_return, MissionObjectFactoryReturnPc);
+			else
+				json += "null";
 			json += '}';
 			json += "}}";
 			return json;
@@ -732,10 +871,94 @@ namespace AVPE::NativeBiosTrace
 		// the control request can arm a phase. Keep the grounded mission PCs
 		// instrumented permanently; the observe functions apply the runtime arm
 		// gate so pre-phase execution cannot become evidence.
-		return pc == MissionEntryPc || pc == MissionReturnPc || pc == MissionLoadErrorPc || PostReadStageIndex(pc) ||
+		return pc == MissionEntryPc || pc == MissionReturnPc || pc == MissionLoadErrorPc ||
+		       pc == MissionTypeInitializerCallPc || pc == MissionTypeInitializerReturnPc ||
+		       pc == MissionObjectFactoryCallPc || pc == MissionObjectFactoryReturnPc || PostReadStageIndex(pc) ||
 		       pc == MissionReadChunkEntryPc ||
 		       pc == MissionReadChunkCallbackPc || pc == MissionReadChunkCallbackReturnPc ||
 		       pc == MissionReadChunkReturnPc;
+	}
+
+	void ObserveMissionTypeInitializer(const u32 pc, const u32 target, const u32 object, const u32 descriptor,
+		const u32 remaining, const u32 stack_pointer, const u32 symbol, const u32 metadata,
+		const bool descriptor_valid)
+	{
+		if (pc != MissionTypeInitializerCallPc && pc != MissionTypeInitializerReturnPc)
+			return;
+		std::lock_guard lock(s_mutex);
+		if (!s_mission_armed.load(std::memory_order_relaxed) || !s_mission_entry)
+			return;
+		if (pc == MissionTypeInitializerCallPc)
+		{
+			++s_mission_type_initializer_calls;
+			if (!descriptor_valid)
+				++s_mission_type_initializer_invalid_descriptors;
+			if (s_mission_type_initializer_depth == s_mission_type_initializer_stack.size())
+			{
+				++s_mission_type_initializer_sequence_errors;
+				return;
+			}
+			s_mission_type_initializer_stack[s_mission_type_initializer_depth++] = {
+				.call = LoadTimingPoint::CaptureNext(s_mission_progress_ordinal),
+				.target = target,
+				.object = object,
+				.descriptor = descriptor,
+				.remaining = remaining,
+				.stack_pointer = stack_pointer,
+				.symbol = symbol,
+				.metadata = metadata,
+				.descriptor_valid = descriptor_valid,
+			};
+			s_mission_type_initializer_max_depth =
+				std::max(s_mission_type_initializer_max_depth, s_mission_type_initializer_depth);
+			return;
+		}
+		if (s_mission_type_initializer_depth == 0 ||
+			s_mission_type_initializer_stack[s_mission_type_initializer_depth - 1].stack_pointer != stack_pointer)
+		{
+			return;
+		}
+		++s_mission_type_initializer_returns;
+		s_mission_last_type_initializer = s_mission_type_initializer_stack[--s_mission_type_initializer_depth];
+		s_mission_last_type_initializer_return = LoadTimingPoint::CaptureNext(s_mission_progress_ordinal);
+	}
+
+	void ObserveMissionObjectFactory(const u32 pc, const u32 target, const u32 class_entry, const u32 handle,
+		const u32 fill_data, const u32 stack_pointer)
+	{
+		if (pc != MissionObjectFactoryCallPc && pc != MissionObjectFactoryReturnPc)
+			return;
+		std::lock_guard lock(s_mutex);
+		if (!s_mission_armed.load(std::memory_order_relaxed) || !s_mission_entry)
+			return;
+		if (pc == MissionObjectFactoryCallPc)
+		{
+			++s_mission_object_factory_calls;
+			if (s_mission_object_factory_depth == s_mission_object_factory_stack.size())
+			{
+				++s_mission_object_factory_sequence_errors;
+				return;
+			}
+			s_mission_object_factory_stack[s_mission_object_factory_depth++] = {
+				.call = LoadTimingPoint::CaptureNext(s_mission_progress_ordinal),
+				.target = target,
+				.class_entry = class_entry,
+				.handle = handle,
+				.fill_data = fill_data,
+				.stack_pointer = stack_pointer,
+			};
+			s_mission_object_factory_max_depth =
+				std::max(s_mission_object_factory_max_depth, s_mission_object_factory_depth);
+			return;
+		}
+		if (s_mission_object_factory_depth == 0 ||
+			s_mission_object_factory_stack[s_mission_object_factory_depth - 1].stack_pointer != stack_pointer)
+		{
+			return;
+		}
+		++s_mission_object_factory_returns;
+		s_mission_last_object_factory = s_mission_object_factory_stack[--s_mission_object_factory_depth];
+		s_mission_last_object_factory_return = LoadTimingPoint::CaptureNext(s_mission_progress_ordinal);
 	}
 
 	void ObserveMissionPostReadProgress(const u32 pc, const u32 chunk_descriptor)

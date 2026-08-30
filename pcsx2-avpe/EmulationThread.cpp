@@ -12,6 +12,7 @@
 #include <QtCore/QCoreApplication>
 #include <QtCore/QEventLoop>
 #include <QtCore/QMetaObject>
+#include <QtCore/QtGlobal>
 
 namespace AVPE
 {
@@ -48,6 +49,13 @@ namespace AVPE
 		}
 		QMetaObject::invokeMethod(this, std::move(function),
 			block ? Qt::BlockingQueuedConnection : Qt::QueuedConnection);
+	}
+
+	void EmulationThread::PumpEvents()
+	{
+		Q_ASSERT(IsCurrentThread());
+		if (m_event_loop)
+			m_event_loop->processEvents(QEventLoop::AllEvents);
 	}
 
 	void EmulationThread::Wake()

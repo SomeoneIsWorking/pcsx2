@@ -13,6 +13,7 @@
 #include "AVPE/NativeLoadTiming.h"
 #include "AVPE/NativeMissionLoadTiming.h"
 #include "AVPE/NativeMenuInput.h"
+#include "AVPE/NativeMenuRoute.h"
 #include "Config.h"
 #include "Host.h"
 #include "Host/AudioStreamTypes.h"
@@ -503,78 +504,6 @@ namespace AVPE
 		return lucent::http::Response::json(200, "OK", response);
 	}
 
-	static lucent::http::Response handle_input_menu_action(const std::string& body)
-	{
-		const auto action_name = HttpJson::StringField(body, "action");
-		if (!action_name)
-			return lucent::http::Response::text(400, "Bad Request", "need action\n");
-
-		NativeMenuInput::Action action;
-		if (*action_name == "up")
-			action = NativeMenuInput::Action::Up;
-		else if (*action_name == "down")
-			action = NativeMenuInput::Action::Down;
-		else if (*action_name == "left")
-			action = NativeMenuInput::Action::Left;
-		else if (*action_name == "right")
-			action = NativeMenuInput::Action::Right;
-		else if (*action_name == "activate")
-			action = NativeMenuInput::Action::Activate;
-		else if (*action_name == "cancel")
-			action = NativeMenuInput::Action::Cancel;
-		else
-			return lucent::http::Response::text(
-				400, "Bad Request", "action must be up, down, left, right, activate, or cancel\n");
-
-		const NativeMenuInput::Result result = NativeMenuInput::Apply(action);
-		if (!result.Succeeded())
-		{
-			int status = result.shuttle_status == EECallShuttle::Status::Busy ? 409 : 500;
-			switch (result.status)
-			{
-				case NativeMenuInput::Status::MenuUnavailable:
-				case NativeMenuInput::Status::AmbiguousMenu:
-					status = 409;
-					break;
-				default:
-					break;
-			}
-			lucent::error("avpe-input", "menu {} failed: {}", *action_name, result.error);
-			return lucent::http::Response::text(
-				status, "Native Menu Input Failed", std::string(result.error) + "\n");
-		}
-
-		char response[704];
-		std::snprintf(response, sizeof(response),
-			R"({"action":"%s","menu":"0x%08X","handler":"0x%08X","callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"elapsed_cycles":%llu,"deferred":%s,"deferred_call_id":%llu})",
-			action_name->c_str(), result.menu, result.handler, result.callback_count, result.before.handle,
-			result.before.object, result.after.handle, result.after.object,
-			static_cast<unsigned long long>(result.elapsed_cycles), result.deferred ? "true" : "false",
-			static_cast<unsigned long long>(result.deferred_call_id));
-		return lucent::http::Response::json(result.deferred ? 202 : 200,
-			result.deferred ? "Accepted" : "OK", response);
-	}
-
-	static lucent::http::Response handle_input_menu_state()
-	{
-		const NativeMenuInput::Result result = NativeMenuInput::Inspect();
-		if (!result.Succeeded())
-		{
-			const int status =
-				(result.status == NativeMenuInput::Status::MenuUnavailable ||
-					result.status == NativeMenuInput::Status::AmbiguousMenu) ?
-					409 :
-					500;
-			return lucent::http::Response::text(
-				status, "Native Menu State Unavailable", std::string(result.error) + "\n");
-		}
-		char response[320];
-		std::snprintf(response, sizeof(response),
-			R"({"menu":"0x%08X","callback_count":%u,"focus_handle":"0x%08X","focus_object":"0x%08X"})",
-			result.menu, result.callback_count, result.before.handle, result.before.object);
-		return lucent::http::Response::json(200, "OK", response);
-	}
-
 	static int menu_pointer_failure_status(const NativeMenuInput::PointerResult& result)
 	{
 		if (result.shuttle_status == EECallShuttle::Status::Busy)
@@ -1034,7 +963,7 @@ namespace AVPE
 		if (req.method == "GET" && path == "/ee/deferred")
 			return handle_ee_deferred();
 		if (req.method == "GET" && path == "/input/menu")
-			return handle_input_menu_state();
+			return NativeMenuRoute::HandleState();
 		if (req.method == "GET" && path == "/input/menu-pointer")
 			return handle_input_menu_pointer_state();
 		if (req.method == "GET" && path == "/snap")
@@ -1060,7 +989,7 @@ namespace AVPE
 		if (req.method == "POST" && path == "/input/camera")
 			return NativeCameraRoute::Handle(req.body);
 		if (req.method == "POST" && path == "/input/menu-action")
-			return handle_input_menu_action(req.body);
+			return NativeMenuRoute::HandleAction(req.body);
 		if (req.method == "POST" && path == "/input/menu-pointer-move")
 			return handle_input_menu_pointer_move(req.body);
 		if (req.method == "POST" && path == "/input/menu-pointer-activate")
