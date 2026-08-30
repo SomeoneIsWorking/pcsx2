@@ -58,7 +58,16 @@ namespace AVPE::NativeBiosTrace
 		std::string s_mission_result;
 		std::optional<LoadTimingPoint::Point> s_mission_entry;
 		std::optional<LoadTimingPoint::Point> s_mission_return;
-		std::optional<LoadTimingPoint::Point> s_mission_load_return;
+		std::optional<LoadTimingPoint::Point> s_mission_load_error;
+		u32 s_mission_load_error_argument = 0;
+		u32 s_mission_load_error_return_pc = 0;
+		u64 s_mission_chunks_started = 0;
+		u64 s_mission_chunks_completed = 0;
+		u64 s_mission_load_callbacks = 0;
+		u32 s_mission_active_chunk_size = 0;
+		u32 s_mission_last_remaining = 0;
+		u32 s_mission_load_callback_pc = 0;
+		u32 s_mission_invalid_remaining_reads = 0;
 		u64 s_mission_ordinal = 0;
 		u32 s_mission_sequence_errors = 0;
 
@@ -67,7 +76,10 @@ namespace AVPE::NativeBiosTrace
 
 		constexpr u32 MissionEntryPc = 0x0016F910;
 		constexpr u32 MissionReturnPc = 0x0016FA4C;
-		constexpr u32 MissionLoadReturnPc = 0x00173AD8;
+		constexpr u32 MissionLoadErrorPc = 0x00173770;
+		constexpr u32 MissionReadChunkEntryPc = 0x00173CB0;
+		constexpr u32 MissionReadChunkCallbackPc = 0x00173D90;
+		constexpr u32 MissionReadChunkReturnPc = 0x00173E34;
 
 		std::string JsonEscape(const std::string_view value)
 		{
@@ -228,7 +240,16 @@ namespace AVPE::NativeBiosTrace
 			s_mission_result.clear();
 			s_mission_entry.reset();
 			s_mission_return.reset();
-			s_mission_load_return.reset();
+			s_mission_load_error.reset();
+			s_mission_load_error_argument = 0;
+			s_mission_load_error_return_pc = 0;
+			s_mission_chunks_started = 0;
+			s_mission_chunks_completed = 0;
+			s_mission_load_callbacks = 0;
+			s_mission_active_chunk_size = 0;
+			s_mission_last_remaining = 0;
+			s_mission_load_callback_pc = 0;
+			s_mission_invalid_remaining_reads = 0;
 			s_mission_ordinal = 0;
 			s_mission_sequence_errors = 0;
 		}
@@ -277,11 +298,24 @@ namespace AVPE::NativeBiosTrace
 				AppendMissionPoint(json, *s_mission_return, MissionReturnPc);
 			else
 				json += "null";
-			json += ",\"load_return\":";
-			if (s_mission_load_return)
-				AppendMissionPoint(json, *s_mission_load_return, MissionLoadReturnPc);
+			json += ",\"load_error\":";
+			if (s_mission_load_error)
+			{
+				json += "{\"argument\":" + std::to_string(s_mission_load_error_argument);
+				json += ",\"return_pc\":" + std::to_string(s_mission_load_error_return_pc);
+				json += ",\"point\":";
+				AppendMissionPoint(json, *s_mission_load_error, MissionLoadErrorPc);
+				json += '}';
+			}
 			else
 				json += "null";
+			json += ",\"load_progress\":{\"chunks_started\":" + std::to_string(s_mission_chunks_started);
+			json += ",\"chunks_completed\":" + std::to_string(s_mission_chunks_completed);
+			json += ",\"callbacks\":" + std::to_string(s_mission_load_callbacks);
+			json += ",\"active_chunk_size\":" + std::to_string(s_mission_active_chunk_size);
+			json += ",\"last_remaining\":" + std::to_string(s_mission_last_remaining);
+			json += ",\"callback_pc\":" + std::to_string(s_mission_load_callback_pc);
+			json += ",\"invalid_remaining_reads\":" + std::to_string(s_mission_invalid_remaining_reads) + '}';
 			json += "}}";
 			return json;
 		}
@@ -531,12 +565,14 @@ namespace AVPE::NativeBiosTrace
 		// the control request can arm a phase. Keep the grounded mission PCs
 		// instrumented permanently; the observe functions apply the runtime arm
 		// gate so pre-phase execution cannot become evidence.
-		return pc == MissionEntryPc || pc == MissionReturnPc || pc == MissionLoadReturnPc;
+		return pc == MissionEntryPc || pc == MissionReturnPc || pc == MissionLoadErrorPc ||
+		       pc == MissionReadChunkEntryPc ||
+		       pc == MissionReadChunkCallbackPc || pc == MissionReadChunkReturnPc;
 	}
 
 	void ObserveMissionBoundary(const u32 pc)
 	{
-		if (!ShouldInstrumentMissionBoundary(pc))
+		if (pc != MissionEntryPc && pc != MissionReturnPc)
 			return;
 		std::lock_guard lock(s_mutex);
 		if (!s_mission_armed.load(std::memory_order_relaxed))
@@ -560,13 +596,49 @@ namespace AVPE::NativeBiosTrace
 		s_mission_condition.notify_all();
 	}
 
-	void ObserveMissionLoadReturn(const u32 pc, const u32 return_pc)
+	void ObserveMissionLoadError(const u32 pc, const u32 argument, const u32 return_pc)
 	{
-		if (pc != MissionLoadReturnPc || return_pc != MissionReturnPc)
+		if (pc != MissionLoadErrorPc)
 			return;
 		std::lock_guard lock(s_mutex);
-		if (s_mission_armed.load(std::memory_order_relaxed) && !s_mission_load_return)
-			s_mission_load_return = LoadTimingPoint::CaptureNext(s_mission_ordinal);
+		if (!s_mission_armed.load(std::memory_order_relaxed) || !s_mission_entry || s_mission_load_error)
+			return;
+		s_mission_load_error = LoadTimingPoint::CaptureNext(s_mission_ordinal);
+		s_mission_load_error_argument = argument;
+		s_mission_load_error_return_pc = return_pc;
+		s_mission_armed.store(false, std::memory_order_release);
+		s_mission_result = BuildMissionResultLocked();
+		s_mission_condition.notify_all();
+	}
+
+	void ObserveMissionLoadProgress(const u32 pc, const u32 chunk_size, const u32 callback_pc,
+		const u32 stack_remaining, const bool stack_remaining_valid)
+	{
+		if (pc != MissionReadChunkEntryPc && pc != MissionReadChunkCallbackPc && pc != MissionReadChunkReturnPc)
+			return;
+		std::lock_guard lock(s_mutex);
+		if (!s_mission_armed.load(std::memory_order_relaxed) || !s_mission_entry)
+			return;
+		if (pc == MissionReadChunkEntryPc)
+		{
+			++s_mission_chunks_started;
+			s_mission_active_chunk_size = chunk_size;
+			s_mission_last_remaining = chunk_size;
+			return;
+		}
+		if (pc == MissionReadChunkReturnPc)
+		{
+			++s_mission_chunks_completed;
+			s_mission_active_chunk_size = 0;
+			s_mission_last_remaining = 0;
+			return;
+		}
+		++s_mission_load_callbacks;
+		s_mission_load_callback_pc = callback_pc;
+		if (stack_remaining_valid)
+			s_mission_last_remaining = stack_remaining;
+		else
+			++s_mission_invalid_remaining_reads;
 	}
 
 	std::string CaptureMissionBoundaryJson(const std::chrono::milliseconds timeout)

@@ -142,7 +142,6 @@ TEST(NativeBiosTraceTest, MissionBoundaryCapturesGroundedEntryAndReturn)
 	AVPE::NativeBiosTrace::StartMissionBoundary();
 	AVPE::NativeBiosTrace::RecordRpc(7);
 	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x0016F910);
-	AVPE::NativeBiosTrace::ObserveMissionLoadReturn(0x00173AD8, 0x0016FA4C);
 	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x0016FA4C);
 
 	const std::string snapshot = AVPE::NativeBiosTrace::CaptureMissionBoundaryJson(
@@ -159,8 +158,54 @@ TEST(NativeBiosTraceTest, MissionBoundaryInstrumentationCoversGroundedPcsBeforeA
 {
 	EXPECT_TRUE(AVPE::NativeBiosTrace::ShouldInstrumentMissionBoundary(0x0016F910));
 	EXPECT_TRUE(AVPE::NativeBiosTrace::ShouldInstrumentMissionBoundary(0x0016FA4C));
-	EXPECT_TRUE(AVPE::NativeBiosTrace::ShouldInstrumentMissionBoundary(0x00173AD8));
+	EXPECT_TRUE(AVPE::NativeBiosTrace::ShouldInstrumentMissionBoundary(0x00173770));
+	EXPECT_TRUE(AVPE::NativeBiosTrace::ShouldInstrumentMissionBoundary(0x00173CB0));
+	EXPECT_TRUE(AVPE::NativeBiosTrace::ShouldInstrumentMissionBoundary(0x00173D90));
+	EXPECT_TRUE(AVPE::NativeBiosTrace::ShouldInstrumentMissionBoundary(0x00173E34));
 	EXPECT_FALSE(AVPE::NativeBiosTrace::ShouldInstrumentMissionBoundary(0x0016FA48));
+}
+
+TEST(NativeBiosTraceTest, MissionBoundaryReportsBoundedTbdChunkProgress)
+{
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	AVPE::NativeBiosTrace::StartMissionBoundary();
+	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x0016F910);
+	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173CB0, 0x00280000, 0, 0, false);
+	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x00173CB0);
+	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173D90, 0, 0x002047B0, 0x00180000, true);
+	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x00173D90);
+	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173D90, 0, 0x002047B0, 0x00080000, true);
+	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x00173D90);
+	AVPE::NativeBiosTrace::ObserveMissionLoadProgress(0x00173E34, 0, 0, 0, false);
+	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x00173E34);
+
+	const std::string snapshot = AVPE::NativeBiosTrace::CaptureMissionBoundaryJson(
+		std::chrono::milliseconds(1));
+
+	EXPECT_NE(snapshot.find("\"load_progress\":{\"chunks_started\":1"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"chunks_completed\":1"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"callbacks\":2"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"callback_pc\":2115504"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"invalid_remaining_reads\":0"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"complete\":false"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"return\":null"), std::string::npos);
+}
+
+TEST(NativeBiosTraceTest, MissionBoundaryReportsTbdLoadErrorWithoutWaitingForReturn)
+{
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	AVPE::NativeBiosTrace::StartMissionBoundary();
+	AVPE::NativeBiosTrace::ObserveMissionBoundary(0x0016F910);
+	AVPE::NativeBiosTrace::ObserveMissionLoadError(0x00173770, 0x002D6E38, 0x001738B4);
+
+	const std::string snapshot = AVPE::NativeBiosTrace::CaptureMissionBoundaryJson(
+		std::chrono::milliseconds(1));
+
+	EXPECT_NE(snapshot.find("\"complete\":false"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"load_error\":{\"argument\":2977336"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"return_pc\":1521844"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"pc\":1521520"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"enabled\":true"), std::string::npos);
 }
 
 TEST(NativeBiosTraceTest, MissionBoundaryTimesOutWithoutGroundedReturn)
