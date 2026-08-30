@@ -57,6 +57,19 @@ namespace AVPE::NativeBiosTrace
 			u64 host_time_ns = 0;
 		};
 
+		enum class PostReadStage : u8
+		{
+			EofDetected,
+			WatchReleased,
+			FixupOffsetsComplete,
+			FixupExternsComplete,
+			SetupPublicsComplete,
+			FixupHandlesComplete,
+			InitTypesComplete,
+			LoadCoreReturn,
+			Count,
+		};
+
 		std::mutex s_mutex;
 		std::condition_variable s_capture_condition;
 		std::condition_variable s_mission_condition;
@@ -94,6 +107,13 @@ namespace AVPE::NativeBiosTrace
 		TimingTotals s_mission_callback_timing;
 		TimingTotals s_mission_payload_timing;
 		TimingTotals s_mission_inter_chunk_timing;
+		std::array<std::optional<LoadTimingPoint::Point>, static_cast<size_t>(PostReadStage::Count)>
+			s_mission_post_read_points;
+		std::array<u64, static_cast<size_t>(PostReadStage::Count)> s_mission_post_read_counts{};
+		std::array<u32, 8> s_mission_post_read_parent_stages{};
+		u32 s_mission_post_read_depth = 0;
+		u32 s_mission_post_read_next_stage = 0;
+		u32 s_mission_post_read_sequence_errors = 0;
 		u64 s_mission_progress_ordinal = 0;
 		u32 s_mission_timing_sequence_errors = 0;
 		u64 s_mission_ordinal = 0;
@@ -109,6 +129,26 @@ namespace AVPE::NativeBiosTrace
 		constexpr u32 MissionReadChunkCallbackPc = 0x00173D90;
 		constexpr u32 MissionReadChunkCallbackReturnPc = 0x00173D98;
 		constexpr u32 MissionReadChunkReturnPc = 0x00173E34;
+		constexpr std::array<u32, static_cast<size_t>(PostReadStage::Count)> MissionPostReadPcs = {
+			0x00173FFC,
+			0x00174164,
+			0x00174178,
+			0x00174180,
+			0x00174188,
+			0x00174190,
+			0x00174198,
+			0x001741E0,
+		};
+		constexpr std::array<std::string_view, static_cast<size_t>(PostReadStage::Count)> MissionPostReadNames = {
+			"eof_detected",
+			"watch_released",
+			"fixup_offsets_complete",
+			"fixup_externs_complete",
+			"setup_publics_complete",
+			"fixup_handles_complete",
+			"init_types_complete",
+			"load_core_return",
+		};
 
 		std::string JsonEscape(const std::string_view value)
 		{
@@ -204,6 +244,14 @@ namespace AVPE::NativeBiosTrace
 			totals.iop_cycles += end.iop_cycle - start.iop_cycle;
 			totals.frames += end.frame - start.frame;
 			totals.host_time_ns += end.host_time_ns - start.host_time_ns;
+		}
+
+		std::optional<size_t> PostReadStageIndex(const u32 pc)
+		{
+			const auto it = std::find(MissionPostReadPcs.begin(), MissionPostReadPcs.end(), pc);
+			if (it == MissionPostReadPcs.end())
+				return std::nullopt;
+			return static_cast<size_t>(std::distance(MissionPostReadPcs.begin(), it));
 		}
 
 		void AppendEvent(std::string& json, const Event& event)
@@ -320,6 +368,12 @@ namespace AVPE::NativeBiosTrace
 			s_mission_callback_timing = {};
 			s_mission_payload_timing = {};
 			s_mission_inter_chunk_timing = {};
+			s_mission_post_read_points = {};
+			s_mission_post_read_counts = {};
+			s_mission_post_read_parent_stages = {};
+			s_mission_post_read_depth = 0;
+			s_mission_post_read_next_stage = 0;
+			s_mission_post_read_sequence_errors = 0;
 			s_mission_progress_ordinal = 0;
 			s_mission_timing_sequence_errors = 0;
 			s_mission_ordinal = 0;
@@ -412,6 +466,22 @@ namespace AVPE::NativeBiosTrace
 			AppendTimingTotals(json, s_mission_payload_timing);
 			json += ",\"inter_chunk_timing\":";
 			AppendTimingTotals(json, s_mission_inter_chunk_timing);
+			json += '}';
+			json += ",\"post_read_progress\":{\"sequence_errors\":" +
+			        std::to_string(s_mission_post_read_sequence_errors);
+			json += ",\"next_expected\":\"" +
+			        std::string(MissionPostReadNames[s_mission_post_read_next_stage]) + '"';
+			json += ",\"active_depth\":" + std::to_string(s_mission_post_read_depth);
+			for (size_t i = 0; i < MissionPostReadNames.size(); ++i)
+			{
+				json += ",\"" + std::string(MissionPostReadNames[i]) + "\":{\"count\":" +
+				        std::to_string(s_mission_post_read_counts[i]) + ",\"last\":";
+				if (s_mission_post_read_points[i])
+					AppendMissionPoint(json, *s_mission_post_read_points[i], MissionPostReadPcs[i]);
+				else
+					json += "null";
+				json += '}';
+			}
 			json += '}';
 			json += "}}";
 			return json;
@@ -662,10 +732,37 @@ namespace AVPE::NativeBiosTrace
 		// the control request can arm a phase. Keep the grounded mission PCs
 		// instrumented permanently; the observe functions apply the runtime arm
 		// gate so pre-phase execution cannot become evidence.
-		return pc == MissionEntryPc || pc == MissionReturnPc || pc == MissionLoadErrorPc ||
+		return pc == MissionEntryPc || pc == MissionReturnPc || pc == MissionLoadErrorPc || PostReadStageIndex(pc) ||
 		       pc == MissionReadChunkEntryPc ||
 		       pc == MissionReadChunkCallbackPc || pc == MissionReadChunkCallbackReturnPc ||
 		       pc == MissionReadChunkReturnPc;
+	}
+
+	void ObserveMissionPostReadProgress(const u32 pc, const u32 chunk_descriptor)
+	{
+		const std::optional<size_t> stage = PostReadStageIndex(pc);
+		if (!stage || (*stage == static_cast<size_t>(PostReadStage::EofDetected) && chunk_descriptor != 0))
+			return;
+		std::lock_guard lock(s_mutex);
+		if (!s_mission_armed.load(std::memory_order_relaxed) || !s_mission_entry)
+			return;
+		if (*stage == static_cast<size_t>(PostReadStage::EofDetected) && s_mission_post_read_next_stage != 0)
+		{
+			if (s_mission_post_read_depth == s_mission_post_read_parent_stages.size())
+				++s_mission_post_read_sequence_errors;
+			else
+				s_mission_post_read_parent_stages[s_mission_post_read_depth++] = s_mission_post_read_next_stage;
+			s_mission_post_read_next_stage = 0;
+		}
+		if (*stage != s_mission_post_read_next_stage)
+			++s_mission_post_read_sequence_errors;
+		++s_mission_post_read_counts[*stage];
+		s_mission_post_read_points[*stage] = LoadTimingPoint::CaptureNext(s_mission_progress_ordinal);
+		if (*stage == static_cast<size_t>(PostReadStage::LoadCoreReturn) && s_mission_post_read_depth != 0)
+			s_mission_post_read_next_stage = s_mission_post_read_parent_stages[--s_mission_post_read_depth];
+		else
+			s_mission_post_read_next_stage =
+				static_cast<u32>((*stage + 1) % static_cast<size_t>(PostReadStage::Count));
 	}
 
 	void ObserveMissionBoundary(const u32 pc)
