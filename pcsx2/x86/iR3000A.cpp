@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "iR3000A.h"
+#include "AVPE/NativeIopExecutionHooks.h"
+#include "AVPE/NativeIopReturnSites.h"
 #include "Host.h"
 #include "R3000A.h"
 #include "BaseblockEx.h"
@@ -1684,6 +1686,9 @@ static void iopRecRecompile(const u32 startpc)
 	g_psxHasConstReg = g_psxFlushedConstReg = 1;
 
 	_initX86regs();
+
+	if (AVPE::NativeIopReturnSites::Contains(startpc))
+		xFastCall((void*)AVPE::NativeIopExecutionHooks::ObserveIopExecution, startpc);
 
 	if ((psxHu32(HW_ICFG) & 8) && (HWADDR(startpc) == 0xa0 || HWADDR(startpc) == 0xb0 || HWADDR(startpc) == 0xc0))
 	{

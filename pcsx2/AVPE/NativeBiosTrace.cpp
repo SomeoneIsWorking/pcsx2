@@ -3,6 +3,7 @@
 #include "AVPE/NativeBiosTrace.h"
 
 #include "AVPE/LoadTimingPoint.h"
+#include "AVPE/NativeIopReturnSites.h"
 #include "Memory.h"
 #include "R5900.h"
 
@@ -129,6 +130,7 @@ namespace AVPE::NativeBiosTrace
 
 		std::atomic_bool s_enabled{false};
 		std::atomic_bool s_mission_armed{false};
+		std::atomic<u32> s_pending_iop_imports{0};
 
 		constexpr u32 MissionEntryPc = 0x0016F910;
 		constexpr u32 MissionReturnPc = 0x0016FA4C;
@@ -200,7 +202,7 @@ namespace AVPE::NativeBiosTrace
 			const bool enabled = s_enabled.load(std::memory_order_relaxed);
 			if (disable_after_snapshot)
 				s_enabled.store(false, std::memory_order_release);
-			std::string json = "{\"schema\":\"avpe-bios-trace-v3\",\"enabled\":";
+			std::string json = "{\"schema\":\"avpe-bios-trace-v4\",\"enabled\":";
 			json += enabled ? "true" : "false";
 			s_event_store.AppendSnapshotFields(json);
 			json += '}';
@@ -271,6 +273,7 @@ namespace AVPE::NativeBiosTrace
 		void ResetObservationsLocked()
 		{
 			s_event_store.Reset();
+			s_pending_iop_imports.store(0, std::memory_order_release);
 			s_capture_requested = false;
 			s_capture_result.clear();
 			ResetMissionLocked();
@@ -630,13 +633,54 @@ namespace AVPE::NativeBiosTrace
 		return s_enabled.load(std::memory_order_acquire);
 	}
 
-	void RecordImport(const std::string_view library, const u16 ordinal, const std::string_view function,
-		const u32 a0, const u32 a1, const u32 a2, const u32 a3, const s32 result,
-		const bool hle, const bool debug, const bool handled)
+	void RecordHandledIopImport(const std::string_view library, const u16 ordinal,
+		const std::string_view function, const u32 a0, const u32 a1, const u32 a2,
+		const u32 a3, const s32 result, const bool hle, const bool debug)
 	{
 		RecordEvent([&](NativeBiosEventStore::Store& store) {
-			store.RecordImport(library, ordinal, function, a0, a1, a2, a3, result, hle, debug, handled);
+			store.RecordHandledIopImport(
+				library, ordinal, function, a0, a1, a2, a3, result, hle, debug);
 		});
+	}
+
+	bool RecordIopOracleImportEntry(const std::string_view library, const u16 ordinal,
+		const std::string_view function, const u32 a0, const u32 a1, const u32 a2,
+		const u32 a3, const bool hle, const bool debug, const u32 stack_pointer,
+		const u32 resume_pc)
+	{
+		if (!s_enabled.load(std::memory_order_acquire))
+			return false;
+		const NativeIopReturnSites::Registration registration =
+			NativeIopReturnSites::Register(resume_pc);
+		std::lock_guard lock(s_mutex);
+		if (!s_enabled.load(std::memory_order_relaxed))
+			return registration == NativeIopReturnSites::Registration::Added;
+		if (s_event_store.RecordIopOracleImportEntry(library, ordinal, function, a0, a1, a2,
+				a3, hle, debug, stack_pointer, resume_pc,
+				registration != NativeIopReturnSites::Registration::Full))
+		{
+			s_pending_iop_imports.fetch_add(1, std::memory_order_release);
+		}
+		return registration == NativeIopReturnSites::Registration::Added;
+	}
+
+	void RecordIopOracleImportReturn(const u32 stack_pointer, const u32 resume_pc,
+		const s32 result)
+	{
+		if (s_pending_iop_imports.load(std::memory_order_acquire) == 0)
+			return;
+		std::lock_guard lock(s_mutex);
+		if (s_enabled.load(std::memory_order_relaxed) &&
+			s_event_store.RecordIopOracleImportReturn(stack_pointer, resume_pc, result))
+		{
+			s_pending_iop_imports.fetch_sub(1, std::memory_order_release);
+		}
+	}
+
+	bool ShouldObserveIopImportReturn(const u32 pc)
+	{
+		return s_pending_iop_imports.load(std::memory_order_acquire) != 0 &&
+		       NativeIopReturnSites::Contains(pc);
 	}
 
 	void RecordEeSyscall(const u8 number, const std::string_view name,
