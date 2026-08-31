@@ -57,16 +57,23 @@ namespace AVPE::NativeMenuRoute
 		if (!result.Succeeded())
 		{
 			lucent::error("avpe-input", "menu {} failed: {}", *action_name, result.error);
+			char response[384];
+			std::snprintf(response, sizeof(response),
+				"%s\nstopped_pc=0x%08X last_avpe_text_pc=0x%08X elapsed_cycles=%llu "
+				"stack_restored=%s\n",
+				result.error, result.stopped_pc, result.last_avpe_text_pc,
+				static_cast<unsigned long long>(result.elapsed_cycles),
+				result.stack_restored ? "true" : "false");
 			return lucent::http::Response::text(FailureStatus(result), "Native Menu Input Failed",
-				std::string(result.error) + "\n");
+				response);
 		}
 
 		char response[960];
 		std::snprintf(response, sizeof(response),
-			R"({"action":"%s","source":"%s","menu":"0x%08X","menu_vtable":"0x%08X","handler":"0x%08X","action_target":"0x%08X","focused_item_action":"0x%08X","focused_item_action_valid":%s,"callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X"},"execution":"%s","stopped_pc":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu,"deferred":%s,"deferred_call_id":%llu})",
+			R"({"action":"%s","source":"%s","menu":"0x%08X","menu_vtable":"0x%08X","handler":"0x%08X","action_target":"0x%08X","focused_item_action":"0x%08X","focused_item_action_valid":%s,"callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X"},"execution":"%s","stopped_pc":"0x%08X","last_avpe_text_pc":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu,"deferred":%s,"deferred_call_id":%llu})",
 			action_name->c_str(), NativeMenuInput::SourceName(result.source), result.menu, result.menu_vtable, result.handler,
 			result.action_target, result.focused_item_action, result.focused_item_action_valid ? "true" : "false", result.callback_count, result.before.handle, result.before.object, result.before.vtable, result.after.handle,
-			result.after.object, result.after.vtable, result.deferred ? "deferred" : "synchronous", result.stopped_pc,
+			result.after.object, result.after.vtable, result.deferred ? "deferred" : "synchronous", result.stopped_pc, result.last_avpe_text_pc,
 			result.stack_restored ? "true" : "false", static_cast<unsigned long long>(result.elapsed_cycles),
 			result.deferred ? "true" : "false", static_cast<unsigned long long>(result.deferred_call_id));
 		return lucent::http::Response::json(
