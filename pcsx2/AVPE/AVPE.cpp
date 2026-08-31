@@ -11,6 +11,7 @@
 #include "AVPE/NativeCameraRoute.h"
 #include "AVPE/HttpJson.h"
 #include "AVPE/NativeGuestReset.h"
+#include "AVPE/NativeGameSaveBoundary.h"
 #include "AVPE/NativeLoadTiming.h"
 #include "AVPE/NativeMissionLoadTiming.h"
 #include "AVPE/NativeMenuInput.h"
@@ -856,6 +857,25 @@ namespace AVPE
 		return lucent::http::Response::json(200, "OK", snapshot);
 	}
 
+	static lucent::http::Response handle_bios_trace_start_game_save()
+	{
+		bool started = false;
+		Host::RunOnCPUThread([&started]() { started = NativeGameSaveBoundary::Start(); }, true);
+		if (!started)
+			return lucent::http::Response::text(409, "Conflict",
+				"grounded game-save boundary requires the supported AVP:E control-test target\n");
+		return lucent::http::Response::json(200, "OK",
+			"{\"started\":true,\"boundary\":\"cprofile-save-game\"}");
+	}
+
+	static lucent::http::Response handle_bios_trace_capture_game_save()
+	{
+		const std::string snapshot = NativeGameSaveBoundary::CaptureJson(std::chrono::seconds(20));
+		if (snapshot.find("\"complete\":true") == std::string::npos)
+			return lucent::http::Response::json(504, "Gateway Timeout", snapshot);
+		return lucent::http::Response::json(200, "OK", snapshot);
+	}
+
 	static lucent::http::Response handle_asset_resolve(const std::string& body)
 	{
 		const std::optional<std::string> path = HttpJson::StringField(body, "path");
@@ -974,10 +994,14 @@ namespace AVPE
 			return handle_bios_trace_start();
 		if (req.method == "POST" && path == "/bios/trace/start-mission")
 			return handle_bios_trace_start_mission();
+		if (req.method == "POST" && path == "/bios/trace/start-game-save")
+			return handle_bios_trace_start_game_save();
 		if (req.method == "POST" && path == "/bios/trace/capture")
 			return handle_bios_trace_capture();
 		if (req.method == "POST" && path == "/bios/trace/capture-mission")
 			return handle_bios_trace_capture_mission();
+		if (req.method == "POST" && path == "/bios/trace/capture-game-save")
+			return handle_bios_trace_capture_game_save();
 		if (req.method == "POST" && path == "/bios/trace/capture-at-guest-boundary")
 			return handle_bios_trace_capture_at_guest_boundary();
 		if (req.method == "GET" && path == "/ee/deferred")
@@ -1025,7 +1049,7 @@ namespace AVPE
 		lucent::warn("avpe", "no route: {} {}", req.method, path);
 		return lucent::http::Response::json(404, "Not Found",
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
-			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\",\"GET /bios/trace\",\"POST /bios/trace/start\",\"POST /bios/trace/start-mission\",\"POST /bios/trace/capture\",\"POST /bios/trace/capture-mission\",\"POST /bios/trace/capture-at-guest-boundary\","
+			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\",\"GET /bios/trace\",\"POST /bios/trace/start\",\"POST /bios/trace/start-mission\",\"POST /bios/trace/start-game-save\",\"POST /bios/trace/capture\",\"POST /bios/trace/capture-mission\",\"POST /bios/trace/capture-game-save\",\"POST /bios/trace/capture-at-guest-boundary\","
 			"\"GET /ee/deferred\","
 			"\"GET /input/menu\",\"GET /input/menu-pointer\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /assets/resolve\","
