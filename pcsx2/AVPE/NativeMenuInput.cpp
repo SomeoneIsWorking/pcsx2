@@ -430,16 +430,18 @@ namespace AVPE::NativeMenuInput
 			return;
 		if (active_result)
 			*active_result = active;
-		if (!ReadFocus(result->menu, &result->before))
-		{
-			result->status = Status::GuestMemoryError;
-			result->error = "focused game menu item is invalid or unreadable";
-			return;
-		}
 		if (result->source == Source::MissionGoalsLoad)
 			result->status = FindMissionGoalsExitItem(result->menu, &result->action_target, &result->error);
 		else
+		{
+			if (!ReadFocus(result->menu, &result->before))
+			{
+				result->status = Status::GuestMemoryError;
+				result->error = "focused game menu item is invalid or unreadable";
+				return;
+			}
 			result->action_target = result->before.object;
+		}
 		if (result->status == Status::Success)
 			result->focused_item_action_valid =
 				ReadFocusedItemAction(result->action_target, &result->focused_item_action);
