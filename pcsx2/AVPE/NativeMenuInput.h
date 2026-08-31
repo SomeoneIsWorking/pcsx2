@@ -82,6 +82,8 @@ namespace AVPE::NativeMenuInput
 		float screen_y = 0.0f;
 		float observed_x = 0.0f;
 		float observed_y = 0.0f;
+		float menu_x = 0.0f;
+		float menu_y = 0.0f;
 		u32 staging_address = 0;
 		u32 return_pc = 0;
 		u32 stopped_pc = 0;

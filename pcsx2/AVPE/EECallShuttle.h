@@ -92,6 +92,11 @@ namespace AVPE::EECallShuttle
 	void RunTransaction(const std::function<void(Transaction&)>& operation);
 	DeferredSnapshot GetDeferredSnapshot();
 
+	// Queues a guest call from an already-running EE execution hook. This is
+	// deliberately narrower than Transaction: the hook must preserve the live
+	// architectural context and let the ordinary deferred-return path restore it.
+	DeferredTicket QueueDeferredFromExecutionHook(const Request& request);
+
 	// CPU-core boundary hook. A deferred call runs through the ordinary VM
 	// scheduler, then this restores the interrupted architectural context before
 	// the original return PC executes.

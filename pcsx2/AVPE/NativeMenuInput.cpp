@@ -5,7 +5,6 @@
 #include "AVPE/GuestObjects.h"
 #include "AVPE/NativeInputDispatch.h"
 #include "AVPE/NativePointerMotion.h"
-
 #include <array>
 
 namespace AVPE::NativeMenuInput
@@ -27,12 +26,12 @@ namespace AVPE::NativeMenuInput
 	static constexpr u32 MENU_CANCEL_VTABLE_OFFSET = 0xFC;
 	static constexpr u32 MENU_POINTER_FOCUS_HANDLE_OFFSET = 0x1AC;
 	static constexpr u32 MENU_POINTER_ACTION = 0x0012EBB0;
-	static constexpr u32 MENU_POINTER_CHECK = 0x0012E490;
 	static constexpr u32 GET_MENU_ITEM = 0x0012E8C0;
 	static constexpr u32 UPDATE_POINTER_POSITION_ABSOLUTE = 0x0012EAB0;
 	static constexpr u32 GET_MENU_ITEM_VTABLE_OFFSET = 0xD4;
 	static constexpr u32 UPDATE_POINTER_ABSOLUTE_VTABLE_OFFSET = 0xDC;
 	static constexpr u32 POINTER_ACTION_VTABLE_OFFSET = 0xE0;
+	static constexpr u32 POINTER_CHECK_VTABLE_OFFSET = 0xCC;
 	static constexpr u32 POINTER_UPDATE_VTABLE_FUNCTION = 0x001B51A0;
 	static constexpr u32 MAX_CALLBACK_COUNT = 256;
 	static constexpr u32 MAX_MISSION_GOALS_OBJECTS = 256;
@@ -51,6 +50,7 @@ namespace AVPE::NativeMenuInput
 		u32 callback_count = 0;
 		Source source = Source::None;
 		u32 callback = 0;
+		u32 pointer_check = 0;
 	};
 
 	struct CallbackRegistry
@@ -201,6 +201,7 @@ namespace AVPE::NativeMenuInput
 			u32 get_menu_item = 0;
 			u32 update_position_absolute = 0;
 			u32 action = 0;
+			u32 pointer_check = 0;
 			std::array<u32, 3> member{};
 			u32 pointer_update = 0;
 			if (!GuestObjects::ReadWord(callback + CALLBACK_OWNER_OFFSET, &owner_handle) ||
@@ -210,12 +211,14 @@ namespace AVPE::NativeMenuInput
 				!GuestObjects::ReadWord(
 					vtable + UPDATE_POINTER_ABSOLUTE_VTABLE_OFFSET, &update_position_absolute) ||
 				!GuestObjects::ReadWord(vtable + POINTER_ACTION_VTABLE_OFFSET, &action) ||
+				!GuestObjects::ReadWord(vtable + POINTER_CHECK_VTABLE_OFFSET, &pointer_check) ||
 				!GuestObjects::ReadBytes(callback + 0x0C, member.data(), sizeof(member)) ||
 				member[2] != 0 || member[1] == 0 || (member[1] & 3) != 0 ||
 				!GuestObjects::ReadWord(vtable + member[1], &pointer_update) ||
 				get_menu_item != GET_MENU_ITEM ||
 				update_position_absolute != UPDATE_POINTER_POSITION_ABSOLUTE ||
-				action != MENU_POINTER_ACTION || pointer_update != POINTER_UPDATE_VTABLE_FUNCTION)
+				action != MENU_POINTER_ACTION || !GuestObjects::IsPlausibleAddress(pointer_check) ||
+				pointer_update != POINTER_UPDATE_VTABLE_FUNCTION)
 			{
 				continue;
 			}
@@ -226,6 +229,7 @@ namespace AVPE::NativeMenuInput
 			}
 			active->object = owner;
 			active->callback = callback;
+			active->pointer_check = pointer_check;
 		}
 
 		if (active->object == 0)
@@ -499,6 +503,7 @@ namespace AVPE::NativeMenuInput
 		result->callback_count = active.callback_count;
 		result->pointer = active.object;
 		result->callback = active.callback;
+		result->handler = active.pointer_check;
 		if (result->status != Status::Success)
 			return;
 		if (!ReadPointerFocus(result->pointer, &result->before))
@@ -511,6 +516,13 @@ namespace AVPE::NativeMenuInput
 		{
 			result->status = Status::GuestMemoryError;
 			result->error = "menu-capable pointer position is invalid or unreadable";
+			return;
+		}
+		if (!NativePointerMotion::ReadPhysicalPosition(result->pointer, &result->menu_x, &result->menu_y))
+		{
+			result->status = Status::GuestMemoryError;
+			result->error = "menu-capable pointer physical position is invalid or unreadable";
+			return;
 		}
 	}
 
@@ -559,7 +571,6 @@ namespace AVPE::NativeMenuInput
 					return;
 				}
 
-				result.handler = MENU_POINTER_CHECK;
 				EECallShuttle::Request check_request{.function = result.handler};
 				check_request.arguments[0] = result.pointer;
 				const EECallShuttle::DeferredTicket ticket = transaction.QueueDeferred(check_request);
@@ -613,8 +624,11 @@ namespace AVPE::NativeMenuInput
 				}
 
 				const NativeInputDispatch::Result queue = NativeInputDispatch::QueuePointerMotion(
-					{.pointer = result.pointer, .callback = result.callback, .x = relative.x, .y = relative.y});
-				result.handler = result.callback;
+					{.pointer = result.pointer,
+						.callback = result.callback,
+						.x = relative.x,
+						.y = relative.y,
+						.after_return = result.handler});
 				result.deferred_call_id = queue.id;
 				result.deferred = queue.Succeeded();
 				if (!queue.Succeeded())

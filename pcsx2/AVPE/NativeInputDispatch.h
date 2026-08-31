@@ -21,6 +21,9 @@ namespace AVPE::NativeInputDispatch
 		u32 callback = 0;
 		float x = 0.0f;
 		float y = 0.0f;
+		// AVP:E menu policy may request one callback-completion follow-up. Zero
+		// leaves ordinary gameplay pointer dispatch untouched.
+		u32 after_return = 0;
 	};
 
 	struct Result

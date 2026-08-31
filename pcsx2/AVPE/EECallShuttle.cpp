@@ -426,6 +426,11 @@ namespace AVPE::EECallShuttle
 		return snapshot;
 	}
 
+	DeferredTicket QueueDeferredFromExecutionHook(const Request& request)
+	{
+		return QueueDeferredOnCPUThread(request);
+	}
+
 	void ResetAfterStateLoad()
 	{
 		s_faulted.store(false, std::memory_order_release);

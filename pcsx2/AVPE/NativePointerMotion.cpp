@@ -14,6 +14,8 @@ namespace AVPE::NativePointerMotion
 	static constexpr u32 UPDATE_POSITION_ABSOLUTE = 0x0012EAB0;
 	static constexpr u32 POSITION_X_OFFSET = 0x194;
 	static constexpr u32 POSITION_Y_OFFSET = 0x198;
+	static constexpr u32 PHYSICAL_POSITION_X_OFFSET = 0x40;
+	static constexpr u32 PHYSICAL_POSITION_Y_OFFSET = 0x44;
 	static constexpr s32 MAX_PLAUSIBLE_RESOLUTION = 8192;
 
 	static Result Fail(const Status status, const char* error)
@@ -41,6 +43,13 @@ namespace AVPE::NativePointerMotion
 	{
 		return x && y && GuestObjects::IsPlausibleObject(pointer) &&
 		       ReadFloat(pointer + POSITION_X_OFFSET, x) && ReadFloat(pointer + POSITION_Y_OFFSET, y);
+	}
+
+	bool ReadPhysicalPosition(const u32 pointer, float* const x, float* const y)
+	{
+		return x && y && GuestObjects::IsPlausibleObject(pointer) &&
+		       ReadFloat(pointer + PHYSICAL_POSITION_X_OFFSET, x) &&
+		       ReadFloat(pointer + PHYSICAL_POSITION_Y_OFFSET, y);
 	}
 
 	static Result ResolveTarget(EECallShuttle::Transaction& transaction, const u32 pointer,
@@ -101,9 +110,9 @@ namespace AVPE::NativePointerMotion
 		Result result = ResolveTarget(transaction, pointer, normalized_x, normalized_y, &screen_x, &screen_y);
 		if (!result.Succeeded())
 			return result;
-		if (!ReadPosition(pointer, &result.observed_x, &result.observed_y))
+		if (!ReadPhysicalPosition(pointer, &result.observed_x, &result.observed_y))
 		{
-			return Fail(Status::GuestMemoryError, "current game pointer fields are not readable floats");
+			return Fail(Status::GuestMemoryError, "current game physical pointer fields are not readable floats");
 		}
 
 		// GAvPPointer applies this vector before and inside its GfsPointer base
