@@ -1674,7 +1674,7 @@ namespace R3000A
 			const char* function, const irxHLE hle, const irxDEBUG debug)
 		{
 			s_import_trace_call.reset();
-			if (!AVPE::NativeBiosTrace::IsEnabled() || (!hle && !debug))
+			if (!AVPE::NativeBiosTrace::IsEnabled())
 				return;
 			s_import_trace_call = ImportTraceCall{
 				.library = library,
@@ -1757,6 +1757,8 @@ namespace R3000A
 			result = hle();
 		if (hle || debug)
 			CompleteImportTrace(result != 0);
+		else if (AVPE::NativeBiosTrace::IsEnabled())
+			CompleteImportTrace(false);
 		return result;
 	}
 

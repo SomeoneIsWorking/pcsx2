@@ -122,6 +122,33 @@ TEST(NativeBiosTraceTest, CoalescesRepeatedImportIdentity)
 	EXPECT_EQ(snapshot.find("\"result\":99"), std::string::npos);
 }
 
+TEST(NativeBiosTraceTest, RecordsOracleImportWithoutResolvedHandler)
+{
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	EXPECT_TRUE(AVPE::NativeBiosTrace::RecordIopOracleImportEntry(
+		"unresolved", 0x123, "unknown", 1, 2, 3, 4, false, false,
+		0x001FF000, 0x00010200));
+
+	const u32 saved_sp = psxRegs.GPR.n.sp;
+	const u32 saved_v0 = psxRegs.GPR.n.v0;
+	psxRegs.GPR.n.sp = 0x001FF000;
+	psxRegs.GPR.n.v0 = static_cast<u32>(-7);
+	AVPE::NativeIopExecutionHooks::ObserveIopExecution(0x00010200);
+	psxRegs.GPR.n.sp = saved_sp;
+	psxRegs.GPR.n.v0 = saved_v0;
+
+	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
+	EXPECT_NE(
+		snapshot.find(
+			"\"library\":\"unresolved\",\"ordinal\":291,\"function\":\"unknown\""),
+		std::string::npos);
+	EXPECT_NE(snapshot.find("\"result\":-7"), std::string::npos);
+	EXPECT_NE(
+		snapshot.find(
+			"\"iop_import_pairing\":{\"entries\":1,\"returns\":1,\"pending\":0"),
+		std::string::npos);
+}
+
 TEST(NativeBiosTraceTest, PairsIopOracleReturnByStackAndResumePc)
 {
 	AVPE::NativeBiosTrace::SetEnabled(true);
