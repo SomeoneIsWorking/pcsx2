@@ -36,7 +36,16 @@ namespace AVPE::NativePointerMotion
 		bool Succeeded() const { return status == Status::Success; }
 	};
 
+	struct RelativeInput
+	{
+		float x = 0.0f;
+		float y = 0.0f;
+	};
+
 	bool CoordinatesAreValid(float normalized_x, float normalized_y);
+	bool ReadPosition(u32 pointer, float* x, float* y);
+	Result PrepareGAvPPointerRelativeInput(EECallShuttle::Transaction& transaction, u32 pointer,
+		float normalized_x, float normalized_y, RelativeInput* input);
 	Result MoveAbsolute(EECallShuttle::Transaction& transaction, u32 pointer,
 		float normalized_x, float normalized_y);
 } // namespace AVPE::NativePointerMotion

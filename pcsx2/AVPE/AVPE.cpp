@@ -541,10 +541,10 @@ namespace AVPE
 	static lucent::http::Response menu_pointer_response(
 		const NativeMenuInput::PointerResult& result)
 	{
-		char response[768];
+		char response[832];
 		std::snprintf(response, sizeof(response),
-			R"({"pointer":"0x%08X","handler":"0x%08X","callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"screen_x":%.6f,"screen_y":%.6f,"observed_x":%.6f,"observed_y":%.6f,"staging_address":"0x%08X","return_pc":"0x%08X","stopped_pc":"0x%08X","last_avpe_text_pc":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu,"deferred":%s,"deferred_call_id":%llu})",
-			result.pointer, result.handler, result.callback_count, result.before.handle,
+			R"({"pointer":"0x%08X","callback":"0x%08X","handler":"0x%08X","callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"screen_x":%.6f,"screen_y":%.6f,"observed_x":%.6f,"observed_y":%.6f,"staging_address":"0x%08X","return_pc":"0x%08X","stopped_pc":"0x%08X","last_avpe_text_pc":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu,"deferred":%s,"deferred_call_id":%llu})",
+			result.pointer, result.callback, result.handler, result.callback_count, result.before.handle,
 			result.before.object, result.after.handle, result.after.object, result.screen_x,
 			result.screen_y, result.observed_x, result.observed_y, result.staging_address, result.return_pc,
 			result.stopped_pc,
@@ -566,14 +566,17 @@ namespace AVPE
 		return menu_pointer_response(result);
 	}
 
-	static lucent::http::Response handle_input_menu_pointer_move(const std::string& body)
+	static lucent::http::Response handle_input_menu_pointer_move(const std::string& body,
+		const bool through_dispatch)
 	{
 		const auto x = HttpJson::FloatField(body, "x");
 		const auto y = HttpJson::FloatField(body, "y");
 		if (!x || !y)
 			return lucent::http::Response::text(400, "Bad Request", "need finite numeric x+y\n");
 
-		const NativeMenuInput::PointerResult result = NativeMenuInput::MovePointer(*x, *y);
+		const NativeMenuInput::PointerResult result = through_dispatch ?
+		                                                  NativeMenuInput::MovePointerThroughDispatch(*x, *y) :
+		                                                  NativeMenuInput::MovePointer(*x, *y);
 		if (!result.Succeeded())
 		{
 			lucent::error("avpe-input", "menu pointer move ({}, {}) failed at {:08x} after {} cycles: {}",
@@ -1009,7 +1012,9 @@ namespace AVPE
 		if (req.method == "POST" && path == "/input/menu-action")
 			return NativeMenuRoute::HandleAction(req.body);
 		if (req.method == "POST" && path == "/input/menu-pointer-move")
-			return handle_input_menu_pointer_move(req.body);
+			return handle_input_menu_pointer_move(req.body, false);
+		if (req.method == "POST" && path == "/input/menu-pointer-dispatch")
+			return handle_input_menu_pointer_move(req.body, true);
 		if (req.method == "POST" && path == "/input/menu-pointer-activate")
 			return handle_input_menu_pointer_activate();
 		if (req.method == "POST" && path == "/ee/call")
@@ -1029,7 +1034,7 @@ namespace AVPE
 			"\"POST /guest/reset\","
 			"\"POST /state/save\",\"POST /state/load\","
 			"\"POST /input/press\",\"POST /input/move-absolute\",\"POST /input/mouse-button\",\"POST /input/camera\","
-			"\"POST /input/menu-action\",\"POST /input/menu-pointer-move\","
+			"\"POST /input/menu-action\",\"POST /input/menu-pointer-move\",\"POST /input/menu-pointer-dispatch\","
 			"\"POST /input/menu-pointer-activate\","
 			"\"POST /ee/call\",\"POST /shutdown\"]}");
 	}
