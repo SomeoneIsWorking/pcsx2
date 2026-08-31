@@ -202,7 +202,7 @@ namespace AVPE::NativeBiosTrace
 			const bool enabled = s_enabled.load(std::memory_order_relaxed);
 			if (disable_after_snapshot)
 				s_enabled.store(false, std::memory_order_release);
-			std::string json = "{\"schema\":\"avpe-bios-trace-v4\",\"enabled\":";
+			std::string json = "{\"schema\":\"avpe-bios-trace-v5\",\"enabled\":";
 			json += enabled ? "true" : "false";
 			s_event_store.AppendSnapshotFields(json);
 			json += '}';
@@ -602,9 +602,12 @@ namespace AVPE::NativeBiosTrace
 				case 127: // GetMemorySize
 					return EeSyscallDisposition::ReturningResult;
 
+				case 112: // GsGetIMR / iGsGetIMR
+				case 113: // GsPutIMR / iGsPutIMR
+					return EeSyscallDisposition::ReturningU64Result;
+
 				default:
-					// This includes GsGetIMR/GsPutIMR's u64 result and
-					// reserved calls whose result ABI is not established.
+					// Reserved calls whose result ABI is not established.
 					return EeSyscallDisposition::ReturningUnobservedResult;
 			}
 		}
@@ -685,10 +688,10 @@ namespace AVPE::NativeBiosTrace
 
 	void RecordEeSyscall(const u8 number, const std::string_view name,
 		const u32 a0, const u32 a1, const u32 a2, const u32 a3, const s32 result,
-		const EeSyscallOutcome outcome, const EeSyscallDisposition disposition)
+		const u64 result_u64, const EeSyscallOutcome outcome, const EeSyscallDisposition disposition)
 	{
 		RecordEvent([&](NativeBiosEventStore::Store& store) {
-			store.RecordEeSyscall(number, name, a0, a1, a2, a3, result, outcome, disposition);
+			store.RecordEeSyscall(number, name, a0, a1, a2, a3, result, result_u64, outcome, disposition);
 		});
 	}
 
@@ -702,10 +705,11 @@ namespace AVPE::NativeBiosTrace
 		});
 	}
 
-	void RecordEeBiosSyscallReturn(const u32 stack_pointer, const u32 resume_pc, const s32 result)
+	void RecordEeBiosSyscallReturn(const u32 stack_pointer, const u32 resume_pc, const s32 result,
+		const u64 result_u64)
 	{
 		RecordEvent([&](NativeBiosEventStore::Store& store) {
-			store.RecordEeBiosSyscallReturn(stack_pointer, resume_pc, result);
+			store.RecordEeBiosSyscallReturn(stack_pointer, resume_pc, result, result_u64);
 		});
 	}
 
@@ -723,13 +727,17 @@ namespace AVPE::NativeBiosTrace
 		}
 		else
 		{
-			const EeSyscallDisposition disposition = outcome == EeSyscallOutcome::DirectResult ?
-			                                             EeSyscallDisposition::ReturningResult :
-			                                             EeSyscallDisposition::ReturningNoResult;
+			EeSyscallDisposition disposition = EeSyscallDisposition::ReturningNoResult;
+			if (outcome == EeSyscallOutcome::DirectResult)
+			{
+				disposition = EeSyscallDispositionFor(number) == EeSyscallDisposition::ReturningU64Result ?
+				                  EeSyscallDisposition::ReturningU64Result :
+				                  EeSyscallDisposition::ReturningResult;
+			}
 			RecordEeSyscall(number, name,
 				cpuRegs.GPR.n.a0.UL[0], cpuRegs.GPR.n.a1.UL[0], cpuRegs.GPR.n.a2.UL[0],
-				cpuRegs.GPR.n.a3.UL[0], static_cast<s32>(cpuRegs.GPR.n.v0.UL[0]), outcome,
-				disposition);
+				cpuRegs.GPR.n.a3.UL[0], static_cast<s32>(cpuRegs.GPR.n.v0.UL[0]),
+				cpuRegs.GPR.n.v0.UD[0], outcome, disposition);
 		}
 	}
 
@@ -745,7 +753,7 @@ namespace AVPE::NativeBiosTrace
 		if (!s_enabled.load(std::memory_order_acquire))
 			return;
 		RecordEeBiosSyscallReturn(cpuRegs.GPR.n.sp.UL[0], pc,
-			static_cast<s32>(cpuRegs.GPR.n.v0.UL[0]));
+			static_cast<s32>(cpuRegs.GPR.n.v0.UL[0]), cpuRegs.GPR.n.v0.UD[0]);
 	}
 
 	void RecordException(const std::string_view domain, const u32 code, const u32 pc,

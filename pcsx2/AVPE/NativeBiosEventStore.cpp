@@ -28,6 +28,7 @@ namespace AVPE::NativeBiosEventStore
 			u32 code = 0;
 			u32 pc = 0;
 			u32 counter = 0;
+			u64 result_u64 = 0;
 			u64 count = 0;
 			u64 target = 0;
 			u64 cycle = 0;
@@ -44,6 +45,7 @@ namespace AVPE::NativeBiosEventStore
 			bool overflow = false;
 			bool delivered = false;
 			bool result_valid = false;
+			bool result_u64_valid = false;
 			bool result_expected = false;
 			bool return_expected = true;
 		};
@@ -56,6 +58,7 @@ namespace AVPE::NativeBiosEventStore
 			u8 number = 0;
 			bool result_expected = false;
 			bool result_observed = false;
+			bool result_u64 = false;
 			bool active = false;
 		};
 
@@ -80,12 +83,19 @@ namespace AVPE::NativeBiosEventStore
 		bool ExpectsResult(const EeSyscallDisposition disposition)
 		{
 			return disposition == EeSyscallDisposition::ReturningResult ||
+			       disposition == EeSyscallDisposition::ReturningU64Result ||
 			       disposition == EeSyscallDisposition::ReturningUnobservedResult;
 		}
 
 		bool ObservesResult(const EeSyscallDisposition disposition)
 		{
-			return disposition == EeSyscallDisposition::ReturningResult;
+			return disposition == EeSyscallDisposition::ReturningResult ||
+			       disposition == EeSyscallDisposition::ReturningU64Result;
+		}
+
+		bool ObservesU64Result(const EeSyscallDisposition disposition)
+		{
+			return disposition == EeSyscallDisposition::ReturningU64Result;
 		}
 
 		std::string JsonEscape(const std::string_view value)
@@ -156,7 +166,12 @@ namespace AVPE::NativeBiosEventStore
 				AppendString(json, "outcome", event.outcome);
 				json += ",\"result_valid\":" + std::string(event.result_valid ? "true" : "false");
 				if (event.result_valid)
-					json += ",\"result\":" + std::to_string(event.result);
+				{
+					if (event.result_u64_valid)
+						json += ",\"result_u64\":" + std::to_string(event.result_u64);
+					else
+						json += ",\"result\":" + std::to_string(event.result);
+				}
 				else
 				{
 					json += ",\"first_stack_pointer\":" + std::to_string(event.stack_pointer);
@@ -174,7 +189,12 @@ namespace AVPE::NativeBiosEventStore
 				AppendString(json, "outcome", event.outcome);
 				json += ",\"result_valid\":" + std::string(event.result_valid ? "true" : "false");
 				if (event.result_valid)
-					json += ",\"result\":" + std::to_string(event.result);
+				{
+					if (event.result_u64_valid)
+						json += ",\"result_u64\":" + std::to_string(event.result_u64);
+					else
+						json += ",\"result\":" + std::to_string(event.result);
+				}
 				json += ",\"result_expected\":" +
 				        std::string(event.result_expected ? "true" : "false");
 				json += ",\"return_expected\":" +
@@ -189,7 +209,12 @@ namespace AVPE::NativeBiosEventStore
 				        std::string(event.result_expected ? "true" : "false");
 				json += ",\"result_valid\":" + std::string(event.result_valid ? "true" : "false");
 				if (event.result_valid)
-					json += ",\"result\":" + std::to_string(event.result);
+				{
+					if (event.result_u64_valid)
+						json += ",\"result_u64\":" + std::to_string(event.result_u64);
+					else
+						json += ",\"result\":" + std::to_string(event.result);
+				}
 				json += ",\"first_stack_pointer\":" + std::to_string(event.stack_pointer);
 				json += ",\"first_resume_pc\":" + std::to_string(event.pc);
 				json += ",\"calls\":" + std::to_string(event.calls);
@@ -438,19 +463,22 @@ namespace AVPE::NativeBiosEventStore
 
 	void Store::RecordEeSyscall(const u8 number, const std::string_view name,
 		const u32 a0, const u32 a1, const u32 a2, const u32 a3, const s32 result,
-		const EeSyscallOutcome outcome, const EeSyscallDisposition disposition)
+		const u64 result_u64, const EeSyscallOutcome outcome, const EeSyscallDisposition disposition)
 	{
 		const std::string_view outcome_name = outcome == EeSyscallOutcome::Bios ? "bios" : "direct";
-		const bool result_valid = outcome == EeSyscallOutcome::DirectResult;
+		const bool result_valid = outcome == EeSyscallOutcome::DirectResult && ObservesResult(disposition);
+		const bool result_u64_valid = result_valid && ObservesU64Result(disposition);
 		const bool result_expected = ExpectsResult(disposition);
 		const bool return_expected = ReturnsToCaller(disposition);
 		for (Event& event : m_impl->events)
 		{
 			if (event.kind == "ee_syscall" && event.number == number && event.name == name &&
 				event.outcome == outcome_name && event.result_valid == result_valid &&
+				event.result_u64_valid == result_u64_valid &&
 				event.result_expected == result_expected &&
 				event.return_expected == return_expected &&
-				(!result_valid || event.result == result))
+				(!result_valid ||
+					(result_u64_valid ? event.result_u64 == result_u64 : event.result == result)))
 			{
 				++event.calls;
 				return;
@@ -464,7 +492,9 @@ namespace AVPE::NativeBiosEventStore
 		event->name = name;
 		event->arguments = {a0, a1, a2, a3};
 		event->result = result;
+		event->result_u64 = result_u64;
 		event->result_valid = result_valid;
+		event->result_u64_valid = result_u64_valid;
 		event->result_expected = result_expected;
 		event->outcome = outcome_name;
 		event->return_expected = return_expected;
@@ -475,7 +505,7 @@ namespace AVPE::NativeBiosEventStore
 		const u32 a0, const u32 a1, const u32 a2, const u32 a3,
 		const u32 stack_pointer, const u32 resume_pc, const EeSyscallDisposition disposition)
 	{
-		RecordEeSyscall(number, name, a0, a1, a2, a3, 0, EeSyscallOutcome::Bios, disposition);
+		RecordEeSyscall(number, name, a0, a1, a2, a3, 0, 0, EeSyscallOutcome::Bios, disposition);
 		const bool return_expected = ReturnsToCaller(disposition);
 		if (!return_expected)
 			return;
@@ -507,12 +537,13 @@ namespace AVPE::NativeBiosEventStore
 			.number = number,
 			.result_expected = ExpectsResult(disposition),
 			.result_observed = ObservesResult(disposition),
+			.result_u64 = ObservesU64Result(disposition),
 			.active = true,
 		};
 	}
 
 	void Store::RecordEeBiosSyscallReturn(const u32 stack_pointer, const u32 resume_pc,
-		const s32 result)
+		const s32 result, const u64 result_u64)
 	{
 		auto pending = std::find_if(m_impl->pending_ee_syscalls.begin(),
 			m_impl->pending_ee_syscalls.end(), [stack_pointer](const PendingEeSyscall& call) {
@@ -531,7 +562,9 @@ namespace AVPE::NativeBiosEventStore
 			if (event.kind == "ee_syscall_return" && event.number == pending->number &&
 				event.name == pending->name && event.result_expected == pending->result_expected &&
 				event.result_valid == pending->result_observed &&
-				(!event.result_valid || event.result == result))
+				event.result_u64_valid == pending->result_u64 &&
+				(!event.result_valid ||
+					(pending->result_u64 ? event.result_u64 == result_u64 : event.result == result)))
 			{
 				++event.calls;
 				++m_impl->ee_syscall_pairing_returns;
@@ -545,8 +578,10 @@ namespace AVPE::NativeBiosEventStore
 			event->number = pending->number;
 			event->name = pending->name;
 			event->result = result;
+			event->result_u64 = result_u64;
 			event->result_expected = pending->result_expected;
 			event->result_valid = pending->result_observed;
+			event->result_u64_valid = pending->result_u64;
 			event->stack_pointer = stack_pointer;
 			event->pc = resume_pc;
 			event->calls = 1;
