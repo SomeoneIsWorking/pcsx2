@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "iR3000A.h"
+#include "AVPE/NativeBiosTrace.h"
 #include "AVPE/NativeIopExecutionHooks.h"
 #include "AVPE/NativeIopReturnSites.h"
 #include "Host.h"
@@ -723,7 +724,7 @@ static void psxRecompileIrxImport()
 	const char* funcname = nullptr;
 #endif
 
-	if (!hle && !debug && (!TraceActive(IOP.Bios) || !funcname))
+	if (!hle && !debug && !AVPE::NativeBiosTrace::IsEnabled())
 		return;
 
 	xMOV(ptr32[&psxRegs.code], psxRegs.code);
@@ -751,7 +752,7 @@ static void psxRecompileIrxImport()
 		fallback.SetTarget();
 		xFastCall((void*)irxImportTraceFallback);
 	}
-	else if (debug)
+	else
 	{
 		xFastCall((void*)irxImportTraceFallback);
 	}
