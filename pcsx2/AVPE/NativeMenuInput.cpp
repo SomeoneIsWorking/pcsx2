@@ -522,6 +522,8 @@ namespace AVPE::NativeMenuInput
 			result->error = "menu-capable pointer focus handle is invalid or unreadable";
 			return;
 		}
+		result->focused_item_action_valid =
+			ReadFocusedItemAction(result->before.object, &result->focused_item_action);
 		if (!NativePointerMotion::ReadPosition(result->pointer, &result->observed_x, &result->observed_y))
 		{
 			result->status = Status::GuestMemoryError;

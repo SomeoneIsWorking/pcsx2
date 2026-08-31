@@ -80,6 +80,8 @@ namespace AVPE::NativeMenuInput
 		u32 callback_count = 0;
 		FocusState before;
 		FocusState after;
+		u32 focused_item_action = 0;
+		bool focused_item_action_valid = false;
 		float screen_x = 0.0f;
 		float screen_y = 0.0f;
 		float observed_x = 0.0f;
