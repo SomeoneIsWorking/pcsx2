@@ -11,6 +11,7 @@
 #include "AVPE/NativeCameraRoute.h"
 #include "AVPE/HttpJson.h"
 #include "AVPE/NativeGuestReset.h"
+#include "AVPE/NativeGameLoadBoundary.h"
 #include "AVPE/NativeGameSaveBoundary.h"
 #include "AVPE/NativeLoadTiming.h"
 #include "AVPE/NativeMissionLoadTiming.h"
@@ -859,6 +860,25 @@ namespace AVPE
 		return lucent::http::Response::json(200, "OK", snapshot);
 	}
 
+	static lucent::http::Response handle_bios_trace_start_game_load()
+	{
+		bool started = false;
+		Host::RunOnCPUThread([&started]() { started = NativeGameLoadBoundary::Start(); }, true);
+		if (!started)
+			return lucent::http::Response::text(409, "Conflict",
+				"grounded game-load boundary requires the supported AVP:E control-test target\n");
+		return lucent::http::Response::json(200, "OK",
+			"{\"started\":true,\"boundary\":\"cprofile-load-game\"}");
+	}
+
+	static lucent::http::Response handle_bios_trace_capture_game_load()
+	{
+		const std::string snapshot = NativeGameLoadBoundary::CaptureJson(std::chrono::seconds(20));
+		if (snapshot.find("\"complete\":true") == std::string::npos)
+			return lucent::http::Response::json(504, "Gateway Timeout", snapshot);
+		return lucent::http::Response::json(200, "OK", snapshot);
+	}
+
 	static lucent::http::Response handle_bios_trace_start_game_save()
 	{
 		bool started = false;
@@ -996,12 +1016,16 @@ namespace AVPE
 			return handle_bios_trace_start();
 		if (req.method == "POST" && path == "/bios/trace/start-mission")
 			return handle_bios_trace_start_mission();
+		if (req.method == "POST" && path == "/bios/trace/start-game-load")
+			return handle_bios_trace_start_game_load();
 		if (req.method == "POST" && path == "/bios/trace/start-game-save")
 			return handle_bios_trace_start_game_save();
 		if (req.method == "POST" && path == "/bios/trace/capture")
 			return handle_bios_trace_capture();
 		if (req.method == "POST" && path == "/bios/trace/capture-mission")
 			return handle_bios_trace_capture_mission();
+		if (req.method == "POST" && path == "/bios/trace/capture-game-load")
+			return handle_bios_trace_capture_game_load();
 		if (req.method == "POST" && path == "/bios/trace/capture-game-save")
 			return handle_bios_trace_capture_game_save();
 		if (req.method == "POST" && path == "/bios/trace/capture-at-guest-boundary")
