@@ -73,6 +73,7 @@ namespace AVPE::NativeMenuInput
 		Status status = Status::ShuttleFailure;
 		EECallShuttle::Status shuttle_status = EECallShuttle::Status::Interrupted;
 		u32 pointer = 0;
+		u32 callback = 0;
 		u32 handler = 0;
 		u32 callback_count = 0;
 		FocusState before;
@@ -98,5 +99,6 @@ namespace AVPE::NativeMenuInput
 	Result Apply(Action action);
 	PointerResult InspectPointer();
 	PointerResult MovePointer(float normalized_x, float normalized_y);
+	PointerResult MovePointerThroughDispatch(float normalized_x, float normalized_y);
 	PointerResult ActivatePointer();
 } // namespace AVPE::NativeMenuInput
