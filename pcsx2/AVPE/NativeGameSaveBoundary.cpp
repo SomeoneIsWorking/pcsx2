@@ -22,6 +22,7 @@ namespace AVPE::NativeGameSaveBoundary
 		constexpr std::string_view TargetSerial = "SLUS-20147";
 		constexpr u32 TargetCrc = 0x64DA78A3;
 		constexpr u32 ProfileSingletonAddress = 0x0036703C;
+		constexpr u32 SavePacifyProcessPc = 0x00202F40;
 		constexpr u32 SaveGameEntryPc = 0x00130170;
 		// The final two instructions are `jr ra; addiu sp, sp, 0xAF0`.
 		// Sampling at the jump preserves the completed operation's v0 result.
@@ -34,6 +35,7 @@ namespace AVPE::NativeGameSaveBoundary
 		std::optional<LoadTimingPoint::Point> s_return;
 		s32 s_result = 0;
 		u64 s_ordinal = 0;
+		u32 s_pacify_process_calls = 0;
 		u32 s_sequence_errors = 0;
 		std::string s_capture;
 
@@ -73,6 +75,8 @@ namespace AVPE::NativeGameSaveBoundary
 			                      s_return->host_time_ns > s_entry->host_time_ns;
 			result += ",\"game_save_boundary\":{\"entry_pc\":" + std::to_string(SaveGameEntryPc);
 			result += ",\"return_pc\":" + std::to_string(SaveGameReturnPc);
+			result += ",\"pacify_process_pc\":" + std::to_string(SavePacifyProcessPc);
+			result += ",\"pacify_process_calls\":" + std::to_string(s_pacify_process_calls);
 			result += ",\"complete\":" + std::string(complete ? "true" : "false");
 			result += ",\"succeeded\":" + std::string(complete && s_result == 0 ? "true" : "false");
 			result += ",\"result\":" + std::to_string(s_result);
@@ -104,6 +108,7 @@ namespace AVPE::NativeGameSaveBoundary
 		s_return.reset();
 		s_result = 0;
 		s_ordinal = 0;
+		s_pacify_process_calls = 0;
 		s_sequence_errors = 0;
 		s_capture.clear();
 		s_armed.store(true, std::memory_order_release);
@@ -114,7 +119,7 @@ namespace AVPE::NativeGameSaveBoundary
 	{
 		// This runs while the recompiler translates blocks, before a control
 		// request can arm the boundary. Runtime admission happens in Observe.
-		return pc == SaveGameEntryPc || pc == SaveGameReturnPc;
+		return pc == SavePacifyProcessPc || pc == SaveGameEntryPc || pc == SaveGameReturnPc;
 	}
 
 	void ObserveEeExecution(const u32 pc)
@@ -124,6 +129,11 @@ namespace AVPE::NativeGameSaveBoundary
 		std::lock_guard lock(s_mutex);
 		if (!s_armed.load(std::memory_order_relaxed))
 			return;
+		if (pc == SavePacifyProcessPc)
+		{
+			++s_pacify_process_calls;
+			return;
+		}
 		if (pc == SaveGameEntryPc)
 		{
 			if (!IsCurrentProfile())
