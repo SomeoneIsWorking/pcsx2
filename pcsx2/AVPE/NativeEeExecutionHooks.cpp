@@ -4,6 +4,7 @@
 
 #include "AVPE/GuestObjects.h"
 #include "AVPE/NativeBiosTrace.h"
+#include "AVPE/NativeGameLoadBoundary.h"
 #include "AVPE/NativeGameSaveBoundary.h"
 #include "AVPE/NativeHostYield.h"
 #include "AVPE/NativeInputDispatch.h"
@@ -41,6 +42,7 @@ namespace AVPE::NativeEeExecutionHooks
 	{
 		return NativeBiosTrace::ShouldInstrumentEeSyscallReturn(pc) ||
 		       NativeBiosTrace::ShouldInstrumentMissionBoundary(pc) ||
+		       NativeGameLoadBoundary::ShouldInstrumentEePc(pc) ||
 		       NativeGameSaveBoundary::ShouldInstrumentEePc(pc) ||
 		       NativeMissionLoadTiming::ShouldInstrumentEePc(pc) || NativeHostYield::ShouldInstrumentEePc(pc) ||
 		       NativeInputDispatch::ShouldInstrumentEePc(pc);
@@ -52,6 +54,8 @@ namespace AVPE::NativeEeExecutionHooks
 			NativeBiosTrace::ObserveEeSyscallReturn(pc);
 		if (NativeBiosTrace::ShouldInstrumentMissionBoundary(pc))
 			ObserveBiosTrace(pc);
+		if (NativeGameLoadBoundary::ShouldInstrumentEePc(pc))
+			NativeGameLoadBoundary::ObserveEeExecution(pc);
 		if (NativeGameSaveBoundary::ShouldInstrumentEePc(pc))
 			NativeGameSaveBoundary::ObserveEeExecution(pc);
 		if (NativeMissionLoadTiming::ShouldInstrumentEePc(pc))

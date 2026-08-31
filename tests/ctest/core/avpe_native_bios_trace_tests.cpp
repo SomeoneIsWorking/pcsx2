@@ -1,4 +1,5 @@
 #include "AVPE/NativeBiosTrace.h"
+#include "AVPE/NativeGameLoadBoundary.h"
 #include "AVPE/NativeHostYield.h"
 #include "AVPE/NativeIopExecutionHooks.h"
 #include "AVPE/NativeIopReturnSites.h"
@@ -19,6 +20,14 @@ TEST(NativeBiosTraceTest, DisabledTraceDoesNotRetainEvents)
 	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
 	EXPECT_NE(snapshot.find("\"enabled\":false"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"events\":[]"), std::string::npos);
+}
+
+TEST(NativeGameLoadBoundaryTest, InstrumentsOnlyGroundedLoadPcs)
+{
+	EXPECT_TRUE(AVPE::NativeGameLoadBoundary::ShouldInstrumentEePc(0x00202C20));
+	EXPECT_TRUE(AVPE::NativeGameLoadBoundary::ShouldInstrumentEePc(0x00130000));
+	EXPECT_TRUE(AVPE::NativeGameLoadBoundary::ShouldInstrumentEePc(0x00130168));
+	EXPECT_FALSE(AVPE::NativeGameLoadBoundary::ShouldInstrumentEePc(0x0013016C));
 }
 
 TEST(NativeBiosTraceTest, RecordsOrderedEventsAndOnlyGroundedResults)
