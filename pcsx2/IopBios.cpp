@@ -1661,6 +1661,8 @@ namespace R3000A
 			std::string library;
 			std::string function;
 			std::array<u32, 4> arguments{};
+			u32 stack_pointer = 0;
+			u32 resume_pc = 0;
 			u16 ordinal = 0;
 			bool hle = false;
 			bool debug = false;
@@ -1678,6 +1680,8 @@ namespace R3000A
 				.library = library,
 				.function = function ? function : "unknown",
 				.arguments = {a0, a1, a2, a3},
+				.stack_pointer = sp,
+				.resume_pc = ra,
 				.ordinal = ordinal,
 				.hle = hle != nullptr,
 				.debug = debug != nullptr,
@@ -1690,9 +1694,21 @@ namespace R3000A
 				return;
 			const ImportTraceCall call = std::move(*s_import_trace_call);
 			s_import_trace_call.reset();
-			AVPE::NativeBiosTrace::RecordImport(call.library, call.ordinal, call.function,
-				call.arguments[0], call.arguments[1], call.arguments[2], call.arguments[3],
-				static_cast<s32>(v0), call.hle, call.debug, handled);
+			if (handled)
+			{
+				AVPE::NativeBiosTrace::RecordHandledIopImport(call.library, call.ordinal,
+					call.function, call.arguments[0], call.arguments[1], call.arguments[2],
+					call.arguments[3], static_cast<s32>(v0), call.hle, call.debug);
+			}
+			else
+			{
+				const bool new_return_site = AVPE::NativeBiosTrace::RecordIopOracleImportEntry(
+					call.library, call.ordinal,
+					call.function, call.arguments[0], call.arguments[1], call.arguments[2],
+					call.arguments[3], call.hle, call.debug, call.stack_pointer, call.resume_pc);
+				if (new_return_site)
+					psxCpu->Clear(call.resume_pc, 1);
+			}
 		}
 	} // namespace
 

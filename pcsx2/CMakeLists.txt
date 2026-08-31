@@ -105,6 +105,8 @@ set(pcsx2Sources
 	AVPE/NativeGuestReset.cpp
 	AVPE/NativeLoadTiming.cpp
 	AVPE/NativeEeExecutionHooks.cpp
+	AVPE/NativeIopExecutionHooks.cpp
+	AVPE/NativeIopReturnSites.cpp
 	AVPE/NativeHostYield.cpp
 	AVPE/NativeMissionLoadTiming.cpp
 	AVPE/NativeInput.cpp

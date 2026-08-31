@@ -7,6 +7,8 @@
 #include "VMManager.h"
 
 #include "R5900OpcodeTables.h"
+#include "AVPE/NativeBiosTrace.h"
+#include "AVPE/NativeIopExecutionHooks.h"
 #include "DebugTools/Breakpoints.h"
 #include "IopBios.h"
 #include "IopHw.h"
@@ -257,6 +259,8 @@ static void doBranch(s32 tar) {
 	PSXCPU_LOG( "\n" );
 	iopIsDelaySlot = false;
 	psxRegs.pc = branchPC;
+	if (AVPE::NativeBiosTrace::ShouldObserveIopImportReturn(psxRegs.pc))
+		AVPE::NativeIopExecutionHooks::ObserveIopExecution(psxRegs.pc);
 
 	iopEventTest();
 }

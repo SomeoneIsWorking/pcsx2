@@ -35,8 +35,13 @@ namespace AVPE::NativeBiosEventStore
 		Store& operator=(const Store&) = delete;
 
 		void Reset();
-		void RecordImport(std::string_view library, u16 ordinal, std::string_view function,
-			u32 a0, u32 a1, u32 a2, u32 a3, s32 result, bool hle, bool debug, bool handled);
+		void RecordHandledIopImport(std::string_view library, u16 ordinal,
+			std::string_view function, u32 a0, u32 a1, u32 a2, u32 a3, s32 result,
+			bool hle, bool debug);
+		bool RecordIopOracleImportEntry(std::string_view library, u16 ordinal,
+			std::string_view function, u32 a0, u32 a1, u32 a2, u32 a3, bool hle,
+			bool debug, u32 stack_pointer, u32 resume_pc, bool return_site_available);
+		bool RecordIopOracleImportReturn(u32 stack_pointer, u32 resume_pc, s32 result);
 		void RecordEeSyscall(u8 number, std::string_view name, u32 a0, u32 a1, u32 a2, u32 a3,
 			s32 result, EeSyscallOutcome outcome, EeSyscallDisposition disposition);
 		void RecordEeBiosSyscallEntry(u8 number, std::string_view name, u32 a0, u32 a1, u32 a2,
@@ -53,6 +58,10 @@ namespace AVPE::NativeBiosEventStore
 		void AppendSnapshotFields(std::string& json) const;
 
 	private:
+		void RecordImport(std::string_view library, u16 ordinal, std::string_view function,
+			u32 a0, u32 a1, u32 a2, u32 a3, s32 result, bool hle, bool debug, bool handled,
+			u32 stack_pointer, u32 resume_pc);
+
 		class Impl;
 		std::unique_ptr<Impl> m_impl;
 	};

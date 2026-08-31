@@ -59,6 +59,19 @@ namespace AVPE::NativeBiosEventStore
 			bool active = false;
 		};
 
+		struct PendingIopImport
+		{
+			std::string library;
+			std::string function;
+			u32 stack_pointer = 0;
+			u32 resume_pc = 0;
+			u64 order = 0;
+			u16 ordinal = 0;
+			bool hle = false;
+			bool debug = false;
+			bool active = false;
+		};
+
 		bool ReturnsToCaller(const EeSyscallDisposition disposition)
 		{
 			return disposition != EeSyscallDisposition::NonReturning;
@@ -144,6 +157,11 @@ namespace AVPE::NativeBiosEventStore
 				json += ",\"result_valid\":" + std::string(event.result_valid ? "true" : "false");
 				if (event.result_valid)
 					json += ",\"result\":" + std::to_string(event.result);
+				else
+				{
+					json += ",\"first_stack_pointer\":" + std::to_string(event.stack_pointer);
+					json += ",\"first_resume_pc\":" + std::to_string(event.pc);
+				}
 				json += ",\"hle_available\":" + std::string(event.hle ? "true" : "false");
 				json += ",\"debug_available\":" + std::string(event.debug ? "true" : "false");
 				json += ",\"calls\":" + std::to_string(event.calls);
@@ -172,6 +190,19 @@ namespace AVPE::NativeBiosEventStore
 				json += ",\"result_valid\":" + std::string(event.result_valid ? "true" : "false");
 				if (event.result_valid)
 					json += ",\"result\":" + std::to_string(event.result);
+				json += ",\"first_stack_pointer\":" + std::to_string(event.stack_pointer);
+				json += ",\"first_resume_pc\":" + std::to_string(event.pc);
+				json += ",\"calls\":" + std::to_string(event.calls);
+			}
+			else if (event.kind == "iop_import_return")
+			{
+				AppendString(json, "library", event.library);
+				json += ",\"ordinal\":" + std::to_string(event.ordinal);
+				AppendString(json, "function", event.function);
+				json += ",\"result_valid\":true";
+				json += ",\"result\":" + std::to_string(event.result);
+				json += ",\"hle_available\":" + std::string(event.hle ? "true" : "false");
+				json += ",\"debug_available\":" + std::string(event.debug ? "true" : "false");
 				json += ",\"first_stack_pointer\":" + std::to_string(event.stack_pointer);
 				json += ",\"first_resume_pc\":" + std::to_string(event.pc);
 				json += ",\"calls\":" + std::to_string(event.calls);
@@ -240,23 +271,33 @@ namespace AVPE::NativeBiosEventStore
 		{
 			events.clear();
 			pending_ee_syscalls = {};
+			pending_iop_imports = {};
 			next_sequence = 0;
 			overflow = 0;
 			ee_syscall_pairing_entries = 0;
 			ee_syscall_pairing_returns = 0;
 			ee_syscall_pairing_sequence_errors = 0;
 			ee_syscall_pairing_overflow = 0;
+			iop_import_pairing_entries = 0;
+			iop_import_pairing_returns = 0;
+			iop_import_pairing_overflow = 0;
+			next_iop_import_order = 0;
 		}
 
 		const u32 capacity;
 		std::vector<Event> events;
 		std::array<PendingEeSyscall, 256> pending_ee_syscalls{};
+		std::array<PendingIopImport, 256> pending_iop_imports{};
 		u64 next_sequence = 0;
 		u64 overflow = 0;
 		u64 ee_syscall_pairing_entries = 0;
 		u64 ee_syscall_pairing_returns = 0;
 		u32 ee_syscall_pairing_sequence_errors = 0;
 		u32 ee_syscall_pairing_overflow = 0;
+		u64 iop_import_pairing_entries = 0;
+		u64 iop_import_pairing_returns = 0;
+		u32 iop_import_pairing_overflow = 0;
+		u64 next_iop_import_order = 0;
 	};
 
 	Store::Store(const u32 capacity)
@@ -273,13 +314,15 @@ namespace AVPE::NativeBiosEventStore
 
 	void Store::RecordImport(const std::string_view library, const u16 ordinal,
 		const std::string_view function, const u32 a0, const u32 a1, const u32 a2, const u32 a3,
-		const s32 result, const bool hle, const bool debug, const bool handled)
+		const s32 result, const bool hle, const bool debug, const bool handled,
+		const u32 stack_pointer, const u32 resume_pc)
 	{
 		for (Event& event : m_impl->events)
 		{
 			if (event.kind == "import" && event.library == library && event.ordinal == ordinal &&
 				event.function == function && event.hle == hle && event.debug == debug &&
-				event.result_valid == handled && (!handled || event.result == result))
+				event.result_valid == handled && (!handled || event.result == result) &&
+				(handled || (event.stack_pointer == stack_pointer && event.pc == resume_pc)))
 			{
 				++event.calls;
 				return;
@@ -298,7 +341,99 @@ namespace AVPE::NativeBiosEventStore
 		event->outcome = handled ? "hle" : "oracle";
 		event->hle = hle;
 		event->debug = debug;
+		event->stack_pointer = stack_pointer;
+		event->pc = resume_pc;
 		event->calls = 1;
+	}
+
+	void Store::RecordHandledIopImport(const std::string_view library, const u16 ordinal,
+		const std::string_view function, const u32 a0, const u32 a1, const u32 a2,
+		const u32 a3, const s32 result, const bool hle, const bool debug)
+	{
+		RecordImport(library, ordinal, function, a0, a1, a2, a3, result, hle, debug, true, 0, 0);
+	}
+
+	bool Store::RecordIopOracleImportEntry(const std::string_view library, const u16 ordinal,
+		const std::string_view function, const u32 a0, const u32 a1, const u32 a2,
+		const u32 a3, const bool hle, const bool debug, const u32 stack_pointer,
+		const u32 resume_pc, const bool return_site_available)
+	{
+		RecordImport(library, ordinal, function, a0, a1, a2, a3, 0, hle, debug, false,
+			stack_pointer, resume_pc);
+		++m_impl->iop_import_pairing_entries;
+		if (!return_site_available)
+		{
+			++m_impl->iop_import_pairing_overflow;
+			return false;
+		}
+		auto pending = std::find_if(m_impl->pending_iop_imports.begin(),
+			m_impl->pending_iop_imports.end(), [](const PendingIopImport& call) {
+				return !call.active;
+			});
+		if (pending == m_impl->pending_iop_imports.end())
+		{
+			++m_impl->iop_import_pairing_overflow;
+			return false;
+		}
+		*pending = PendingIopImport{
+			.library = std::string(library),
+			.function = std::string(function),
+			.stack_pointer = stack_pointer,
+			.resume_pc = resume_pc,
+			.order = ++m_impl->next_iop_import_order,
+			.ordinal = ordinal,
+			.hle = hle,
+			.debug = debug,
+			.active = true,
+		};
+		return true;
+	}
+
+	bool Store::RecordIopOracleImportReturn(const u32 stack_pointer, const u32 resume_pc,
+		const s32 result)
+	{
+		PendingIopImport* pending = nullptr;
+		for (PendingIopImport& candidate : m_impl->pending_iop_imports)
+		{
+			if (candidate.active && candidate.stack_pointer == stack_pointer &&
+				candidate.resume_pc == resume_pc && (!pending || candidate.order > pending->order))
+			{
+				pending = &candidate;
+			}
+		}
+		if (!pending)
+			return false;
+
+		for (Event& event : m_impl->events)
+		{
+			if (event.kind == "iop_import_return" && event.library == pending->library &&
+				event.ordinal == pending->ordinal && event.function == pending->function &&
+				event.hle == pending->hle && event.debug == pending->debug && event.result == result &&
+				event.stack_pointer == stack_pointer && event.pc == resume_pc)
+			{
+				++event.calls;
+				++m_impl->iop_import_pairing_returns;
+				*pending = {};
+				return true;
+			}
+		}
+		if (Event* event = m_impl->AddEvent())
+		{
+			event->kind = "iop_import_return";
+			event->library = pending->library;
+			event->ordinal = pending->ordinal;
+			event->function = pending->function;
+			event->result = result;
+			event->result_valid = true;
+			event->hle = pending->hle;
+			event->debug = pending->debug;
+			event->stack_pointer = stack_pointer;
+			event->pc = resume_pc;
+			event->calls = 1;
+		}
+		++m_impl->iop_import_pairing_returns;
+		*pending = {};
+		return true;
 	}
 
 	void Store::RecordEeSyscall(const u8 number, const std::string_view name,
@@ -524,5 +659,14 @@ namespace AVPE::NativeBiosEventStore
 		json += ",\"sequence_errors\":" +
 		        std::to_string(m_impl->ee_syscall_pairing_sequence_errors);
 		json += ",\"overflow\":" + std::to_string(m_impl->ee_syscall_pairing_overflow) + '}';
+		json += ",\"iop_import_pairing\":{\"entries\":" +
+		        std::to_string(m_impl->iop_import_pairing_entries);
+		json += ",\"returns\":" + std::to_string(m_impl->iop_import_pairing_returns);
+		const u64 iop_pending = std::count_if(m_impl->pending_iop_imports.begin(),
+			m_impl->pending_iop_imports.end(), [](const PendingIopImport& call) {
+				return call.active;
+			});
+		json += ",\"pending\":" + std::to_string(iop_pending);
+		json += ",\"overflow\":" + std::to_string(m_impl->iop_import_pairing_overflow) + '}';
 	}
 } // namespace AVPE::NativeBiosEventStore
