@@ -44,6 +44,7 @@ namespace AVPE::NativePointerMotion
 
 	bool CoordinatesAreValid(float normalized_x, float normalized_y);
 	bool ReadPosition(u32 pointer, float* x, float* y);
+	bool ReadPhysicalPosition(u32 pointer, float* x, float* y);
 	Result PrepareGAvPPointerRelativeInput(EECallShuttle::Transaction& transaction, u32 pointer,
 		float normalized_x, float normalized_y, RelativeInput* input);
 	Result MoveAbsolute(EECallShuttle::Transaction& transaction, u32 pointer,

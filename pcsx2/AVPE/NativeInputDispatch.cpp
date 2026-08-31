@@ -3,6 +3,7 @@
 #include "AVPE/NativeInputDispatch.h"
 
 #include "AVPE/AVPE.h"
+#include "AVPE/EECallShuttle.h"
 #include "AVPE/GuestObjects.h"
 #include "R5900.h"
 #include "VMManager.h"
@@ -22,6 +23,7 @@ namespace AVPE::NativeInputDispatch
 		constexpr std::string_view kTargetSerial = "SLUS-20147";
 		constexpr u32 kTargetCrc = 0x64DA78A3;
 		constexpr u32 kCallbackDispatchPc = 0x001147CC;
+		constexpr u32 kCallbackReturnPc = 0x001147D8;
 		constexpr u32 kMemberFunctionWords = 3;
 		constexpr u32 kInputDataWords = 3;
 		constexpr u32 kMaxCallbackRecords = 32;
@@ -34,8 +36,12 @@ namespace AVPE::NativeInputDispatch
 			std::atomic<u64> queued_id{0};
 			std::atomic<u64> injected_id{0};
 			std::atomic<u64> rejected_id{0};
+			std::atomic_bool awaiting_return{false};
+			std::atomic<u64> follow_up_id{0};
+			std::atomic<u64> rejected_follow_up_id{0};
 			std::atomic<u32> pointer{0};
 			std::atomic<u32> callback{0};
+			std::atomic<u32> after_return{0};
 			std::atomic<u32> x{0};
 			std::atomic<u32> y{0};
 		};
@@ -95,6 +101,29 @@ namespace AVPE::NativeInputDispatch
 			s_pending.pending.store(false, std::memory_order_release);
 		}
 
+		void QueueFollowUpAfterCallbackReturn()
+		{
+			if (!s_pending.awaiting_return.exchange(false, std::memory_order_acq_rel))
+				return;
+
+			const u64 id = s_pending.injected_id.load(std::memory_order_acquire);
+			const u32 pointer = s_pending.pointer.load(std::memory_order_acquire);
+			const u32 after_return = s_pending.after_return.load(std::memory_order_acquire);
+			if (!IsTargetRecognized() || after_return == 0 || !GuestObjects::IsPlausibleObject(pointer))
+			{
+				s_pending.rejected_follow_up_id.store(id, std::memory_order_release);
+				return;
+			}
+
+			EECallShuttle::Request request{.function = after_return};
+			request.arguments[0] = pointer;
+			const EECallShuttle::DeferredTicket ticket = EECallShuttle::QueueDeferredFromExecutionHook(request);
+			if (ticket.Accepted())
+				s_pending.follow_up_id.store(ticket.id, std::memory_order_release);
+			else
+				s_pending.rejected_follow_up_id.store(id, std::memory_order_release);
+		}
+
 		void InjectPendingPointerMotion()
 		{
 			if (!s_pending.pending.load(std::memory_order_acquire))
@@ -126,6 +155,8 @@ namespace AVPE::NativeInputDispatch
 			cpuRegs.GPR.n.a2.UL[0] = input_data - 12;
 			cpuRegs.GPR.n.t9.UL[0] = callback + 0x0C;
 			s_pending.injected_id.store(id, std::memory_order_release);
+			s_pending.awaiting_return.store(
+				s_pending.after_return.load(std::memory_order_acquire) != 0, std::memory_order_release);
 			s_pending.pending.store(false, std::memory_order_release);
 		}
 
@@ -218,12 +249,13 @@ namespace AVPE::NativeInputDispatch
 
 	bool ShouldInstrumentEePc(const u32 pc)
 	{
-		return pc == kCallbackDispatchPc;
+		return pc == kCallbackDispatchPc || pc == kCallbackReturnPc;
 	}
 
 	Result QueuePointerMotion(const PointerMotionRequest& request)
 	{
-		if (s_pending.pending.load(std::memory_order_acquire))
+		if (s_pending.pending.load(std::memory_order_acquire) ||
+			s_pending.awaiting_return.load(std::memory_order_acquire))
 			return {.status = Status::Busy, .error = "a pointer callback is already queued"};
 		if (!IsTargetRecognized() || !IsPointerCallbackValid(request.pointer, request.callback))
 		{
@@ -236,6 +268,7 @@ namespace AVPE::NativeInputDispatch
 		const u64 id = s_pending.next_id.fetch_add(1, std::memory_order_relaxed);
 		s_pending.pointer.store(request.pointer, std::memory_order_relaxed);
 		s_pending.callback.store(request.callback, std::memory_order_relaxed);
+		s_pending.after_return.store(request.after_return, std::memory_order_relaxed);
 		s_pending.x.store(std::bit_cast<u32>(request.x), std::memory_order_relaxed);
 		s_pending.y.store(std::bit_cast<u32>(request.y), std::memory_order_relaxed);
 		s_pending.queued_id.store(id, std::memory_order_relaxed);
@@ -245,6 +278,11 @@ namespace AVPE::NativeInputDispatch
 
 	void ObserveEeExecution(const u32 pc)
 	{
+		if (pc == kCallbackReturnPc)
+		{
+			QueueFollowUpAfterCallbackReturn();
+			return;
+		}
 		if (pc != kCallbackDispatchPc)
 			return;
 		InjectPendingPointerMotion();
@@ -285,6 +323,8 @@ namespace AVPE::NativeInputDispatch
 		const u32 record_count = s_snapshot.record_count.load(std::memory_order_acquire);
 		std::string body = "{\"schema\":\"" + std::string(kSchema) + "\",\"dispatch_pc\":";
 		AppendWord(body, kCallbackDispatchPc);
+		body += ",\"callback_return_pc\":";
+		AppendWord(body, kCallbackReturnPc);
 		body += ",\"observed_dispatches\":" + std::to_string(observed);
 		body += ",\"accepted_dispatches\":" + std::to_string(accepted);
 		body += ",\"rejected_dispatches\":" + std::to_string(observed - accepted);
@@ -298,6 +338,14 @@ namespace AVPE::NativeInputDispatch
 		        std::to_string(s_pending.injected_id.load(std::memory_order_acquire));
 		body += ",\"rejected_pointer_id\":" +
 		        std::to_string(s_pending.rejected_id.load(std::memory_order_acquire));
+		body += ",\"pending_pointer_follow_up_id\":" +
+		        std::to_string(s_pending.awaiting_return.load(std::memory_order_acquire) ?
+								   s_pending.injected_id.load(std::memory_order_acquire) :
+								   0);
+		body += ",\"pointer_follow_up_id\":" +
+		        std::to_string(s_pending.follow_up_id.load(std::memory_order_acquire));
+		body += ",\"rejected_pointer_follow_up_id\":" +
+		        std::to_string(s_pending.rejected_follow_up_id.load(std::memory_order_acquire));
 		body += ",\"callbacks\":[";
 		for (u32 index = 0; index < record_count; ++index)
 		{
@@ -320,8 +368,12 @@ namespace AVPE::NativeInputDispatch
 		s_pending.queued_id.store(0, std::memory_order_release);
 		s_pending.injected_id.store(0, std::memory_order_release);
 		s_pending.rejected_id.store(0, std::memory_order_release);
+		s_pending.awaiting_return.store(false, std::memory_order_release);
+		s_pending.follow_up_id.store(0, std::memory_order_release);
+		s_pending.rejected_follow_up_id.store(0, std::memory_order_release);
 		s_pending.pointer.store(0, std::memory_order_release);
 		s_pending.callback.store(0, std::memory_order_release);
+		s_pending.after_return.store(0, std::memory_order_release);
 		s_pending.x.store(0, std::memory_order_release);
 		s_pending.y.store(0, std::memory_order_release);
 		for (CallbackRecord& record : s_snapshot.records)

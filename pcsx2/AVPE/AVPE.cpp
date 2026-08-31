@@ -541,14 +541,13 @@ namespace AVPE
 	static lucent::http::Response menu_pointer_response(
 		const NativeMenuInput::PointerResult& result)
 	{
-		char response[832];
+		char response[960];
 		std::snprintf(response, sizeof(response),
-			R"({"pointer":"0x%08X","callback":"0x%08X","handler":"0x%08X","callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"screen_x":%.6f,"screen_y":%.6f,"observed_x":%.6f,"observed_y":%.6f,"staging_address":"0x%08X","return_pc":"0x%08X","stopped_pc":"0x%08X","last_avpe_text_pc":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu,"deferred":%s,"deferred_call_id":%llu})",
+			R"({"pointer":"0x%08X","callback":"0x%08X","handler":"0x%08X","callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"screen_x":%.6f,"screen_y":%.6f,"observed_x":%.6f,"observed_y":%.6f,"menu_x":%.6f,"menu_y":%.6f,"staging_address":"0x%08X","return_pc":"0x%08X","stopped_pc":"0x%08X","last_avpe_text_pc":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu,"deferred":%s,"deferred_call_id":%llu})",
 			result.pointer, result.callback, result.handler, result.callback_count, result.before.handle,
 			result.before.object, result.after.handle, result.after.object, result.screen_x,
-			result.screen_y, result.observed_x, result.observed_y, result.staging_address, result.return_pc,
-			result.stopped_pc,
-			result.last_avpe_text_pc,
+			result.screen_y, result.observed_x, result.observed_y, result.menu_x, result.menu_y,
+			result.staging_address, result.return_pc, result.stopped_pc, result.last_avpe_text_pc,
 			result.stack_restored ? "true" : "false",
 			static_cast<unsigned long long>(result.elapsed_cycles), result.deferred ? "true" : "false",
 			static_cast<unsigned long long>(result.deferred_call_id));
