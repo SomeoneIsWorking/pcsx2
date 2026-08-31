@@ -184,7 +184,7 @@ namespace AVPE
 		if (menu.Succeeded())
 		{
 			const NativeMenuInput::PointerResult result =
-				NativeMenuInput::MovePointer(normalized_x, normalized_y);
+				NativeMenuInput::MovePointerThroughDispatch(normalized_x, normalized_y);
 			if (result.Succeeded() || result.shuttle_status == EECallShuttle::Status::Busy)
 				return true;
 			lucent::warn("avpe-host-input", "native menu pointer move refused: {}", result.error);
