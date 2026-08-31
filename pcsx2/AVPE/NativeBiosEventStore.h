@@ -20,6 +20,7 @@ namespace AVPE::NativeBiosEventStore
 	enum class EeSyscallDisposition : u8
 	{
 		ReturningResult,
+		ReturningU64Result,
 		ReturningNoResult,
 		ReturningUnobservedResult,
 		NonReturning,
@@ -43,10 +44,10 @@ namespace AVPE::NativeBiosEventStore
 			bool debug, u32 stack_pointer, u32 resume_pc, bool return_site_available);
 		bool RecordIopOracleImportReturn(u32 stack_pointer, u32 resume_pc, s32 result);
 		void RecordEeSyscall(u8 number, std::string_view name, u32 a0, u32 a1, u32 a2, u32 a3,
-			s32 result, EeSyscallOutcome outcome, EeSyscallDisposition disposition);
+			s32 result, u64 result_u64, EeSyscallOutcome outcome, EeSyscallDisposition disposition);
 		void RecordEeBiosSyscallEntry(u8 number, std::string_view name, u32 a0, u32 a1, u32 a2,
 			u32 a3, u32 stack_pointer, u32 resume_pc, EeSyscallDisposition disposition);
-		void RecordEeBiosSyscallReturn(u32 stack_pointer, u32 resume_pc, s32 result);
+		void RecordEeBiosSyscallReturn(u32 stack_pointer, u32 resume_pc, s32 result, u64 result_u64);
 		void RecordException(std::string_view domain, u32 code, u32 pc, bool branch_delay);
 		void RecordTimer(std::string_view domain, u32 index, bool overflow, u64 count, u64 target,
 			u64 cycle, bool delivered);

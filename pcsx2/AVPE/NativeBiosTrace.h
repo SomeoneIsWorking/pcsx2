@@ -28,10 +28,10 @@ namespace AVPE::NativeBiosTrace
 	void RecordIopOracleImportReturn(u32 stack_pointer, u32 resume_pc, s32 result);
 	bool ShouldObserveIopImportReturn(u32 pc);
 	void RecordEeSyscall(u8 number, std::string_view name, u32 a0, u32 a1, u32 a2, u32 a3,
-		s32 result, EeSyscallOutcome outcome, EeSyscallDisposition disposition);
+		s32 result, u64 result_u64, EeSyscallOutcome outcome, EeSyscallDisposition disposition);
 	void RecordEeBiosSyscallEntry(u8 number, std::string_view name, u32 a0, u32 a1, u32 a2,
 		u32 a3, u32 stack_pointer, u32 resume_pc, EeSyscallDisposition disposition);
-	void RecordEeBiosSyscallReturn(u32 stack_pointer, u32 resume_pc, s32 result);
+	void RecordEeBiosSyscallReturn(u32 stack_pointer, u32 resume_pc, s32 result, u64 result_u64);
 	void RecordCurrentEeSyscall(u8 number, EeSyscallOutcome outcome);
 	bool ShouldInstrumentEeSyscallReturn(u32 pc);
 	void ObserveEeSyscallReturn(u32 pc);
