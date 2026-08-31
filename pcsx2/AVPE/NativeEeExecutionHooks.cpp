@@ -5,6 +5,7 @@
 #include "AVPE/GuestObjects.h"
 #include "AVPE/NativeBiosTrace.h"
 #include "AVPE/NativeHostYield.h"
+#include "AVPE/NativeInputDispatch.h"
 #include "AVPE/NativeMissionLoadTiming.h"
 #include "R5900.h"
 
@@ -39,7 +40,8 @@ namespace AVPE::NativeEeExecutionHooks
 	{
 		return NativeBiosTrace::ShouldInstrumentEeSyscallReturn(pc) ||
 		       NativeBiosTrace::ShouldInstrumentMissionBoundary(pc) ||
-		       NativeMissionLoadTiming::ShouldInstrumentEePc(pc) || NativeHostYield::ShouldInstrumentEePc(pc);
+		       NativeMissionLoadTiming::ShouldInstrumentEePc(pc) || NativeHostYield::ShouldInstrumentEePc(pc) ||
+		       NativeInputDispatch::ShouldInstrumentEePc(pc);
 	}
 
 	void ObserveEeExecution(const u32 pc)
@@ -52,5 +54,7 @@ namespace AVPE::NativeEeExecutionHooks
 			NativeMissionLoadTiming::ObserveEeExecution(pc);
 		if (NativeHostYield::ShouldInstrumentEePc(pc))
 			NativeHostYield::ObserveEeExecution(pc);
+		if (NativeInputDispatch::ShouldInstrumentEePc(pc))
+			NativeInputDispatch::ObserveEeExecution(pc);
 	}
 } // namespace AVPE::NativeEeExecutionHooks

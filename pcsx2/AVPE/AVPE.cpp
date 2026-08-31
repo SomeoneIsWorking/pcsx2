@@ -7,6 +7,7 @@
 #include "AVPE/NativeBiosTrace.h"
 #include "AVPE/NativeCdvdCompletion.h"
 #include "AVPE/NativeInput.h"
+#include "AVPE/NativeInputDispatch.h"
 #include "AVPE/NativeCameraRoute.h"
 #include "AVPE/HttpJson.h"
 #include "AVPE/NativeGuestReset.h"
@@ -56,6 +57,7 @@ namespace AVPE
 		NativeAssetByteTrace::Reset();
 		NativeLoadTiming::Reset();
 		NativeMissionLoadTiming::Reset();
+		NativeInputDispatch::Reset();
 		NativeBiosTrace::SetEnabled(enabled);
 	}
 
@@ -324,6 +326,7 @@ namespace AVPE
 				native_asset_state = NativeAssetStateSnapshot::CaptureJsonOnCPUThread();
 				EECallShuttle::ResetAfterStateLoad();
 				NativeInput::ResetAfterStateLoad();
+				NativeInputDispatch::Reset();
 			}
 		},
 			true);
@@ -961,6 +964,8 @@ namespace AVPE
 			return lucent::http::Response::json(200, "OK", NativeLoadTiming::SnapshotJson());
 		if (req.method == "GET" && path == "/assets/mission-load-timing")
 			return lucent::http::Response::json(200, "OK", NativeMissionLoadTiming::SnapshotJson());
+		if (req.method == "GET" && path == "/input/dispatch")
+			return lucent::http::Response::json(200, "OK", NativeInputDispatch::SnapshotJson());
 		if (req.method == "GET" && path == "/bios/trace")
 			return handle_bios_trace();
 		if (req.method == "POST" && path == "/bios/trace/start")
