@@ -41,6 +41,7 @@ namespace AVPE::NativeMenuInput
 	{
 		u32 handle = 0;
 		u32 object = 0;
+		u32 vtable = 0;
 	};
 
 	struct Result
@@ -50,6 +51,9 @@ namespace AVPE::NativeMenuInput
 		Action action = Action::Up;
 		Source source = Source::None;
 		u32 menu = 0;
+		u32 menu_vtable = 0;
+		u32 conflicting_menu = 0;
+		u32 conflicting_menu_vtable = 0;
 		u32 handler = 0;
 		u32 action_target = 0;
 		u32 focused_item_action = 0;

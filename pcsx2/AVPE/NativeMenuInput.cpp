@@ -48,6 +48,7 @@ namespace AVPE::NativeMenuInput
 	struct ActiveMenu
 	{
 		u32 object = 0;
+		u32 conflicting_object = 0;
 		u32 callback_count = 0;
 		Source source = Source::None;
 		u32 callback = 0;
@@ -125,6 +126,8 @@ namespace AVPE::NativeMenuInput
 				}
 				if (active->object != 0 && active->object != owner)
 				{
+					active->conflicting_object = owner;
+					active->source = Source::CallbackRegistry;
 					*error = "more than one game menu owns active navigation callbacks";
 					return Status::AmbiguousMenu;
 				}
@@ -245,7 +248,16 @@ namespace AVPE::NativeMenuInput
 	{
 		*focus = {};
 		return GuestObjects::ReadWord(menu + FOCUSED_ITEM_HANDLE_OFFSET, &focus->handle) &&
-		       GuestObjects::ResolveHandle(focus->handle, &focus->object);
+		       GuestObjects::ResolveHandle(focus->handle, &focus->object) &&
+		       GuestObjects::ReadWord(focus->object, &focus->vtable) &&
+		       GuestObjects::IsPlausibleAddress(focus->vtable);
+	}
+
+	static bool ReadObjectVtable(const u32 object, u32* vtable)
+	{
+		return GuestObjects::IsPlausibleObject(object) &&
+		       GuestObjects::ReadWord(object, vtable) &&
+		       GuestObjects::IsPlausibleAddress(*vtable);
 	}
 
 	static Status FindMissionGoalsExitItem(const u32 menu, u32* exit_item, const char** error)
@@ -367,7 +379,16 @@ namespace AVPE::NativeMenuInput
 		result->status = FindActiveMenu(&active, &result->error);
 		result->callback_count = active.callback_count;
 		result->menu = active.object;
+		result->conflicting_menu = active.conflicting_object;
 		result->source = active.source;
+		if ((result->menu != 0 && !ReadObjectVtable(result->menu, &result->menu_vtable)) ||
+			(result->conflicting_menu != 0 &&
+				!ReadObjectVtable(result->conflicting_menu, &result->conflicting_menu_vtable)))
+		{
+			result->status = Status::GuestMemoryError;
+			result->error = "active game menu vtable is invalid or unreadable";
+			return;
+		}
 		if (result->status != Status::Success)
 			return;
 		if (!ReadFocus(result->menu, &result->before))
