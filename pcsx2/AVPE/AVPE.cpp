@@ -523,15 +523,29 @@ namespace AVPE
 		}
 	}
 
+	static lucent::http::Response menu_pointer_failure_response(
+		const NativeMenuInput::PointerResult& result, const char* title)
+	{
+		char response[384];
+		std::snprintf(response, sizeof(response),
+			"%s\\nreturn_pc=0x%08X stopped_pc=0x%08X last_avpe_text_pc=0x%08X elapsed_cycles=%llu staging_address=0x%08X stack_restored=%s\\n",
+			result.error, result.return_pc, result.stopped_pc, result.last_avpe_text_pc,
+			static_cast<unsigned long long>(result.elapsed_cycles),
+			result.staging_address, result.stack_restored ? "true" : "false");
+		return lucent::http::Response::text(menu_pointer_failure_status(result), title, response);
+	}
+
 	static lucent::http::Response menu_pointer_response(
 		const NativeMenuInput::PointerResult& result)
 	{
 		char response[768];
 		std::snprintf(response, sizeof(response),
-			R"({"pointer":"0x%08X","handler":"0x%08X","callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"screen_x":%.6f,"screen_y":%.6f,"observed_x":%.6f,"observed_y":%.6f,"staging_address":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu,"deferred":%s,"deferred_call_id":%llu})",
+			R"({"pointer":"0x%08X","handler":"0x%08X","callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X"},"screen_x":%.6f,"screen_y":%.6f,"observed_x":%.6f,"observed_y":%.6f,"staging_address":"0x%08X","return_pc":"0x%08X","stopped_pc":"0x%08X","last_avpe_text_pc":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu,"deferred":%s,"deferred_call_id":%llu})",
 			result.pointer, result.handler, result.callback_count, result.before.handle,
 			result.before.object, result.after.handle, result.after.object, result.screen_x,
-			result.screen_y, result.observed_x, result.observed_y, result.staging_address,
+			result.screen_y, result.observed_x, result.observed_y, result.staging_address, result.return_pc,
+			result.stopped_pc,
+			result.last_avpe_text_pc,
 			result.stack_restored ? "true" : "false",
 			static_cast<unsigned long long>(result.elapsed_cycles), result.deferred ? "true" : "false",
 			static_cast<unsigned long long>(result.deferred_call_id));
@@ -544,8 +558,7 @@ namespace AVPE
 		const NativeMenuInput::PointerResult result = NativeMenuInput::InspectPointer();
 		if (!result.Succeeded())
 		{
-			return lucent::http::Response::text(menu_pointer_failure_status(result),
-				"Native Menu Pointer Unavailable", std::string(result.error) + "\n");
+			return menu_pointer_failure_response(result, "Native Menu Pointer Unavailable");
 		}
 		return menu_pointer_response(result);
 	}
@@ -560,9 +573,9 @@ namespace AVPE
 		const NativeMenuInput::PointerResult result = NativeMenuInput::MovePointer(*x, *y);
 		if (!result.Succeeded())
 		{
-			lucent::error("avpe-input", "menu pointer move ({}, {}) failed: {}", *x, *y, result.error);
-			return lucent::http::Response::text(menu_pointer_failure_status(result),
-				"Native Menu Pointer Failed", std::string(result.error) + "\n");
+			lucent::error("avpe-input", "menu pointer move ({}, {}) failed at {:08x} after {} cycles: {}",
+				*x, *y, result.stopped_pc, result.elapsed_cycles, result.error);
+			return menu_pointer_failure_response(result, "Native Menu Pointer Failed");
 		}
 		return menu_pointer_response(result);
 	}
@@ -573,8 +586,7 @@ namespace AVPE
 		if (!result.Succeeded())
 		{
 			lucent::error("avpe-input", "menu pointer activation failed: {}", result.error);
-			return lucent::http::Response::text(menu_pointer_failure_status(result),
-				"Native Menu Pointer Failed", std::string(result.error) + "\n");
+			return menu_pointer_failure_response(result, "Native Menu Pointer Failed");
 		}
 		return menu_pointer_response(result);
 	}
@@ -668,9 +680,10 @@ namespace AVPE
 
 		char response[384];
 		std::snprintf(response, sizeof(response),
-			R"({"v0":"0x%016llX","v1":"0x%016llX","stopped_pc":"0x%08X","staging_address":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu})",
+			R"({"v0":"0x%016llX","v1":"0x%016llX","return_pc":"0x%08X","stopped_pc":"0x%08X","last_avpe_text_pc":"0x%08X","staging_address":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu})",
 			static_cast<unsigned long long>(result.v0), static_cast<unsigned long long>(result.v1),
-			result.stopped_pc, result.staging_address, result.stack_restored ? "true" : "false",
+			result.return_pc, result.stopped_pc, result.last_avpe_text_pc, result.staging_address,
+			result.stack_restored ? "true" : "false",
 			static_cast<unsigned long long>(result.elapsed_cycles));
 		lucent::info("avpe", "EE call {:08x} returned after {} cycles", request.function, result.elapsed_cycles);
 		return lucent::http::Response::json(200, "OK", response);

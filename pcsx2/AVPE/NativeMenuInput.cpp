@@ -531,6 +531,9 @@ namespace AVPE::NativeMenuInput
 				result.observed_x = motion.observed_x;
 				result.observed_y = motion.observed_y;
 				result.staging_address = motion.staging_address;
+				result.return_pc = motion.return_pc;
+				result.stopped_pc = motion.stopped_pc;
+				result.last_avpe_text_pc = motion.last_avpe_text_pc;
 				result.stack_restored = motion.stack_restored;
 				result.elapsed_cycles = motion.elapsed_cycles;
 				if (!motion.Succeeded())

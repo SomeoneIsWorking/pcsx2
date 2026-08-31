@@ -44,7 +44,9 @@ namespace AVPE::EECallShuttle
 		Status status = Status::Interrupted;
 		u64 v0 = 0;
 		u64 v1 = 0;
+		u32 return_pc = 0;
 		u32 stopped_pc = 0;
+		u32 last_avpe_text_pc = 0;
 		u32 staging_address = 0;
 		u64 elapsed_cycles = 0;
 		bool stack_restored = true;
@@ -94,6 +96,11 @@ namespace AVPE::EECallShuttle
 	// scheduler, then this restores the interrupted architectural context before
 	// the original return PC executes.
 	bool TryCompleteDeferredCall(u32 pc);
+
+	// Interpreter-only observation for the currently active bounded call. This
+	// retains the final AVP:E text PC even when guest scheduling later enters
+	// the EE BIOS idle thread.
+	void ObserveExecuteUntilPc(u32 pc);
 
 	// A timed-out call may have partial guest-memory effects. Loading a known
 	// state is the only operation which makes subsequent calls trustworthy.
