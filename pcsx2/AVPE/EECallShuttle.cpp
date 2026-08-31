@@ -29,6 +29,7 @@ namespace AVPE::EECallShuttle
 	static constexpr u32 GUEST_STACK_BUFFER_SIZE = GUEST_CALL_FRAME_SIZE - GUEST_ARGUMENT_HOME_SIZE;
 	static std::atomic_bool s_faulted{false};
 	static std::atomic_bool s_active{false};
+	static u32 s_last_avpe_text_pc = 0;
 
 	struct DeferredCall
 	{
@@ -230,6 +231,7 @@ namespace AVPE::EECallShuttle
 		cpuRegs.branch = 0;
 		cpuRegs.pcWriteback = 0;
 
+		s_last_avpe_text_pc = 0;
 		const EEExecutionResult execution = Cpu->ExecuteUntil(return_pc, request.cycle_budget);
 		const cpuRegisters completed_cpu = cpuRegs;
 		const u64 v0 = completed_cpu.GPR.n.v0.UD[0];
@@ -246,7 +248,9 @@ namespace AVPE::EECallShuttle
 		Result result = {
 			.v0 = v0,
 			.v1 = v1,
+			.return_pc = return_pc,
 			.stopped_pc = stopped_pc,
+			.last_avpe_text_pc = s_last_avpe_text_pc,
 			.staging_address = stack_argument.has_value() ? stack_frame.DataAddress() : 0,
 			.elapsed_cycles = elapsed_cycles,
 			.stack_restored = stack_restored,
@@ -369,6 +373,12 @@ namespace AVPE::EECallShuttle
 		if (!stack_restored)
 			s_faulted.store(true, std::memory_order_release);
 		return true;
+	}
+
+	void ObserveExecuteUntilPc(const u32 pc)
+	{
+		if (pc >= TARGET_TEXT_BEGIN && pc < TARGET_TEXT_END)
+			s_last_avpe_text_pc = pc;
 	}
 
 	Result Transaction::Call(const Request& request)

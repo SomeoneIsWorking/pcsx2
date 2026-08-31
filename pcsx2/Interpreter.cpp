@@ -713,6 +713,7 @@ static EEExecutionResult intExecuteUntil(const u32 target_pc, const u64 cycle_bu
 			intExecuteUntilActive = false;
 			return EEExecutionResult::ReachedTarget;
 		}
+		AVPE::EECallShuttle::ObserveExecuteUntilPc(cpuRegs.pc);
 		execI();
 	}
 }

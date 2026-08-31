@@ -88,6 +88,10 @@ namespace AVPE::NativePointerMotion
 			result.shuttle_status = update_call.status;
 			result.pointer = pointer;
 			result.staging_address = update_call.staging_address;
+			result.return_pc = update_call.return_pc;
+			result.stopped_pc = update_call.stopped_pc;
+			result.last_avpe_text_pc = update_call.last_avpe_text_pc;
+			result.elapsed_cycles = resolution_call.elapsed_cycles + update_call.elapsed_cycles;
 			result.stack_restored = update_call.stack_restored;
 			return result;
 		}
@@ -109,6 +113,9 @@ namespace AVPE::NativePointerMotion
 			.observed_y = observed_y,
 			.pointer = pointer,
 			.staging_address = update_call.staging_address,
+			.return_pc = update_call.return_pc,
+			.stopped_pc = update_call.stopped_pc,
+			.last_avpe_text_pc = update_call.last_avpe_text_pc,
 			.elapsed_cycles = resolution_call.elapsed_cycles + update_call.elapsed_cycles,
 			.stack_restored = update_call.stack_restored,
 		};
