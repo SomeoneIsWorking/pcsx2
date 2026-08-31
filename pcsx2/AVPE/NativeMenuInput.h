@@ -52,6 +52,8 @@ namespace AVPE::NativeMenuInput
 		u32 menu = 0;
 		u32 handler = 0;
 		u32 action_target = 0;
+		u32 focused_item_action = 0;
+		bool focused_item_action_valid = false;
 		u32 callback_count = 0;
 		FocusState before;
 		FocusState after;
