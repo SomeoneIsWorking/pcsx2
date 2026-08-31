@@ -13,6 +13,7 @@ namespace AVPE::NativeInputDispatch
 		Success,
 		Busy,
 		InvalidPointerCallback,
+		InvalidMenuCallback,
 	};
 
 	struct PointerMotionRequest
@@ -21,6 +22,13 @@ namespace AVPE::NativeInputDispatch
 		u32 callback = 0;
 		float x = 0.0f;
 		float y = 0.0f;
+	};
+
+	struct MenuActionRequest
+	{
+		u32 menu = 0;
+		u32 callback = 0;
+		u32 function = 0;
 	};
 
 	struct Result
@@ -35,6 +43,11 @@ namespace AVPE::NativeInputDispatch
 	// Queue exactly one derived-pointer relative-motion callback for the
 	// ordinary GInputDevice dispatch. This must run on the EE CPU thread.
 	Result QueuePointerMotion(const PointerMotionRequest& request);
+
+	// Queue one already-registered menu callback for the next ordinary
+	// GInputDevice dispatch. NativeMenuInput validates its action meaning;
+	// this owner only preserves the guest dispatch ABI.
+	Result QueueMenuAction(const MenuActionRequest& request);
 
 	// The recompiler uses this to make the member-callback dispatch an exact
 	// block entry. The observer performs the live title/control-test gate.
