@@ -55,6 +55,7 @@ namespace AVPE::NativeBiosEventStore
 			std::string name;
 			u32 stack_pointer = 0;
 			u32 resume_pc = 0;
+			u64 order = 0;
 			u8 number = 0;
 			bool result_expected = false;
 			bool result_observed = false;
@@ -306,6 +307,7 @@ namespace AVPE::NativeBiosEventStore
 			iop_import_pairing_entries = 0;
 			iop_import_pairing_returns = 0;
 			iop_import_pairing_overflow = 0;
+			next_ee_syscall_order = 0;
 			next_iop_import_order = 0;
 		}
 
@@ -322,6 +324,7 @@ namespace AVPE::NativeBiosEventStore
 		u64 iop_import_pairing_entries = 0;
 		u64 iop_import_pairing_returns = 0;
 		u32 iop_import_pairing_overflow = 0;
+		u64 next_ee_syscall_order = 0;
 		u64 next_iop_import_order = 0;
 	};
 
@@ -511,29 +514,19 @@ namespace AVPE::NativeBiosEventStore
 			return;
 		++m_impl->ee_syscall_pairing_entries;
 		auto pending = std::find_if(m_impl->pending_ee_syscalls.begin(),
-			m_impl->pending_ee_syscalls.end(), [stack_pointer](const PendingEeSyscall& call) {
-				return call.active && call.stack_pointer == stack_pointer;
+			m_impl->pending_ee_syscalls.end(), [](const PendingEeSyscall& call) {
+				return !call.active;
 			});
-		if (pending != m_impl->pending_ee_syscalls.end())
+		if (pending == m_impl->pending_ee_syscalls.end())
 		{
-			++m_impl->ee_syscall_pairing_sequence_errors;
-		}
-		else
-		{
-			pending = std::find_if(m_impl->pending_ee_syscalls.begin(),
-				m_impl->pending_ee_syscalls.end(), [](const PendingEeSyscall& call) {
-					return !call.active;
-				});
-			if (pending == m_impl->pending_ee_syscalls.end())
-			{
-				++m_impl->ee_syscall_pairing_overflow;
-				return;
-			}
+			++m_impl->ee_syscall_pairing_overflow;
+			return;
 		}
 		*pending = PendingEeSyscall{
 			.name = std::string(name),
 			.stack_pointer = stack_pointer,
 			.resume_pc = resume_pc,
+			.order = ++m_impl->next_ee_syscall_order,
 			.number = number,
 			.result_expected = ExpectsResult(disposition),
 			.result_observed = ObservesResult(disposition),
@@ -545,15 +538,20 @@ namespace AVPE::NativeBiosEventStore
 	void Store::RecordEeBiosSyscallReturn(const u32 stack_pointer, const u32 resume_pc,
 		const s32 result, const u64 result_u64)
 	{
-		auto pending = std::find_if(m_impl->pending_ee_syscalls.begin(),
-			m_impl->pending_ee_syscalls.end(), [stack_pointer](const PendingEeSyscall& call) {
-				return call.active && call.stack_pointer == stack_pointer;
-			});
-		if (pending == m_impl->pending_ee_syscalls.end())
-			return;
-		if (pending->resume_pc != resume_pc)
+		PendingEeSyscall* pending = nullptr;
+		bool stack_pointer_matched = false;
+		for (PendingEeSyscall& candidate : m_impl->pending_ee_syscalls)
 		{
-			++m_impl->ee_syscall_pairing_sequence_errors;
+			if (!candidate.active || candidate.stack_pointer != stack_pointer)
+				continue;
+			stack_pointer_matched = true;
+			if (candidate.resume_pc == resume_pc && (!pending || candidate.order > pending->order))
+				pending = &candidate;
+		}
+		if (!pending)
+		{
+			if (stack_pointer_matched)
+				++m_impl->ee_syscall_pairing_sequence_errors;
 			return;
 		}
 

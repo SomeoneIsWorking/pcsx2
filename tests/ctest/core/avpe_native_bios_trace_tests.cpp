@@ -254,6 +254,37 @@ TEST(NativeBiosTraceTest, PairsBiosReturnsByStackAndResumePc)
 		std::string::npos);
 }
 
+TEST(NativeBiosTraceTest, NestedBiosReturnsUseMostRecentExactBoundary)
+{
+	using Disposition = AVPE::NativeBiosTrace::EeSyscallDisposition;
+
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallEntry(
+		68, "WaitSema", 0, 0, 0, 0, 0x01FFF000, 0x00102004,
+		Disposition::ReturningResult);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallEntry(
+		66, "SignalSema", 0, 0, 0, 0, 0x01FFF000, 0x00103004,
+		Disposition::ReturningResult);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallEntry(
+		34, "StartThread", 0, 0, 0, 0, 0x01FFF000, 0x00102004,
+		Disposition::ReturningResult);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallReturn(0x01FFF000, 0x00102004, 7, 0);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallReturn(0x01FFF000, 0x00103004, 8, 0);
+	AVPE::NativeBiosTrace::RecordEeBiosSyscallReturn(0x01FFF000, 0x00102004, 9, 0);
+
+	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
+	EXPECT_NE(snapshot.find("\"name\":\"StartThread\",\"result_expected\":true,\"result_valid\":true,\"result\":7"),
+		std::string::npos);
+	EXPECT_NE(snapshot.find("\"name\":\"SignalSema\",\"result_expected\":true,\"result_valid\":true,\"result\":8"),
+		std::string::npos);
+	EXPECT_NE(snapshot.find("\"name\":\"WaitSema\",\"result_expected\":true,\"result_valid\":true,\"result\":9"),
+		std::string::npos);
+	EXPECT_NE(snapshot.find(
+				  "\"ee_syscall_pairing\":{\"entries\":3,\"returns\":3,\"pending\":0,"
+				  "\"sequence_errors\":0,\"overflow\":0}"),
+		std::string::npos);
+}
+
 TEST(NativeBiosTraceTest, RejectsMismatchedBiosReturnBoundary)
 {
 	using Disposition = AVPE::NativeBiosTrace::EeSyscallDisposition;
