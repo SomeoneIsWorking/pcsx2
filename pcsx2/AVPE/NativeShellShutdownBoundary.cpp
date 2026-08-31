@@ -46,8 +46,14 @@ namespace AVPE::NativeShellShutdownBoundary
 
 		bool ReadCurrentShell(u32* shell)
 		{
+			u32 request = 0;
+			// CShell is not a GObject: its first word is level-path data, not a vtable.
+			// Validate the actual MainLoop-owned request field instead of applying the
+			// generic polymorphic-object predicate.
 			return GuestObjects::ReadWord(ShellSingletonAddress, shell) &&
-			       GuestObjects::IsPlausibleObject(*shell);
+			       GuestObjects::IsPlausibleAddress(*shell) &&
+			       GuestObjects::ReadWord(*shell + ShellRequestOffset, &request) &&
+			       (request & ~(u32{1} | u32{2} | QuitRequestBit)) == 0;
 		}
 
 		void AppendPoint(std::string& json, const LoadTimingPoint::Point& point, const u32 pc)
