@@ -21,6 +21,7 @@ namespace AVPE::NativeMenuInput
 	static constexpr u32 MENU_INPUT = 0x00125330;
 	static constexpr u32 MENU_ITEM_FOCUS = 0x00120B70;
 	static constexpr u32 MENU_ITEM_FOCUS_VTABLE_OFFSET = 0xB8;
+	static constexpr u32 MENU_ITEM_ACTION_OFFSET = 0x110;
 	static constexpr u32 FIRST_CHILD_OFFSET = 0x08;
 	static constexpr u32 NEXT_SIBLING_OFFSET = 0x10;
 	static constexpr u32 MENU_CANCEL_VTABLE_OFFSET = 0xFC;
@@ -354,6 +355,12 @@ namespace AVPE::NativeMenuInput
 		       GuestObjects::IsPlausibleAddress(*handler);
 	}
 
+	static bool ReadFocusedItemAction(const u32 item, u32* action)
+	{
+		return GuestObjects::IsPlausibleObject(item) &&
+		       GuestObjects::ReadWord(item + MENU_ITEM_ACTION_OFFSET, action);
+	}
+
 	static void InspectOnCPUThread(Result* result)
 	{
 		ActiveMenu active;
@@ -373,6 +380,9 @@ namespace AVPE::NativeMenuInput
 			result->status = FindMissionGoalsExitItem(result->menu, &result->action_target, &result->error);
 		else
 			result->action_target = result->before.object;
+		if (result->status == Status::Success)
+			result->focused_item_action_valid =
+				ReadFocusedItemAction(result->action_target, &result->focused_item_action);
 	}
 
 	static bool AcceptCallResult(Result* result, const EECallShuttle::Result& call)
