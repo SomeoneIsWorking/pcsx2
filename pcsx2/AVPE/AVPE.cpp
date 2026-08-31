@@ -59,7 +59,8 @@ namespace AVPE
 		NativeLoadTiming::Reset();
 		NativeMissionLoadTiming::Reset();
 		NativeInputDispatch::Reset();
-		NativeBiosTrace::SetEnabled(enabled);
+		const char* const bios_trace = std::getenv("AVPE_BIOS_TRACE");
+		NativeBiosTrace::SetEnabled(enabled && (!bios_trace || std::string_view(bios_trace) != "0"));
 	}
 
 	bool IsSurfacelessControlTest()
