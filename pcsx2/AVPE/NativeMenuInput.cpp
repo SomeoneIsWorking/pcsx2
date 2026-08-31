@@ -44,6 +44,13 @@ namespace AVPE::NativeMenuInput
 		0x00124C10,
 		0x00125230,
 	};
+	static constexpr std::array<u32, 5> MENU_ACTION_CALLBACKS = {
+		0x00124C10,
+		0x00124C00,
+		0x00124BF0,
+		0x00124BE0,
+		0x00124BD0,
+	};
 
 	struct ActiveMenu
 	{
@@ -53,7 +60,14 @@ namespace AVPE::NativeMenuInput
 		Source source = Source::None;
 		u32 callback = 0;
 		u32 pointer_check = 0;
+		std::array<u32, MENU_ACTION_CALLBACKS.size()> action_callbacks{};
 	};
+
+	static u32 CallbackFunctionForAction(const Action action)
+	{
+		const size_t index = static_cast<size_t>(action);
+		return index < MENU_ACTION_CALLBACKS.size() ? MENU_ACTION_CALLBACKS[index] : 0;
+	}
 
 	struct CallbackRegistry
 	{
@@ -69,6 +83,28 @@ namespace AVPE::NativeMenuInput
 				return true;
 		}
 		return false;
+	}
+
+	static void RecordMenuActionCallback(ActiveMenu* active, const u32 callback, const u32 function)
+	{
+		for (size_t index = 0; index < MENU_ACTION_CALLBACKS.size(); ++index)
+		{
+			if (MENU_ACTION_CALLBACKS[index] == function && active->action_callbacks[index] == 0)
+			{
+				active->action_callbacks[index] = callback;
+				return;
+			}
+		}
+	}
+
+	static u32 AnyMenuActionCallback(const ActiveMenu& active)
+	{
+		for (const u32 callback : active.action_callbacks)
+		{
+			if (callback != 0)
+				return callback;
+		}
+		return 0;
 	}
 
 	static Status ReadCallbackRegistry(CallbackRegistry* registry, const char** error)
@@ -132,6 +168,7 @@ namespace AVPE::NativeMenuInput
 					return Status::AmbiguousMenu;
 				}
 				active->object = owner;
+				RecordMenuActionCallback(active, callback, function);
 			}
 		}
 
@@ -373,7 +410,7 @@ namespace AVPE::NativeMenuInput
 		       GuestObjects::ReadWord(item + MENU_ITEM_ACTION_OFFSET, action);
 	}
 
-	static void InspectOnCPUThread(Result* result)
+	static void InspectOnCPUThread(Result* result, ActiveMenu* active_result = nullptr)
 	{
 		ActiveMenu active;
 		result->status = FindActiveMenu(&active, &result->error);
@@ -391,6 +428,8 @@ namespace AVPE::NativeMenuInput
 		}
 		if (result->status != Status::Success)
 			return;
+		if (active_result)
+			*active_result = active;
 		if (!ReadFocus(result->menu, &result->before))
 		{
 			result->status = Status::GuestMemoryError;
@@ -470,11 +509,39 @@ namespace AVPE::NativeMenuInput
 	{
 		Result result{.action = action};
 		EECallShuttle::RunTransaction([&result, action](EECallShuttle::Transaction& transaction) {
-			InspectOnCPUThread(&result);
+			ActiveMenu active;
+			InspectOnCPUThread(&result, &active);
 			if (result.status != Status::Success)
 				return;
 			if (!PrepareMissionGoalsActivation(&result, transaction, action))
 				return;
+			if (result.source == Source::CallbackRegistry && action != Action::Cancel)
+			{
+				u32 callback = active.action_callbacks[static_cast<size_t>(action)];
+				result.handler = CallbackFunctionForAction(action);
+				if (callback == 0)
+					callback = AnyMenuActionCallback(active);
+				if (callback == 0 || result.handler == 0)
+				{
+					result.status = Status::GuestMemoryError;
+					result.error = "active menu has no exact registered callback for this action";
+					return;
+				}
+				const NativeInputDispatch::Result queue = NativeInputDispatch::QueueMenuAction(
+					{.menu = result.menu, .callback = callback, .function = result.handler});
+				result.dispatch_action_id = queue.id;
+				result.deferred = queue.Succeeded();
+				if (!queue.Succeeded())
+				{
+					result.status = queue.status == NativeInputDispatch::Status::Busy ?
+					                    Status::ShuttleFailure :
+					                    Status::GuestMemoryError;
+					result.error = queue.error;
+					return;
+				}
+				result.status = Status::Success;
+				return;
+			}
 
 			result.handler = MENU_INPUT;
 			if (action == Action::Cancel && !ReadCancelHandler(result.menu, &result.handler))
@@ -503,8 +570,7 @@ namespace AVPE::NativeMenuInput
 			// Callback-registry menus run under the ordinary game scheduler. Even a
 			// directional focus change can enter AVP:E's SIF-backed audio work, so
 			// it must not monopolize the CPU in a synchronous shuttle call.
-			if (result.source == Source::CallbackRegistry || action == Action::Activate ||
-				action == Action::Cancel)
+			if (action == Action::Activate || action == Action::Cancel)
 			{
 				const EECallShuttle::DeferredTicket ticket = transaction.QueueDeferred(request);
 				result.shuttle_status = ticket.status;
