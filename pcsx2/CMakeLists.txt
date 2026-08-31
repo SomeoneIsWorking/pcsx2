@@ -96,6 +96,7 @@ set(pcsx2Sources
 	AVPE/NativeAssetByteTrace.cpp
 	AVPE/NativeBiosEventStore.cpp
 	AVPE/NativeBiosTrace.cpp
+	AVPE/NativeGameSaveBoundary.cpp
 	AVPE/NativeAssetCache.cpp
 	AVPE/NativeAssetFile.cpp
 	AVPE/NativeAssetStore.cpp
