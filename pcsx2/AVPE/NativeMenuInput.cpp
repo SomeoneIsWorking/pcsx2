@@ -627,8 +627,7 @@ namespace AVPE::NativeMenuInput
 					{.pointer = result.pointer,
 						.callback = result.callback,
 						.x = relative.x,
-						.y = relative.y,
-						.after_return = result.handler});
+						.y = relative.y});
 				result.deferred_call_id = queue.id;
 				result.deferred = queue.Succeeded();
 				if (!queue.Succeeded())
