@@ -411,6 +411,7 @@ namespace AVPE::NativeMenuInput
 		result->shuttle_status = call.status;
 		result->elapsed_cycles += call.elapsed_cycles;
 		result->stopped_pc = call.stopped_pc;
+		result->last_avpe_text_pc = call.last_avpe_text_pc;
 		result->stack_restored = result->stack_restored && call.stack_restored;
 		if (call.Succeeded())
 			return true;
@@ -499,7 +500,11 @@ namespace AVPE::NativeMenuInput
 				result.status = Status::Success;
 				return;
 			}
-			if (action == Action::Activate || action == Action::Cancel)
+			// Callback-registry menus run under the ordinary game scheduler. Even a
+			// directional focus change can enter AVP:E's SIF-backed audio work, so
+			// it must not monopolize the CPU in a synchronous shuttle call.
+			if (result.source == Source::CallbackRegistry || action == Action::Activate ||
+				action == Action::Cancel)
 			{
 				const EECallShuttle::DeferredTicket ticket = transaction.QueueDeferred(request);
 				result.shuttle_status = ticket.status;

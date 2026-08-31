@@ -63,6 +63,7 @@ namespace AVPE::NativeMenuInput
 		FocusState after;
 		u64 elapsed_cycles = 0;
 		u32 stopped_pc = 0;
+		u32 last_avpe_text_pc = 0;
 		u64 deferred_call_id = 0;
 		bool stack_restored = true;
 		bool deferred = false;
