@@ -760,6 +760,9 @@ namespace AVPE
 
 	static lucent::http::Response handle_memory_card_state()
 	{
+		if (!VMManager::HasValidVM())
+			return lucent::http::Response::json(
+				409, "Conflict", R"({"error":"memory-card state requires a valid VM"})");
 		const NativeMemoryCardState::Snapshot snapshot = NativeMemoryCardState::Capture();
 		char body[160];
 		std::snprintf(body, sizeof(body),
