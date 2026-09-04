@@ -14,6 +14,7 @@
 #include "pcsx2/MTGS.h"
 #include "pcsx2/VMManager.h"
 
+#include "AVPE/AVPE.h"
 #include "AVPE/NativeBiosTrace.h"
 
 #include "common/ProgressCallback.h"
@@ -86,7 +87,7 @@ void Host::OpenURL(const std::string_view url)
 
 bool Host::InBatchMode()
 {
-	return true;
+	return AVPE::IsSurfacelessControlTest();
 }
 
 bool Host::InNoGUIMode()

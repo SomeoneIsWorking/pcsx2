@@ -3,6 +3,7 @@
 
 #include "pcsx2/Config.h"
 #include "pcsx2/Host.h"
+#include "pcsx2/ImGui/ImGuiManager.h"
 #include "pcsx2/INISettingsInterface.h"
 #include "pcsx2/VMManager.h"
 
@@ -13,11 +14,32 @@
 #include <lucent/log.h>
 
 #include <memory>
+#include <span>
 
 namespace AVPE::Settings
 {
 	static std::unique_ptr<INISettingsInterface> s_base;
 	static std::unique_ptr<INISettingsInterface> s_secrets;
+
+	static bool InitializeFonts()
+	{
+		const std::string path =
+			EmuFolders::GetOverridableResourcePath("fonts" FS_OSPATH_SEPARATOR_STR "Roboto-Regular.ttf");
+		const std::span<const u8> data = FileSystem::MapBinaryFileForRead(path.c_str());
+		if (data.empty())
+		{
+			lucent::error("avpe-settings", "could not load bundled text font: {}", path);
+			return false;
+		}
+
+		ImGuiManager::SetFonts({ImGuiManager::FontInfo{
+			.data = data,
+			.exclude_ranges = {},
+			.face_name = nullptr,
+			.is_emoji_font = false,
+		}});
+		return true;
+	}
 
 	bool Initialize(const std::string& data_path)
 	{
@@ -34,6 +56,8 @@ namespace AVPE::Settings
 			lucent::error("avpe-settings", "PCSX2 core resources are missing beside the AVPE executable");
 			return false;
 		}
+		if (!InitializeFonts())
+			return false;
 
 		if (!EmuFolders::SetDataDirectory(&error))
 		{
