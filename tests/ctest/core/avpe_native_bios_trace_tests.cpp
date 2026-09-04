@@ -56,7 +56,7 @@ TEST(NativeBiosTraceTest, RecordsOrderedEventsAndOnlyGroundedResults)
 		"cdvdman", 8, "sceCdGetError", 5, 6, 7, 8, true, false, 0x1000, 0x2000);
 
 	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
-	EXPECT_NE(snapshot.find("\"schema\":\"avpe-bios-trace-v5\""), std::string::npos);
+	EXPECT_NE(snapshot.find("\"schema\":\"avpe-bios-trace-v6\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"sequence\":1"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"kind\":\"module\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"kind\":\"interrupt\""), std::string::npos);
@@ -67,12 +67,13 @@ TEST(NativeBiosTraceTest, RecordsOrderedEventsAndOnlyGroundedResults)
 	EXPECT_NE(snapshot.find("\"outcome\":\"bios\",\"result_valid\":false"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"result_expected\":true,\"return_expected\":true"),
 		std::string::npos);
-	EXPECT_EQ(snapshot.find("\"result\":-2"), std::string::npos);
+	EXPECT_EQ(snapshot.find("\"first\":-2"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"outcome\":\"direct\",\"result_valid\":false"),
 		std::string::npos);
-	EXPECT_EQ(snapshot.find("\"result\":-7"), std::string::npos);
+	EXPECT_EQ(snapshot.find("\"first\":-7"), std::string::npos);
 	EXPECT_NE(snapshot.find(
-				  "\"outcome\":\"direct\",\"result_valid\":true,\"result\":33554432"),
+				  "\"outcome\":\"direct\",\"result_valid\":true,\"result_summary\":"
+				  "{\"encoding\":\"s32\",\"first\":33554432,\"last\":33554432"),
 		std::string::npos);
 	EXPECT_NE(snapshot.find("\"kind\":\"exception\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"domain\":\"ee\""), std::string::npos);
@@ -83,10 +84,11 @@ TEST(NativeBiosTraceTest, RecordsOrderedEventsAndOnlyGroundedResults)
 	EXPECT_NE(snapshot.find("\"delivered\":false"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"domain\":\"ee\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"delivered\":true"), std::string::npos);
-	EXPECT_NE(snapshot.find("\"outcome\":\"hle\",\"result_valid\":true,\"result\":-1"),
+	EXPECT_NE(snapshot.find("\"outcome\":\"hle\",\"result_valid\":true,\"result_summary\":"
+							"{\"encoding\":\"s32\",\"first\":-1"),
 		std::string::npos);
 	EXPECT_NE(snapshot.find("\"outcome\":\"oracle\",\"result_valid\":false"), std::string::npos);
-	EXPECT_EQ(snapshot.find("\"result\":123"), std::string::npos);
+	EXPECT_EQ(snapshot.find("\"first\":123"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"hle_available\":true"), std::string::npos);
 }
 
@@ -117,16 +119,43 @@ TEST(NativeBiosTraceTest, CoalescesRepeatedImportIdentity)
 	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
 	EXPECT_NE(snapshot.find("\"calls\":2"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"sequence\":2"), std::string::npos);
-	EXPECT_NE(snapshot.find("\"sequence\":3"), std::string::npos);
-	EXPECT_EQ(snapshot.find("\"sequence\":4"), std::string::npos);
-	EXPECT_EQ(snapshot.find("\"result\":99"), std::string::npos);
+	EXPECT_EQ(snapshot.find("\"sequence\":3"), std::string::npos);
+	EXPECT_NE(snapshot.find(
+				  "\"result_summary\":{\"encoding\":\"s32\",\"first\":-1,\"last\":8,"
+				  "\"min\":-1,\"max\":8,\"changes\":1}"),
+		std::string::npos);
+	EXPECT_EQ(snapshot.find("\"first\":99"), std::string::npos);
+}
+
+TEST(NativeBiosTraceTest, BoundsContinuouslyChangingIopResultsWithoutEventOverflow)
+{
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	for (s32 result = 0; result < 10000; ++result)
+	{
+		AVPE::NativeBiosTrace::RecordIopOracleImportEntry(
+			"timrman", 12, "GetTimerCounter", 0, 0, 0, 0, false, true,
+			0x001FF000, 0x00500000);
+		AVPE::NativeBiosTrace::RecordIopOracleImportReturn(
+			0x001FF000, 0x00500000, result);
+	}
+
+	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
+	EXPECT_NE(snapshot.find("\"overflow\":0"), std::string::npos);
+	EXPECT_NE(snapshot.find(
+				  "\"result_summary\":{\"encoding\":\"s32\",\"first\":0,\"last\":9999,"
+				  "\"min\":0,\"max\":9999,\"changes\":9999}"),
+		std::string::npos);
+	EXPECT_NE(snapshot.find("\"calls\":10000"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"entries\":10000,\"returns\":10000,\"pending\":0"),
+		std::string::npos);
+	EXPECT_EQ(snapshot.find("\"sequence\":3"), std::string::npos);
 }
 
 TEST(NativeBiosTraceTest, RecordsOracleImportWithoutResolvedHandler)
 {
 	AVPE::NativeBiosTrace::SetEnabled(true);
 	EXPECT_TRUE(AVPE::NativeBiosTrace::RecordIopOracleImportEntry(
-		"unresolved", 0x123, "unknown", 1, 2, 3, 4, false, false,
+		"unresolved", 0x123, "", 1, 2, 3, 4, false, false,
 		0x001FF000, 0x00010200));
 
 	const u32 saved_sp = psxRegs.GPR.n.sp;
@@ -142,7 +171,7 @@ TEST(NativeBiosTraceTest, RecordsOracleImportWithoutResolvedHandler)
 		snapshot.find(
 			"\"library\":\"unresolved\",\"ordinal\":291,\"function\":\"unknown\""),
 		std::string::npos);
-	EXPECT_NE(snapshot.find("\"result\":-7"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"first\":-7"), std::string::npos);
 	EXPECT_NE(
 		snapshot.find(
 			"\"iop_import_pairing\":{\"entries\":1,\"returns\":1,\"pending\":0"),
@@ -167,7 +196,8 @@ TEST(NativeBiosTraceTest, PairsIopOracleReturnByStackAndResumePc)
 	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
 	EXPECT_NE(snapshot.find("\"kind\":\"iop_import_return\""), std::string::npos);
 	EXPECT_NE(snapshot.find(
-				  "\"function\":\"sceCdGetError\",\"result_valid\":true,\"result\":-5"),
+				  "\"function\":\"sceCdGetError\",\"result_valid\":true,"
+				  "\"result_summary\":{\"encoding\":\"s32\",\"first\":-5"),
 		std::string::npos);
 	EXPECT_NE(snapshot.find("\"first_stack_pointer\":2093056"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"first_resume_pc\":66048"), std::string::npos);
@@ -215,10 +245,12 @@ TEST(NativeBiosTraceTest, NestedIopOracleReturnsUseMostRecentMatchingEntry)
 
 	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
 	EXPECT_NE(snapshot.find("\"library\":\"inner\",\"ordinal\":2,\"function\":\"second\","
-							"\"result_valid\":true,\"result\":7"),
+							"\"result_valid\":true,\"result_summary\":{\"encoding\":\"s32\","
+							"\"first\":7"),
 		std::string::npos);
 	EXPECT_NE(snapshot.find("\"library\":\"outer\",\"ordinal\":1,\"function\":\"first\","
-							"\"result_valid\":true,\"result\":8"),
+							"\"result_valid\":true,\"result_summary\":{\"encoding\":\"s32\","
+							"\"first\":8"),
 		std::string::npos);
 	EXPECT_NE(snapshot.find("\"entries\":2,\"returns\":2,\"pending\":0"),
 		std::string::npos);
@@ -271,7 +303,8 @@ TEST(NativeBiosTraceTest, PairsBiosReturnsByStackAndResumePc)
 	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
 	EXPECT_NE(snapshot.find("\"kind\":\"ee_syscall_return\""), std::string::npos);
 	EXPECT_NE(snapshot.find(
-				  "\"name\":\"SignalSema\",\"result_expected\":true,\"result_valid\":true,\"result\":0"),
+				  "\"name\":\"SignalSema\",\"result_expected\":true,\"result_valid\":true,"
+				  "\"result_summary\":{\"encoding\":\"s32\",\"first\":0"),
 		std::string::npos);
 	EXPECT_NE(snapshot.find("\"first_stack_pointer\":33546240"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"first_resume_pc\":1060868"), std::string::npos);
@@ -300,11 +333,14 @@ TEST(NativeBiosTraceTest, NestedBiosReturnsUseMostRecentExactBoundary)
 	AVPE::NativeBiosTrace::RecordEeBiosSyscallReturn(0x01FFF000, 0x00102004, 9, 0);
 
 	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
-	EXPECT_NE(snapshot.find("\"name\":\"StartThread\",\"result_expected\":true,\"result_valid\":true,\"result\":7"),
+	EXPECT_NE(snapshot.find("\"name\":\"StartThread\",\"result_expected\":true,\"result_valid\":true,"
+							"\"result_summary\":{\"encoding\":\"s32\",\"first\":7"),
 		std::string::npos);
-	EXPECT_NE(snapshot.find("\"name\":\"SignalSema\",\"result_expected\":true,\"result_valid\":true,\"result\":8"),
+	EXPECT_NE(snapshot.find("\"name\":\"SignalSema\",\"result_expected\":true,\"result_valid\":true,"
+							"\"result_summary\":{\"encoding\":\"s32\",\"first\":8"),
 		std::string::npos);
-	EXPECT_NE(snapshot.find("\"name\":\"WaitSema\",\"result_expected\":true,\"result_valid\":true,\"result\":9"),
+	EXPECT_NE(snapshot.find("\"name\":\"WaitSema\",\"result_expected\":true,\"result_valid\":true,"
+							"\"result_summary\":{\"encoding\":\"s32\",\"first\":9"),
 		std::string::npos);
 	EXPECT_NE(snapshot.find(
 				  "\"ee_syscall_pairing\":{\"entries\":3,\"returns\":3,\"pending\":0,"
@@ -367,10 +403,11 @@ TEST(NativeBiosTraceTest, ReturningVoidAndU64ResultsRemainDistinct)
 				  "\"name\":\"FlushCache\",\"result_expected\":false,\"result_valid\":false"),
 		std::string::npos);
 	EXPECT_NE(snapshot.find(
-				  "\"name\":\"GsGetIMR\",\"result_expected\":true,\"result_valid\":true,\"result_u64\":4294967297"),
+				  "\"name\":\"GsGetIMR\",\"result_expected\":true,\"result_valid\":true,"
+				  "\"result_summary\":{\"encoding\":\"u64\",\"first\":4294967297"),
 		std::string::npos);
-	EXPECT_EQ(snapshot.find("\"result\":2"), std::string::npos);
-	EXPECT_EQ(snapshot.find("\"result\":-1"), std::string::npos);
+	EXPECT_EQ(snapshot.find("\"first\":2"), std::string::npos);
+	EXPECT_EQ(snapshot.find("\"first\":-1"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"entries\":2,\"returns\":2,\"pending\":0"),
 		std::string::npos);
 }

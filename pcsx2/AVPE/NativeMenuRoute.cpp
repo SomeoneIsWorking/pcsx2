@@ -92,10 +92,8 @@ namespace AVPE::NativeMenuRoute
 		if (result.status == NativeMenuInput::Status::AmbiguousMenu)
 			return lucent::http::Response::json(FailureStatus(result), "Native Menu State Ambiguous", response);
 		if (!result.Succeeded())
-		{
-			return lucent::http::Response::text(FailureStatus(result), "Native Menu State Unavailable",
-				std::string(result.error) + "\n");
-		}
+			return lucent::http::Response::json(
+				FailureStatus(result), "Native Menu State Unavailable", response);
 		return lucent::http::Response::json(200, "OK", response);
 	}
 } // namespace AVPE::NativeMenuRoute

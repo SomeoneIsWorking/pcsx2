@@ -18,7 +18,7 @@ namespace AVPE::NativeInputDispatch
 {
 	namespace
 	{
-		constexpr std::string_view kSchema = "avpe-input-dispatch-v1";
+		constexpr std::string_view kSchema = "avpe-input-dispatch-v2";
 		constexpr std::string_view kTargetSerial = "SLUS-20147";
 		constexpr u32 kTargetCrc = 0x64DA78A3;
 		constexpr u32 kCallbackDispatchPc = 0x001147CC;
@@ -50,18 +50,16 @@ namespace AVPE::NativeInputDispatch
 			std::atomic<u64> completed_id{0};
 			std::atomic<u64> rejected_id{0};
 			std::atomic_bool return_pending{false};
-			std::atomic_bool restore_pending{false};
-			std::atomic<u32> menu{0};
+			std::atomic<u32> target{0};
 			std::atomic<u32> callback{0};
 			std::atomic<u32> function{0};
-			u32 staging_address = 0;
-			std::array<u32, kMemberFunctionWords> staging_original{};
 		};
 
 		struct CallbackRecord
 		{
 			std::atomic<u64> dispatches{0};
 			std::atomic<u32> owner{0};
+			std::atomic<u32> owner_vtable{0};
 			std::atomic<u32> input_data{0};
 			std::atomic<u32> input_definition{0};
 			std::array<std::atomic<u32>, kMemberFunctionWords> member{};
@@ -108,23 +106,18 @@ namespace AVPE::NativeInputDispatch
 			       GuestObjects::ReadWord(vtable + member[1], &target) && target == kPointerUpdateFunction;
 		}
 
-		bool IsMenuCallbackValid(const u32 menu, const u32 callback,
-			std::array<u32, kMemberFunctionWords>* member = nullptr)
+		bool IsMenuCallbackValid(const u32 target, const u32 callback, const u32 function)
 		{
 			u32 owner_handle = 0;
 			u32 owner = 0;
-			std::array<u32, kMemberFunctionWords> local_member{};
-			if (!GuestObjects::IsPlausibleObject(menu) || !GuestObjects::IsPlausibleAddress(callback) ||
+			u32 resolved_function = 0;
+			if (!GuestObjects::IsPlausibleObject(target) || !GuestObjects::IsPlausibleAddress(callback) ||
+				!GuestObjects::IsPlausibleAddress(function) ||
 				!GuestObjects::ReadWord(callback + 8, &owner_handle) ||
-				!GuestObjects::ResolveHandle(owner_handle, &owner) || owner != menu ||
-				!GuestObjects::ReadBytes(callback + 0x0C, local_member.data(), sizeof(local_member)) ||
-				local_member[2] == 0)
-			{
+				!GuestObjects::ResolveHandle(owner_handle, &owner) || owner != target ||
+				!GuestObjects::ResolveMemberFunction(target, callback + 0x0C, &resolved_function))
 				return false;
-			}
-			if (member)
-				*member = local_member;
-			return true;
+			return resolved_function == function;
 		}
 
 		void RejectPendingPointerMotion(const u64 id)
@@ -143,25 +136,8 @@ namespace AVPE::NativeInputDispatch
 		{
 			if (!s_pending_menu_action.return_pending.exchange(false, std::memory_order_acq_rel))
 				return;
-
 			const u64 id = s_pending_menu_action.queued_id.load(std::memory_order_acquire);
-			if (!s_pending_menu_action.restore_pending.exchange(false, std::memory_order_acq_rel))
-			{
-				s_pending_menu_action.completed_id.store(id, std::memory_order_release);
-				return;
-			}
-
-			const bool restored =
-				vtlb_memSafeWriteBytes(s_pending_menu_action.staging_address,
-					s_pending_menu_action.staging_original.data(),
-					s_pending_menu_action.staging_original.size() * sizeof(u32)) &&
-				vtlb_memSafeCmpBytes(s_pending_menu_action.staging_address,
-					s_pending_menu_action.staging_original.data(),
-					s_pending_menu_action.staging_original.size() * sizeof(u32)) == 0;
-			if (restored)
-				s_pending_menu_action.completed_id.store(id, std::memory_order_release);
-			else
-				s_pending_menu_action.rejected_id.store(id, std::memory_order_release);
+			s_pending_menu_action.completed_id.store(id, std::memory_order_release);
 		}
 
 		void InjectPendingPointerMotion()
@@ -204,47 +180,17 @@ namespace AVPE::NativeInputDispatch
 				return;
 
 			const u64 id = s_pending_menu_action.queued_id.load(std::memory_order_acquire);
-			const u32 menu = s_pending_menu_action.menu.load(std::memory_order_acquire);
+			const u32 target = s_pending_menu_action.target.load(std::memory_order_acquire);
 			const u32 callback = s_pending_menu_action.callback.load(std::memory_order_acquire);
 			const u32 function = s_pending_menu_action.function.load(std::memory_order_acquire);
-			std::array<u32, kMemberFunctionWords> member{};
-			if (!IsTargetRecognized() || !GuestObjects::IsPlausibleAddress(function) ||
-				!IsMenuCallbackValid(menu, callback, &member))
+			if (!IsTargetRecognized() || !IsMenuCallbackValid(target, callback, function))
 			{
 				RejectPendingMenuAction(id);
 				return;
 			}
 
-			const u32 input_data = cpuRegs.GPR.n.a1.UL[0];
-			cpuRegs.GPR.n.a0.UL[0] = menu;
-			if (member[2] == function)
-			{
-				cpuRegs.GPR.n.t9.UL[0] = callback + 0x0C;
-			}
-			else if (input_data >= sizeof(member) && GuestObjects::IsPlausibleAddress(input_data))
-			{
-				const u32 staging_address = input_data - sizeof(member);
-				if (!GuestObjects::ReadBytes(staging_address, s_pending_menu_action.staging_original.data(),
-						s_pending_menu_action.staging_original.size() * sizeof(u32)))
-				{
-					RejectPendingMenuAction(id);
-					return;
-				}
-				member[2] = function;
-				if (!vtlb_memSafeWriteBytes(staging_address, member.data(), sizeof(member)))
-				{
-					RejectPendingMenuAction(id);
-					return;
-				}
-				s_pending_menu_action.staging_address = staging_address;
-				s_pending_menu_action.restore_pending.store(true, std::memory_order_release);
-				cpuRegs.GPR.n.t9.UL[0] = staging_address;
-			}
-			else
-			{
-				RejectPendingMenuAction(id);
-				return;
-			}
+			cpuRegs.GPR.n.a0.UL[0] = target;
+			cpuRegs.GPR.n.t9.UL[0] = callback + 0x0C;
 			s_pending_menu_action.injected_id.store(id, std::memory_order_release);
 			s_pending_menu_action.return_pending.store(true, std::memory_order_release);
 			s_pending_menu_action.pending.store(false, std::memory_order_release);
@@ -325,6 +271,8 @@ namespace AVPE::NativeInputDispatch
 			        std::to_string(record.dispatches.load(std::memory_order_acquire));
 			body += ",\"owner\":";
 			AppendWord(body, record.owner.load(std::memory_order_acquire));
+			body += ",\"owner_vtable\":";
+			AppendWord(body, record.owner_vtable.load(std::memory_order_acquire));
 			body += ",\"input_data\":";
 			AppendWord(body, record.input_data.load(std::memory_order_acquire));
 			body += ",\"input_definition\":";
@@ -346,8 +294,7 @@ namespace AVPE::NativeInputDispatch
 	{
 		if (s_pending.pending.load(std::memory_order_acquire) ||
 			s_pending_menu_action.pending.load(std::memory_order_acquire) ||
-			s_pending_menu_action.return_pending.load(std::memory_order_acquire) ||
-			s_pending_menu_action.restore_pending.load(std::memory_order_acquire))
+			s_pending_menu_action.return_pending.load(std::memory_order_acquire))
 			return {.status = Status::Busy, .error = "an input callback is already queued"};
 		if (!IsTargetRecognized() || !IsPointerCallbackValid(request.pointer, request.callback))
 		{
@@ -371,20 +318,19 @@ namespace AVPE::NativeInputDispatch
 	{
 		if (s_pending.pending.load(std::memory_order_acquire) ||
 			s_pending_menu_action.pending.load(std::memory_order_acquire) ||
-			s_pending_menu_action.return_pending.load(std::memory_order_acquire) ||
-			s_pending_menu_action.restore_pending.load(std::memory_order_acquire))
+			s_pending_menu_action.return_pending.load(std::memory_order_acquire))
 			return {.status = Status::Busy, .error = "an input callback is already queued"};
-		if (!IsTargetRecognized() || !GuestObjects::IsPlausibleAddress(request.function) ||
-			!IsMenuCallbackValid(request.menu, request.callback))
+		if (!IsTargetRecognized() ||
+			!IsMenuCallbackValid(request.target, request.callback, request.function))
 		{
 			return {
 				.status = Status::InvalidMenuCallback,
-				.error = "menu callback no longer resolves to its active AVP:E menu",
+				.error = "menu callback no longer resolves to its exact AVP:E target",
 			};
 		}
 
 		const u64 id = s_pending_menu_action.next_id.fetch_add(1, std::memory_order_relaxed);
-		s_pending_menu_action.menu.store(request.menu, std::memory_order_relaxed);
+		s_pending_menu_action.target.store(request.target, std::memory_order_relaxed);
 		s_pending_menu_action.callback.store(request.callback, std::memory_order_relaxed);
 		s_pending_menu_action.function.store(request.function, std::memory_order_relaxed);
 		s_pending_menu_action.queued_id.store(id, std::memory_order_relaxed);
@@ -426,6 +372,9 @@ namespace AVPE::NativeInputDispatch
 
 		record->input_data.store(input_data, std::memory_order_relaxed);
 		record->input_definition.store(cpuRegs.GPR.n.a2.UL[0], std::memory_order_relaxed);
+		u32 owner_vtable = 0;
+		GuestObjects::ReadWord(cpuRegs.GPR.n.a0.UL[0], &owner_vtable);
+		record->owner_vtable.store(owner_vtable, std::memory_order_relaxed);
 		for (u32 index = 0; index < input_words.size(); ++index)
 			record->input[index].store(input_words[index], std::memory_order_relaxed);
 		record->dispatches.fetch_add(1, std::memory_order_release);
@@ -495,12 +444,9 @@ namespace AVPE::NativeInputDispatch
 		s_pending_menu_action.completed_id.store(0, std::memory_order_release);
 		s_pending_menu_action.rejected_id.store(0, std::memory_order_release);
 		s_pending_menu_action.return_pending.store(false, std::memory_order_release);
-		s_pending_menu_action.restore_pending.store(false, std::memory_order_release);
-		s_pending_menu_action.menu.store(0, std::memory_order_release);
+		s_pending_menu_action.target.store(0, std::memory_order_release);
 		s_pending_menu_action.callback.store(0, std::memory_order_release);
 		s_pending_menu_action.function.store(0, std::memory_order_release);
-		s_pending_menu_action.staging_address = 0;
-		s_pending_menu_action.staging_original.fill(0);
 		for (CallbackRecord& record : s_snapshot.records)
 		{
 			record.dispatches.store(0, std::memory_order_release);

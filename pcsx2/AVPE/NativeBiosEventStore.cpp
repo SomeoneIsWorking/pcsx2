@@ -24,11 +24,18 @@ namespace AVPE::NativeBiosEventStore
 			std::string domain;
 			u16 ordinal = 0;
 			std::array<u32, 4> arguments{};
-			s32 result = 0;
+			s32 first_result = 0;
+			s32 last_result = 0;
+			s32 minimum_result = 0;
+			s32 maximum_result = 0;
 			u32 code = 0;
 			u32 pc = 0;
 			u32 counter = 0;
-			u64 result_u64 = 0;
+			u64 first_result_u64 = 0;
+			u64 last_result_u64 = 0;
+			u64 minimum_result_u64 = 0;
+			u64 maximum_result_u64 = 0;
+			u64 result_changes = 0;
 			u64 count = 0;
 			u64 target = 0;
 			u64 cycle = 0;
@@ -99,6 +106,11 @@ namespace AVPE::NativeBiosEventStore
 			return disposition == EeSyscallDisposition::ReturningU64Result;
 		}
 
+		std::string_view ResolvedServiceName(const std::string_view name)
+		{
+			return name.empty() ? std::string_view{"unknown"} : name;
+		}
+
 		std::string JsonEscape(const std::string_view value)
 		{
 			std::string result;
@@ -154,6 +166,62 @@ namespace AVPE::NativeBiosEventStore
 			json += ']';
 		}
 
+		void InitializeResult(Event& event, const s32 result, const u64 result_u64,
+			const bool result_u64_valid)
+		{
+			event.first_result = result;
+			event.last_result = result;
+			event.minimum_result = result;
+			event.maximum_result = result;
+			event.first_result_u64 = result_u64;
+			event.last_result_u64 = result_u64;
+			event.minimum_result_u64 = result_u64;
+			event.maximum_result_u64 = result_u64;
+			event.result_u64_valid = result_u64_valid;
+		}
+
+		void UpdateResult(Event& event, const s32 result, const u64 result_u64)
+		{
+			if (event.result_u64_valid)
+			{
+				if (event.last_result_u64 != result_u64)
+					++event.result_changes;
+				event.last_result_u64 = result_u64;
+				event.minimum_result_u64 = std::min(event.minimum_result_u64, result_u64);
+				event.maximum_result_u64 = std::max(event.maximum_result_u64, result_u64);
+			}
+			else
+			{
+				if (event.last_result != result)
+					++event.result_changes;
+				event.last_result = result;
+				event.minimum_result = std::min(event.minimum_result, result);
+				event.maximum_result = std::max(event.maximum_result, result);
+			}
+		}
+
+		void AppendResultSummary(std::string& json, const Event& event)
+		{
+			json += ",\"result_summary\":{\"encoding\":\"";
+			json += event.result_u64_valid ? "u64" : "s32";
+			json += "\",\"first\":";
+			if (event.result_u64_valid)
+			{
+				json += std::to_string(event.first_result_u64);
+				json += ",\"last\":" + std::to_string(event.last_result_u64);
+				json += ",\"min\":" + std::to_string(event.minimum_result_u64);
+				json += ",\"max\":" + std::to_string(event.maximum_result_u64);
+			}
+			else
+			{
+				json += std::to_string(event.first_result);
+				json += ",\"last\":" + std::to_string(event.last_result);
+				json += ",\"min\":" + std::to_string(event.minimum_result);
+				json += ",\"max\":" + std::to_string(event.maximum_result);
+			}
+			json += ",\"changes\":" + std::to_string(event.result_changes) + '}';
+		}
+
 		void AppendEvent(std::string& json, const Event& event)
 		{
 			json += "{\"sequence\":" + std::to_string(event.sequence);
@@ -167,12 +235,7 @@ namespace AVPE::NativeBiosEventStore
 				AppendString(json, "outcome", event.outcome);
 				json += ",\"result_valid\":" + std::string(event.result_valid ? "true" : "false");
 				if (event.result_valid)
-				{
-					if (event.result_u64_valid)
-						json += ",\"result_u64\":" + std::to_string(event.result_u64);
-					else
-						json += ",\"result\":" + std::to_string(event.result);
-				}
+					AppendResultSummary(json, event);
 				else
 				{
 					json += ",\"first_stack_pointer\":" + std::to_string(event.stack_pointer);
@@ -190,12 +253,7 @@ namespace AVPE::NativeBiosEventStore
 				AppendString(json, "outcome", event.outcome);
 				json += ",\"result_valid\":" + std::string(event.result_valid ? "true" : "false");
 				if (event.result_valid)
-				{
-					if (event.result_u64_valid)
-						json += ",\"result_u64\":" + std::to_string(event.result_u64);
-					else
-						json += ",\"result\":" + std::to_string(event.result);
-				}
+					AppendResultSummary(json, event);
 				json += ",\"result_expected\":" +
 				        std::string(event.result_expected ? "true" : "false");
 				json += ",\"return_expected\":" +
@@ -210,12 +268,7 @@ namespace AVPE::NativeBiosEventStore
 				        std::string(event.result_expected ? "true" : "false");
 				json += ",\"result_valid\":" + std::string(event.result_valid ? "true" : "false");
 				if (event.result_valid)
-				{
-					if (event.result_u64_valid)
-						json += ",\"result_u64\":" + std::to_string(event.result_u64);
-					else
-						json += ",\"result\":" + std::to_string(event.result);
-				}
+					AppendResultSummary(json, event);
 				json += ",\"first_stack_pointer\":" + std::to_string(event.stack_pointer);
 				json += ",\"first_resume_pc\":" + std::to_string(event.pc);
 				json += ",\"calls\":" + std::to_string(event.calls);
@@ -226,7 +279,7 @@ namespace AVPE::NativeBiosEventStore
 				json += ",\"ordinal\":" + std::to_string(event.ordinal);
 				AppendString(json, "function", event.function);
 				json += ",\"result_valid\":true";
-				json += ",\"result\":" + std::to_string(event.result);
+				AppendResultSummary(json, event);
 				json += ",\"hle_available\":" + std::string(event.hle ? "true" : "false");
 				json += ",\"debug_available\":" + std::string(event.debug ? "true" : "false");
 				json += ",\"first_stack_pointer\":" + std::to_string(event.stack_pointer);
@@ -345,13 +398,16 @@ namespace AVPE::NativeBiosEventStore
 		const s32 result, const bool hle, const bool debug, const bool handled,
 		const u32 stack_pointer, const u32 resume_pc)
 	{
+		const std::string_view service_name = ResolvedServiceName(function);
 		for (Event& event : m_impl->events)
 		{
 			if (event.kind == "import" && event.library == library && event.ordinal == ordinal &&
-				event.function == function && event.hle == hle && event.debug == debug &&
-				event.result_valid == handled && (!handled || event.result == result) &&
+				event.function == service_name && event.hle == hle && event.debug == debug &&
+				event.result_valid == handled &&
 				(handled || (event.stack_pointer == stack_pointer && event.pc == resume_pc)))
 			{
+				if (handled)
+					UpdateResult(event, result, 0);
 				++event.calls;
 				return;
 			}
@@ -362,10 +418,11 @@ namespace AVPE::NativeBiosEventStore
 		event->kind = "import";
 		event->library = library;
 		event->ordinal = ordinal;
-		event->function = function;
+		event->function = service_name;
 		event->arguments = {a0, a1, a2, a3};
-		event->result = result;
 		event->result_valid = handled;
+		if (handled)
+			InitializeResult(*event, result, 0, false);
 		event->outcome = handled ? "hle" : "oracle";
 		event->hle = hle;
 		event->debug = debug;
@@ -386,6 +443,7 @@ namespace AVPE::NativeBiosEventStore
 		const u32 a3, const bool hle, const bool debug, const u32 stack_pointer,
 		const u32 resume_pc, const bool return_site_available)
 	{
+		const std::string_view service_name = ResolvedServiceName(function);
 		RecordImport(library, ordinal, function, a0, a1, a2, a3, 0, hle, debug, false,
 			stack_pointer, resume_pc);
 		++m_impl->iop_import_pairing_entries;
@@ -405,7 +463,7 @@ namespace AVPE::NativeBiosEventStore
 		}
 		*pending = PendingIopImport{
 			.library = std::string(library),
-			.function = std::string(function),
+			.function = std::string(service_name),
 			.stack_pointer = stack_pointer,
 			.resume_pc = resume_pc,
 			.order = ++m_impl->next_iop_import_order,
@@ -436,9 +494,10 @@ namespace AVPE::NativeBiosEventStore
 		{
 			if (event.kind == "iop_import_return" && event.library == pending->library &&
 				event.ordinal == pending->ordinal && event.function == pending->function &&
-				event.hle == pending->hle && event.debug == pending->debug && event.result == result &&
+				event.hle == pending->hle && event.debug == pending->debug &&
 				event.stack_pointer == stack_pointer && event.pc == resume_pc)
 			{
+				UpdateResult(event, result, 0);
 				++event.calls;
 				++m_impl->iop_import_pairing_returns;
 				*pending = {};
@@ -451,8 +510,8 @@ namespace AVPE::NativeBiosEventStore
 			event->library = pending->library;
 			event->ordinal = pending->ordinal;
 			event->function = pending->function;
-			event->result = result;
 			event->result_valid = true;
+			InitializeResult(*event, result, 0, false);
 			event->hle = pending->hle;
 			event->debug = pending->debug;
 			event->stack_pointer = stack_pointer;
@@ -479,10 +538,10 @@ namespace AVPE::NativeBiosEventStore
 				event.outcome == outcome_name && event.result_valid == result_valid &&
 				event.result_u64_valid == result_u64_valid &&
 				event.result_expected == result_expected &&
-				event.return_expected == return_expected &&
-				(!result_valid ||
-					(result_u64_valid ? event.result_u64 == result_u64 : event.result == result)))
+				event.return_expected == return_expected)
 			{
+				if (result_valid)
+					UpdateResult(event, result, result_u64);
 				++event.calls;
 				return;
 			}
@@ -494,10 +553,9 @@ namespace AVPE::NativeBiosEventStore
 		event->number = number;
 		event->name = name;
 		event->arguments = {a0, a1, a2, a3};
-		event->result = result;
-		event->result_u64 = result_u64;
 		event->result_valid = result_valid;
-		event->result_u64_valid = result_u64_valid;
+		if (result_valid)
+			InitializeResult(*event, result, result_u64, result_u64_valid);
 		event->result_expected = result_expected;
 		event->outcome = outcome_name;
 		event->return_expected = return_expected;
@@ -560,10 +618,10 @@ namespace AVPE::NativeBiosEventStore
 			if (event.kind == "ee_syscall_return" && event.number == pending->number &&
 				event.name == pending->name && event.result_expected == pending->result_expected &&
 				event.result_valid == pending->result_observed &&
-				event.result_u64_valid == pending->result_u64 &&
-				(!event.result_valid ||
-					(pending->result_u64 ? event.result_u64 == result_u64 : event.result == result)))
+				event.result_u64_valid == pending->result_u64)
 			{
+				if (event.result_valid)
+					UpdateResult(event, result, result_u64);
 				++event.calls;
 				++m_impl->ee_syscall_pairing_returns;
 				*pending = {};
@@ -575,11 +633,10 @@ namespace AVPE::NativeBiosEventStore
 			event->kind = "ee_syscall_return";
 			event->number = pending->number;
 			event->name = pending->name;
-			event->result = result;
-			event->result_u64 = result_u64;
 			event->result_expected = pending->result_expected;
 			event->result_valid = pending->result_observed;
-			event->result_u64_valid = pending->result_u64;
+			if (event->result_valid)
+				InitializeResult(*event, result, result_u64, pending->result_u64);
 			event->stack_pointer = stack_pointer;
 			event->pc = resume_pc;
 			event->calls = 1;

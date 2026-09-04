@@ -14,6 +14,7 @@
 #include "AVPE/NativeGuestReset.h"
 #include "AVPE/NativeLoadTiming.h"
 #include "AVPE/NativeMissionLoadTiming.h"
+#include "AVPE/NativeMemoryCardState.h"
 #include "AVPE/NativeMenuInput.h"
 #include "AVPE/NativeMenuRoute.h"
 #include "Config.h"
@@ -757,6 +758,18 @@ namespace AVPE
 		return lucent::http::Response::json(200, "OK", buf);
 	}
 
+	static lucent::http::Response handle_memory_card_state()
+	{
+		const NativeMemoryCardState::Snapshot snapshot = NativeMemoryCardState::Capture();
+		char body[160];
+		std::snprintf(body, sizeof(body),
+			R"({"schema":"avpe-memory-card-state-v1","slot":0,"present":%s,"auto_eject_ticks":%u,"busy":%s,"ready":%s})",
+			snapshot.present ? "true" : "false", snapshot.auto_eject_ticks,
+			snapshot.busy ? "true" : "false",
+			snapshot.Ready() ? "true" : "false");
+		return lucent::http::Response::json(200, "OK", body);
+	}
+
 	static lucent::http::Response handle_asset_opens()
 	{
 		const NativeAssets::ObservationSnapshot snapshot = NativeAssets::GetObservationSnapshot();
@@ -960,6 +973,8 @@ namespace AVPE
 			return handle_mem_scan(req);
 		if (req.method == "GET" && path == "/debug")
 			return handle_debug();
+		if (req.method == "GET" && path == "/memory-card/state")
+			return handle_memory_card_state();
 		if (req.method == "GET" && path == "/assets/opens")
 			return handle_asset_opens();
 		if (req.method == "GET" && path == "/assets/cache")
@@ -1040,7 +1055,7 @@ namespace AVPE
 		// Negative must be loud: name what was requested and what exists.
 		lucent::warn("avpe", "no route: {} {}", req.method, path);
 		return lucent::http::Response::json(404, "Not Found",
-			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\","
+			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\",\"GET /memory-card/state\","
 			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\",\"GET /bios/trace\",\"POST /bios/trace/start\",\"POST /bios/trace/start-mission\",\"POST /bios/trace/start-game-save\",\"POST /bios/trace/capture\",\"POST /bios/trace/capture-mission\",\"POST /bios/trace/capture-game-save\",\"POST /bios/trace/capture-at-guest-boundary\","
 			"\"GET /ee/deferred\","
 			"\"GET /input/menu\",\"GET /input/menu-pointer\","
