@@ -30,6 +30,7 @@ namespace AVPE::NativeMenuInput
 	static constexpr u32 MENU_ITEM_FOCUS = 0x00120B70;
 	static constexpr u32 MENU_ITEM_FOCUS_VTABLE_OFFSET = 0xB8;
 	static constexpr u32 MENU_ITEM_ACTION_OFFSET = 0x110;
+	static constexpr u32 MENU_ITEM_TEXT_OFFSET = 0x148;
 	static constexpr u32 ACTIVATE_FOCUSED_ACTION = 0x21383159;
 	static constexpr u32 OBJECT_HANDLE_OFFSET = 0x18;
 	static constexpr u32 FIRST_CHILD_OFFSET = 0x08;
@@ -344,7 +345,8 @@ namespace AVPE::NativeMenuInput
 		return GuestObjects::ReadWord(menu + FOCUSED_ITEM_HANDLE_OFFSET, &focus->handle) &&
 		       GuestObjects::ResolveHandle(focus->handle, &focus->object) &&
 		       GuestObjects::ReadWord(focus->object, &focus->vtable) &&
-		       GuestObjects::IsPlausibleAddress(focus->vtable);
+		       GuestObjects::IsPlausibleAddress(focus->vtable) &&
+		       GuestObjects::ReadWord(focus->object + MENU_ITEM_TEXT_OFFSET, &focus->text_address);
 	}
 
 	static bool ReadObjectVtable(const u32 object, u32* vtable)
