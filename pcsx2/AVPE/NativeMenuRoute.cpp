@@ -93,10 +93,10 @@ namespace AVPE::NativeMenuRoute
 
 		char response[1024];
 		std::snprintf(response, sizeof(response),
-			R"({"action":"%s","source":"%s","menu":"0x%08X","menu_vtable":"0x%08X","handler":"0x%08X","action_target":"0x%08X","focused_item_action":"0x%08X","focused_item_action_valid":%s,"callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X"},"execution":"%s","stopped_pc":"0x%08X","last_avpe_text_pc":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu,"deferred":%s,"dispatch_action_id":%llu,"deferred_call_id":%llu,"readiness_action_id":%llu,"awaiting_readiness":%s})",
+			R"({"action":"%s","source":"%s","menu":"0x%08X","menu_vtable":"0x%08X","handler":"0x%08X","action_target":"0x%08X","focused_item_action":"0x%08X","focused_item_action_valid":%s,"callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X","focus_text_address":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X","focus_text_address":"0x%08X"},"execution":"%s","stopped_pc":"0x%08X","last_avpe_text_pc":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu,"deferred":%s,"dispatch_action_id":%llu,"deferred_call_id":%llu,"readiness_action_id":%llu,"awaiting_readiness":%s})",
 			action_name->c_str(), NativeMenuInput::SourceName(result.source), result.menu, result.menu_vtable, result.handler,
-			result.action_target, result.focused_item_action, result.focused_item_action_valid ? "true" : "false", result.callback_count, result.before.handle, result.before.object, result.before.vtable, result.after.handle,
-			result.after.object, result.after.vtable, result.deferred ? "deferred" : "synchronous", result.stopped_pc, result.last_avpe_text_pc,
+			result.action_target, result.focused_item_action, result.focused_item_action_valid ? "true" : "false", result.callback_count, result.before.handle, result.before.object, result.before.vtable, result.before.text_address, result.after.handle,
+			result.after.object, result.after.vtable, result.after.text_address, result.deferred ? "deferred" : "synchronous", result.stopped_pc, result.last_avpe_text_pc,
 			result.stack_restored ? "true" : "false", static_cast<unsigned long long>(result.elapsed_cycles),
 			result.deferred ? "true" : "false", static_cast<unsigned long long>(result.dispatch_action_id),
 			static_cast<unsigned long long>(result.deferred_call_id),
@@ -115,9 +115,9 @@ namespace AVPE::NativeMenuRoute
 		const NativeMenuInput::Result result = NativeMenuInput::Inspect();
 		char response[448];
 		std::snprintf(response, sizeof(response),
-			R"({"source":"%s","menu":"0x%08X","menu_vtable":"0x%08X","conflicting_menu":"0x%08X","conflicting_menu_vtable":"0x%08X","action_target":"0x%08X","focused_item_action":"0x%08X","focused_item_action_valid":%s,"callback_count":%u,"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X"})",
+			R"({"source":"%s","menu":"0x%08X","menu_vtable":"0x%08X","conflicting_menu":"0x%08X","conflicting_menu_vtable":"0x%08X","action_target":"0x%08X","focused_item_action":"0x%08X","focused_item_action_valid":%s,"callback_count":%u,"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X","focus_text_address":"0x%08X"})",
 			NativeMenuInput::SourceName(result.source), result.menu, result.menu_vtable, result.conflicting_menu, result.conflicting_menu_vtable, result.action_target, result.focused_item_action,
-			result.focused_item_action_valid ? "true" : "false", result.callback_count, result.before.handle, result.before.object, result.before.vtable);
+			result.focused_item_action_valid ? "true" : "false", result.callback_count, result.before.handle, result.before.object, result.before.vtable, result.before.text_address);
 		if (result.status == NativeMenuInput::Status::AmbiguousMenu)
 			return lucent::http::Response::json(FailureStatus(result), "Native Menu State Ambiguous", response);
 		if (!result.Succeeded())

@@ -44,6 +44,7 @@ namespace AVPE::NativeMenuInput
 		u32 handle = 0;
 		u32 object = 0;
 		u32 vtable = 0;
+		u32 text_address = 0;
 	};
 
 	struct Result
