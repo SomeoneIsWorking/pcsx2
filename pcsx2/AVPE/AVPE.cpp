@@ -45,6 +45,8 @@
 
 namespace AVPE
 {
+	static constexpr u32 BUTTON_INJECTION_MAX_DURATION_MS = 60'000;
+
 	static std::optional<lucent::http::Server> s_server;
 	static std::once_flag s_start_once;
 	static std::atomic_bool s_control_test_mode{false};
@@ -410,11 +412,13 @@ namespace AVPE
 	static lucent::http::Response handle_input_press(const std::string& body)
 	{
 		const auto mask = json_u32_field(body, "mask");
-		if (!mask || *mask == 0)
-			return lucent::http::Response::text(400, "Bad Request", "need mask\n");
+		if (!mask || *mask == 0 || *mask > 0xffff)
+			return lucent::http::Response::text(400, "Bad Request", "need u16 input mask\n");
 		u32 ms = 250;
 		if (const auto mss = json_u32_field(body, "ms"))
 			ms = *mss;
+		if (ms == 0 || ms > BUTTON_INJECTION_MAX_DURATION_MS)
+			return lucent::http::Response::text(400, "Bad Request", "need input duration from 1 to 60000 ms\n");
 		PressButtons(*mask, ms);
 		return lucent::http::Response::json(200, "OK", "{\"pressed\":true}");
 	}
@@ -752,9 +756,10 @@ namespace AVPE
 	{
 		char buf[512];
 		const std::string fifo = LastFifo();
+		const ButtonInjectionState injection = ActiveButtonInjection();
 		std::snprintf(buf, sizeof(buf),
-			R"({"transfers":%u,"lastfifo":"%s","inject":"%04x","ee_pc":"0x%08X"})",
-			TransferCount(), fifo.c_str(), ActiveButtonMask(), cpuRegs.pc);
+			R"({"transfers":%u,"lastfifo":"%s","inject_inputs":"%04x","inject_wire":"%04x","ee_pc":"0x%08X"})",
+			TransferCount(), fifo.c_str(), injection.inputs_mask, injection.wire_mask, cpuRegs.pc);
 		return lucent::http::Response::json(200, "OK", buf);
 	}
 
@@ -1059,7 +1064,7 @@ namespace AVPE
 		lucent::warn("avpe", "no route: {} {}", req.method, path);
 		return lucent::http::Response::json(404, "Not Found",
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\",\"GET /memory-card/state\","
-			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\",\"GET /bios/trace\",\"POST /bios/trace/start\",\"POST /bios/trace/start-mission\",\"POST /bios/trace/start-game-save\",\"POST /bios/trace/capture\",\"POST /bios/trace/capture-mission\",\"POST /bios/trace/capture-game-save\",\"POST /bios/trace/capture-at-guest-boundary\","
+			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\",\"GET /bios/trace\",\"POST /bios/trace/start\",\"POST /bios/trace/start-mission\",\"POST /bios/trace/start-game-load\",\"POST /bios/trace/start-game-save\",\"POST /bios/trace/start-shell-shutdown\",\"POST /bios/trace/capture\",\"POST /bios/trace/capture-mission\",\"POST /bios/trace/capture-game-load\",\"POST /bios/trace/capture-game-save\",\"POST /bios/trace/capture-shell-shutdown\",\"POST /bios/trace/capture-at-guest-boundary\","
 			"\"GET /ee/deferred\","
 			"\"GET /input/menu\",\"GET /input/menu-pointer\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /assets/resolve\","
@@ -1098,7 +1103,8 @@ namespace AVPE
 
 	// ------------------------------------------------------- button injection
 
-	// (deadline_ms << 32) | mask; port 0 only — AVP:E is a single-controller game.
+	// (deadline_ms << 32) | (inputs_mask << 16) | wire_mask. Port 0 only —
+	// AVP:E is a single-controller game.
 	static std::atomic<u64> s_button_inject{0};
 
 	static u64 now_ms()
@@ -1135,18 +1141,25 @@ namespace AVPE
 			if (inputs_mask & (1u << i))
 				wire |= (1u << inputsToWire[i]);
 		}
-		const u64 deadline = now_ms() + ms;
-		s_button_inject.store((deadline << 32) | wire, std::memory_order_release);
+		const u32 deadline = static_cast<u32>(now_ms()) + ms;
+		s_button_inject.store(
+			(static_cast<u64>(deadline) << 32) | (static_cast<u64>(inputs_mask & 0xffff) << 16) | wire,
+			std::memory_order_release);
 		lucent::info("avpe", "press inputs={:04x} wire={:04x} for {}ms", inputs_mask, wire, ms);
 	}
 
-	u32 ActiveButtonMask()
+	ButtonInjectionState ActiveButtonInjection()
 	{
 		const u64 v = s_button_inject.load(std::memory_order_acquire);
-		const u64 deadline = v >> 32;
-		if (now_ms() >= deadline)
-			return 0;
-		return static_cast<u32>(v & 0xffffffffu);
+		const u32 masks = static_cast<u32>(v);
+		const u32 deadline = static_cast<u32>(v >> 32);
+		const u32 remaining_ms = deadline - static_cast<u32>(now_ms());
+		if (masks == 0 || remaining_ms == 0 || remaining_ms > 0x7fffffff)
+			return {};
+		return {
+			.inputs_mask = static_cast<u32>((v >> 16) & 0xffff),
+			.wire_mask = static_cast<u32>(v & 0xffff),
+		};
 	}
 
 	static std::atomic<u32> s_transfers{0};

@@ -7,6 +7,12 @@
 
 namespace AVPE
 {
+	struct ButtonInjectionState
+	{
+		u32 inputs_mask;
+		u32 wire_mask;
+	};
+
 	// Selected only by the recognized -avpe-control-test application mode.
 	void SetSurfacelessControlTest(bool enabled);
 	bool IsSurfacelessControlTest();
@@ -18,9 +24,10 @@ namespace AVPE
 	void Shutdown();
 
 	// Button injection in PadDualshock2::Inputs bit space (bit i = enum value i),
-	// consumed by PadDualshock2::GetButtons. Port 0 only. Mask expires after ms.
+	// consumed by PadDualshock2::GetButtons. Port 0 only. Mask expires after ms;
+	// the control route admits durations from 1 through 60,000 milliseconds.
 	void PressButtons(u32 mask, u32 ms);
-	u32 ActiveButtonMask();
+	ButtonInjectionState ActiveButtonInjection();
 
 	// Diagnostics fed by the SIO layer: cumulative pad-transfer count and the
 	// response bytes of the most recent transfer ("" if none yet).

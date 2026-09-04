@@ -209,11 +209,11 @@ u8 PadDualshock2::Poll(u8 commandByte)
 	static u32 pollCount = 0;
 	if ((++pollCount % 60) == 0)
 		lucent::info("avpe", "ds2 slot{} poll#{} buttons={:04x} injected={:04x}", unifiedSlot,
-			pollCount, buttons, AVPE::ActiveButtonMask());
+			pollCount, buttons, AVPE::ActiveButtonInjection().wire_mask);
 
 	const u32 buttons = GetButtons();
 	// AVPE diagnostic: the exact bytes handed to the wire while injecting.
-	if (AVPE::ActiveButtonMask() != 0 && commandBytesReceived >= 3 && commandBytesReceived <= 4)
+	if (AVPE::ActiveButtonInjection().wire_mask != 0 && commandBytesReceived >= 3 && commandBytesReceived <= 4)
 	{
 		static u32 diagCount = 0;
 		if ((++diagCount % 30) == 1)
@@ -849,7 +849,7 @@ u32 PadDualshock2::GetButtons() const
 {
 	// AVPE (fork-local): injected presses CLEAR their wire bits (DS2 reports
 	// are active-low: ff = released). Port 0 only.
-	const u32 avpe = AVPE::ActiveButtonMask();
+	const u32 avpe = AVPE::ActiveButtonInjection().wire_mask;
 	static u32 avpeLast = 0;
 	if (avpe != avpeLast)
 	{
