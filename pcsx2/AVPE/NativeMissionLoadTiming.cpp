@@ -9,6 +9,7 @@
 #include "VMManager.h"
 
 #include <array>
+#include <atomic>
 #include <cstdlib>
 #include <mutex>
 #include <optional>
@@ -18,7 +19,7 @@ namespace AVPE::NativeMissionLoadTiming
 {
 	namespace
 	{
-		constexpr std::string_view kSchema = "avpe-mission-load-timing-v1";
+		constexpr std::string_view kSchema = "avpe-mission-load-timing-v2";
 		constexpr std::string_view kTargetSerial = "SLUS-20147";
 		constexpr u32 kTargetCrc = 0x64DA78A3;
 		constexpr std::string_view kModeEnvironment = "AVPE_LOAD_TIMING";
@@ -37,6 +38,20 @@ namespace AVPE::NativeMissionLoadTiming
 		std::optional<LoadTimingPoint::Point> s_end;
 		u64 s_ordinal = 0;
 		u64 s_sequence_errors = 0;
+		std::atomic_bool s_interval_active = false;
+
+		struct OpticalActivity
+		{
+			u64 action_wait_count = 0;
+			u64 action_wait_cycles = 0;
+			u64 read_wait_count = 0;
+			u64 read_wait_cycles = 0;
+			u64 sector_ready_wait_count = 0;
+			u64 sector_ready_wait_cycles = 0;
+			u64 sector_deliveries = 0;
+		};
+
+		OpticalActivity s_optical_activity;
 
 		std::optional<std::string_view> Mode()
 		{
@@ -95,6 +110,17 @@ namespace AVPE::NativeMissionLoadTiming
 			body += ",\"frame\":" + std::to_string(point.frame);
 			body += ",\"host_time_ns\":" + std::to_string(point.host_time_ns) + '}';
 		}
+
+		void AppendWait(std::string& body, const u64 count, const u64 cycles)
+		{
+			body += "{\"count\":" + std::to_string(count);
+			body += ",\"cycles\":" + std::to_string(cycles) + '}';
+		}
+
+		void ClearOpticalActivity()
+		{
+			s_optical_activity = {};
+		}
 	} // namespace
 
 	bool ShouldInstrumentEePc(const u32 pc)
@@ -120,7 +146,9 @@ namespace AVPE::NativeMissionLoadTiming
 				++s_sequence_errors;
 				return;
 			}
+			ClearOpticalActivity();
 			s_start = LoadTimingPoint::CaptureNext(s_ordinal);
+			s_interval_active.store(true, std::memory_order_release);
 			return;
 		}
 
@@ -131,7 +159,43 @@ namespace AVPE::NativeMissionLoadTiming
 			++s_sequence_errors;
 			return;
 		}
+		s_interval_active.store(false, std::memory_order_release);
 		s_end = LoadTimingPoint::CaptureNext(s_ordinal);
+	}
+
+	void NoteOpticalWait(const OpticalWaitKind kind, const u32 cycles)
+	{
+		if (cycles == 0 || !s_interval_active.load(std::memory_order_acquire))
+			return;
+
+		std::lock_guard lock(s_mutex);
+		if (!s_interval_active.load(std::memory_order_relaxed))
+			return;
+		switch (kind)
+		{
+			case OpticalWaitKind::Action:
+				++s_optical_activity.action_wait_count;
+				s_optical_activity.action_wait_cycles += cycles;
+				break;
+			case OpticalWaitKind::Read:
+				++s_optical_activity.read_wait_count;
+				s_optical_activity.read_wait_cycles += cycles;
+				break;
+			case OpticalWaitKind::SectorReady:
+				++s_optical_activity.sector_ready_wait_count;
+				s_optical_activity.sector_ready_wait_cycles += cycles;
+				break;
+		}
+	}
+
+	void NoteOpticalSectorDelivery()
+	{
+		if (!s_interval_active.load(std::memory_order_acquire))
+			return;
+
+		std::lock_guard lock(s_mutex);
+		if (s_interval_active.load(std::memory_order_relaxed))
+			++s_optical_activity.sector_deliveries;
 	}
 
 	std::string SnapshotJson()
@@ -152,6 +216,13 @@ namespace AVPE::NativeMissionLoadTiming
 		body += ",\"complete\":";
 		body += complete ? "true" : "false";
 		body += ",\"sequence_errors\":" + std::to_string(s_sequence_errors);
+		body += ",\"optical_activity\":{\"action_waits\":";
+		AppendWait(body, s_optical_activity.action_wait_count, s_optical_activity.action_wait_cycles);
+		body += ",\"read_waits\":";
+		AppendWait(body, s_optical_activity.read_wait_count, s_optical_activity.read_wait_cycles);
+		body += ",\"sector_ready_waits\":";
+		AppendWait(body, s_optical_activity.sector_ready_wait_count, s_optical_activity.sector_ready_wait_cycles);
+		body += ",\"sector_deliveries\":" + std::to_string(s_optical_activity.sector_deliveries) + '}';
 		body += ",\"start\":";
 		if (s_start)
 			AppendPoint(body, "shell-load-level-entry", kShellLoadLevelPc, *s_start);
@@ -182,9 +253,11 @@ namespace AVPE::NativeMissionLoadTiming
 	void Reset()
 	{
 		std::lock_guard lock(s_mutex);
+		s_interval_active.store(false, std::memory_order_release);
 		s_start.reset();
 		s_end.reset();
 		s_ordinal = 0;
 		s_sequence_errors = 0;
+		ClearOpticalActivity();
 	}
 } // namespace AVPE::NativeMissionLoadTiming

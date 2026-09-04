@@ -19,6 +19,8 @@
 #include "IopDma.h"
 #include "VMManager.h"
 
+#include "AVPE/NativeMissionLoadTiming.h"
+
 #include "common/BitUtils.h"
 #include "common/Error.h"
 #include "common/FileSystem.h"
@@ -74,6 +76,8 @@ static void CDVDSECTORREADY_INT(u32 eCycle)
 			eCycle *= 0.5f;
 	}
 
+	AVPE::NativeMissionLoadTiming::NoteOpticalWait(
+		AVPE::NativeMissionLoadTiming::OpticalWaitKind::SectorReady, eCycle);
 	PSX_INT(IopEvt_CdvdSectorReady, eCycle);
 }
 
@@ -87,6 +91,8 @@ static void CDVDREAD_INT(u32 eCycle)
 			eCycle *= 0.5f;
 	}
 
+	AVPE::NativeMissionLoadTiming::NoteOpticalWait(
+		AVPE::NativeMissionLoadTiming::OpticalWaitKind::Read, eCycle);
 	PSX_INT(IopEvt_CdvdRead, eCycle);
 }
 
@@ -95,7 +101,11 @@ static void CDVD_INT(int eCycle)
 	if (eCycle == 0)
 		cdvdActionInterrupt();
 	else
+	{
+		AVPE::NativeMissionLoadTiming::NoteOpticalWait(
+			AVPE::NativeMissionLoadTiming::OpticalWaitKind::Action, static_cast<u32>(eCycle));
 		PSX_INT(IopEvt_Cdvd, eCycle);
+	}
 }
 
 // Sets the cdvd IRQ and the reason for the IRQ, and signals the IOP for a branch
@@ -1208,6 +1218,7 @@ int cdvdReadSector()
 		}
 	}
 
+	AVPE::NativeMissionLoadTiming::NoteOpticalSectorDelivery();
 	return 0;
 }
 
