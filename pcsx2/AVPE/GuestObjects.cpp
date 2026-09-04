@@ -52,4 +52,25 @@ namespace AVPE::GuestObjects
 		return ReadWord(HANDLE_ARRAY + index * sizeof(u32), object) &&
 		       IsPlausibleObject(*object);
 	}
+
+	bool ResolveMemberFunction(const u32 object, const u32 member_address, u32* function)
+	{
+		std::array<u32, 3> member{};
+		if (!IsPlausibleObject(object) || !IsPlausibleAddress(member_address) ||
+			!ReadBytes(member_address, member.data(), sizeof(member)))
+		{
+			return false;
+		}
+		if (member[2] != 0)
+		{
+			*function = member[2];
+			return IsPlausibleAddress(*function);
+		}
+		if (member[0] != 0 || member[1] == 0 || (member[1] & 3) != 0)
+			return false;
+
+		u32 vtable = 0;
+		return ReadWord(object, &vtable) && IsPlausibleAddress(vtable) &&
+		       ReadWord(vtable + member[1], function) && IsPlausibleAddress(*function);
+	}
 } // namespace AVPE::GuestObjects

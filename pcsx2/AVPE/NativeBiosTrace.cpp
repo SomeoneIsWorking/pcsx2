@@ -202,7 +202,7 @@ namespace AVPE::NativeBiosTrace
 			const bool enabled = s_enabled.load(std::memory_order_relaxed);
 			if (disable_after_snapshot)
 				s_enabled.store(false, std::memory_order_release);
-			std::string json = "{\"schema\":\"avpe-bios-trace-v5\",\"enabled\":";
+			std::string json = "{\"schema\":\"avpe-bios-trace-v6\",\"enabled\":";
 			json += enabled ? "true" : "false";
 			s_event_store.AppendSnapshotFields(json);
 			json += '}';

@@ -11,4 +11,5 @@ namespace AVPE::GuestObjects
 	bool IsPlausibleAddress(u32 address);
 	bool IsPlausibleObject(u32 address);
 	bool ResolveHandle(u32 handle, u32* object);
+	bool ResolveMemberFunction(u32 object, u32 member_address, u32* function);
 } // namespace AVPE::GuestObjects

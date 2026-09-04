@@ -26,7 +26,7 @@ namespace AVPE::NativeInputDispatch
 
 	struct MenuActionRequest
 	{
-		u32 menu = 0;
+		u32 target = 0;
 		u32 callback = 0;
 		u32 function = 0;
 	};
@@ -44,9 +44,9 @@ namespace AVPE::NativeInputDispatch
 	// ordinary GInputDevice dispatch. This must run on the EE CPU thread.
 	Result QueuePointerMotion(const PointerMotionRequest& request);
 
-	// Queue one already-registered menu callback for the next ordinary
-	// GInputDevice dispatch. NativeMenuInput validates its action meaning;
-	// this owner only preserves the guest dispatch ABI.
+	// Queue one already-registered menu or menu-item callback for the next
+	// ordinary GInputDevice dispatch. NativeMenuInput validates its action
+	// meaning and ownership; this owner only preserves the guest dispatch ABI.
 	Result QueueMenuAction(const MenuActionRequest& request);
 
 	// The recompiler uses this to make the member-callback dispatch an exact

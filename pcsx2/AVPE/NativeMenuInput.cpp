@@ -17,11 +17,15 @@ namespace AVPE::NativeMenuInput
 	static constexpr u32 FOCUSED_ITEM_HANDLE_OFFSET = 0x26C;
 	static constexpr u32 CALLBACK_STRIDE = 0x18;
 	static constexpr u32 CALLBACK_OWNER_OFFSET = 0x08;
+	static constexpr u32 CALLBACK_MEMBER_OFFSET = 0x0C;
 	static constexpr u32 CALLBACK_FUNCTION_OFFSET = 0x14;
 	static constexpr u32 MENU_INPUT = 0x00125330;
+	static constexpr u32 MENU_ITEM_HOTKEY_ACTIVATE = 0x00120F40;
 	static constexpr u32 MENU_ITEM_FOCUS = 0x00120B70;
 	static constexpr u32 MENU_ITEM_FOCUS_VTABLE_OFFSET = 0xB8;
 	static constexpr u32 MENU_ITEM_ACTION_OFFSET = 0x110;
+	static constexpr u32 ACTIVATE_FOCUSED_ACTION = 0x21383159;
+	static constexpr u32 OBJECT_HANDLE_OFFSET = 0x18;
 	static constexpr u32 FIRST_CHILD_OFFSET = 0x08;
 	static constexpr u32 NEXT_SIBLING_OFFSET = 0x10;
 	static constexpr u32 MENU_CANCEL_VTABLE_OFFSET = 0xFC;
@@ -35,7 +39,7 @@ namespace AVPE::NativeMenuInput
 	static constexpr u32 POINTER_CHECK_VTABLE_OFFSET = 0xCC;
 	static constexpr u32 POINTER_UPDATE_VTABLE_FUNCTION = 0x001B51A0;
 	static constexpr u32 MAX_CALLBACK_COUNT = 256;
-	static constexpr u32 MAX_MISSION_GOALS_OBJECTS = 256;
+	static constexpr u32 MAX_MENU_OBJECTS = 256;
 	static constexpr std::array<u32, 6> MENU_CALLBACKS = {
 		0x00124BD0,
 		0x00124BE0,
@@ -61,6 +65,13 @@ namespace AVPE::NativeMenuInput
 		u32 callback = 0;
 		u32 pointer_check = 0;
 		std::array<u32, MENU_ACTION_CALLBACKS.size()> action_callbacks{};
+	};
+
+	struct CallbackTarget
+	{
+		u32 object = 0;
+		u32 callback = 0;
+		u32 function = 0;
 	};
 
 	static u32 CallbackFunctionForAction(const Action action)
@@ -95,16 +106,6 @@ namespace AVPE::NativeMenuInput
 				return;
 			}
 		}
-	}
-
-	static u32 AnyMenuActionCallback(const ActiveMenu& active)
-	{
-		for (const u32 callback : active.action_callbacks)
-		{
-			if (callback != 0)
-				return callback;
-		}
-		return 0;
 	}
 
 	static Status ReadCallbackRegistry(CallbackRegistry* registry, const char** error)
@@ -297,17 +298,16 @@ namespace AVPE::NativeMenuInput
 		       GuestObjects::IsPlausibleAddress(*vtable);
 	}
 
-	static Status FindMissionGoalsExitItem(const u32 menu, u32* exit_item, const char** error)
+	static Status ReadMenuDescendants(const u32 menu,
+		std::array<u32, MAX_MENU_OBJECTS>* descendants, u32* descendant_count, const char** error)
 	{
-		*exit_item = 0;
-		std::array<u32, MAX_MISSION_GOALS_OBJECTS> pending{};
-		std::array<u32, MAX_MISSION_GOALS_OBJECTS> visited{};
+		*descendant_count = 0;
+		std::array<u32, MAX_MENU_OBJECTS> pending{};
 		u32 pending_count = 0;
-		u32 visited_count = 0;
 		u32 first_child = 0;
 		if (!GuestObjects::ReadWord(menu + FIRST_CHILD_OFFSET, &first_child))
 		{
-			*error = "mission-goals child list is unreadable";
+			*error = "menu child list is unreadable";
 			return Status::GuestMemoryError;
 		}
 		if (first_child != 0)
@@ -317,25 +317,157 @@ namespace AVPE::NativeMenuInput
 		{
 			const u32 object = pending[--pending_count];
 			bool already_visited = false;
-			for (u32 i = 0; i < visited_count; ++i)
-				already_visited = already_visited || visited[i] == object;
+			for (u32 index = 0; index < *descendant_count; ++index)
+				already_visited = already_visited || (*descendants)[index] == object;
 			if (already_visited)
 				continue;
-			if (visited_count >= visited.size() || !GuestObjects::IsPlausibleObject(object))
+			if (*descendant_count >= descendants->size() || !GuestObjects::IsPlausibleObject(object))
 			{
-				*error = "mission-goals object tree is invalid or exceeds its bound";
+				*error = "menu object tree is invalid or exceeds its bound";
 				return Status::GuestMemoryError;
 			}
-			visited[visited_count++] = object;
+			(*descendants)[(*descendant_count)++] = object;
 
-			u32 vtable = 0;
 			u32 child = 0;
 			u32 sibling = 0;
-			if (!GuestObjects::ReadWord(object, &vtable) ||
-				!GuestObjects::ReadWord(object + FIRST_CHILD_OFFSET, &child) ||
+			if (!GuestObjects::ReadWord(object + FIRST_CHILD_OFFSET, &child) ||
 				!GuestObjects::ReadWord(object + NEXT_SIBLING_OFFSET, &sibling))
 			{
-				*error = "mission-goals object tree is unreadable";
+				*error = "menu object tree is unreadable";
+				return Status::GuestMemoryError;
+			}
+			const u32 additions = (child != 0 ? 1 : 0) + (sibling != 0 ? 1 : 0);
+			if (pending_count + additions > pending.size())
+			{
+				*error = "menu object traversal exceeds its bound";
+				return Status::GuestMemoryError;
+			}
+			if (sibling != 0)
+				pending[pending_count++] = sibling;
+			if (child != 0)
+				pending[pending_count++] = child;
+		}
+		return Status::Success;
+	}
+
+	static bool ContainsValue(
+		const std::array<u32, MAX_MENU_OBJECTS>& objects, const u32 count, const u32 object)
+	{
+		for (u32 index = 0; index < count; ++index)
+		{
+			if (objects[index] == object)
+				return true;
+		}
+		return false;
+	}
+
+	static bool ReadDescendantHandles(const std::array<u32, MAX_MENU_OBJECTS>& descendants,
+		const u32 descendant_count, std::array<u32, MAX_MENU_OBJECTS>* handles)
+	{
+		for (u32 index = 0; index < descendant_count; ++index)
+		{
+			u32 resolved = 0;
+			if (!GuestObjects::ReadWord(descendants[index] + OBJECT_HANDLE_OFFSET, &(*handles)[index]) ||
+				(*handles)[index] == 0 || !GuestObjects::ResolveHandle((*handles)[index], &resolved) ||
+				resolved != descendants[index])
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	static bool ReadCallbackFunction(const u32 callback, const u32 owner, u32* function)
+	{
+		return GuestObjects::ResolveMemberFunction(owner, callback + CALLBACK_MEMBER_OFFSET, function);
+	}
+
+	static Status FindActivateFocusedCallback(const CallbackRegistry& registry, const u32 menu,
+		CallbackTarget* target, const char** error)
+	{
+		*target = {};
+		std::array<u32, MAX_MENU_OBJECTS> descendants{};
+		u32 descendant_count = 0;
+		const Status tree_status =
+			ReadMenuDescendants(menu, &descendants, &descendant_count, error);
+		if (tree_status != Status::Success)
+			return tree_status;
+		std::array<u32, MAX_MENU_OBJECTS> descendant_handles{};
+		if (!ReadDescendantHandles(descendants, descendant_count, &descendant_handles))
+		{
+			*error = "menu descendant handle is invalid or unreadable";
+			return Status::GuestMemoryError;
+		}
+
+		for (u32 index = 0; index < registry.count; ++index)
+		{
+			const u32 callback = registry.entries + index * CALLBACK_STRIDE;
+			u32 owner_handle = 0;
+			u32 owner = 0;
+			if (!GuestObjects::ReadWord(callback + CALLBACK_OWNER_OFFSET, &owner_handle))
+			{
+				*error = "menu hotkey callback owner handle is unreadable";
+				return Status::GuestMemoryError;
+			}
+			if (!ContainsValue(descendant_handles, descendant_count, owner_handle))
+				continue;
+			if (!GuestObjects::ResolveHandle(owner_handle, &owner) ||
+				!ContainsValue(descendants, descendant_count, owner))
+			{
+				*error = "menu hotkey callback owner does not resolve to its descendant";
+				return Status::GuestMemoryError;
+			}
+
+			u32 item_action = 0;
+			if (!GuestObjects::ReadWord(owner + MENU_ITEM_ACTION_OFFSET, &item_action))
+			{
+				*error = "menu hotkey item action is unreadable";
+				return Status::GuestMemoryError;
+			}
+			if (item_action != ACTIVATE_FOCUSED_ACTION)
+				continue;
+
+			u32 function = 0;
+			if (!ReadCallbackFunction(callback, owner, &function))
+			{
+				*error = "ActivateFocused callback member is invalid or unreadable";
+				return Status::GuestMemoryError;
+			}
+			if (function != MENU_ITEM_HOTKEY_ACTIVATE)
+				continue;
+			if (target->object != 0 && target->object != owner)
+			{
+				*error = "more than one ActivateFocused hotkey item is active";
+				return Status::AmbiguousMenu;
+			}
+			if (target->object == 0)
+				*target = {.object = owner, .callback = callback, .function = function};
+		}
+
+		if (target->object == 0)
+		{
+			*error = "active menu has no registered ActivateFocused hotkey";
+			return Status::FocusUnavailable;
+		}
+		return Status::Success;
+	}
+
+	static Status FindMissionGoalsExitItem(const u32 menu, u32* exit_item, const char** error)
+	{
+		*exit_item = 0;
+		std::array<u32, MAX_MENU_OBJECTS> descendants{};
+		u32 descendant_count = 0;
+		const Status tree_status =
+			ReadMenuDescendants(menu, &descendants, &descendant_count, error);
+		if (tree_status != Status::Success)
+			return tree_status;
+		for (u32 index = 0; index < descendant_count; ++index)
+		{
+			const u32 object = descendants[index];
+			u32 vtable = 0;
+			if (!GuestObjects::ReadWord(object, &vtable))
+			{
+				*error = "mission-goals object vtable is unreadable";
 				return Status::GuestMemoryError;
 			}
 			if (vtable == MISSION_GOALS_EXIT_VTABLE)
@@ -347,17 +479,6 @@ namespace AVPE::NativeMenuInput
 				}
 				*exit_item = object;
 			}
-
-			if ((child != 0 && pending_count >= pending.size()) ||
-				(sibling != 0 && pending_count + (child != 0 ? 1 : 0) >= pending.size()))
-			{
-				*error = "mission-goals object traversal exceeds its bound";
-				return Status::GuestMemoryError;
-			}
-			if (sibling != 0)
-				pending[pending_count++] = sibling;
-			if (child != 0)
-				pending[pending_count++] = child;
 		}
 
 		if (*exit_item == 0)
@@ -519,18 +640,47 @@ namespace AVPE::NativeMenuInput
 				return;
 			if (result.source == Source::CallbackRegistry && action != Action::Cancel)
 			{
-				u32 callback = active.action_callbacks[static_cast<size_t>(action)];
-				result.handler = CallbackFunctionForAction(action);
+				u32 target = result.menu;
+				u32 callback = 0;
+				if (action == Action::Activate)
+				{
+					CallbackRegistry registry;
+					const Status registry_status = ReadCallbackRegistry(&registry, &result.error);
+					if (registry_status != Status::Success)
+					{
+						result.status = registry_status;
+						return;
+					}
+					CallbackTarget hotkey;
+					const Status hotkey_status =
+						FindActivateFocusedCallback(registry, result.menu, &hotkey, &result.error);
+					if (hotkey_status == Status::Success)
+					{
+						target = hotkey.object;
+						callback = hotkey.callback;
+						result.handler = hotkey.function;
+						result.action_target = hotkey.object;
+					}
+					else if (hotkey_status != Status::FocusUnavailable)
+					{
+						result.status = hotkey_status;
+						return;
+					}
+				}
 				if (callback == 0)
-					callback = AnyMenuActionCallback(active);
+				{
+					result.error = "";
+					callback = active.action_callbacks[static_cast<size_t>(action)];
+					result.handler = CallbackFunctionForAction(action);
+				}
 				if (callback == 0 || result.handler == 0)
 				{
-					result.status = Status::GuestMemoryError;
+					result.status = Status::FocusUnavailable;
 					result.error = "active menu has no exact registered callback for this action";
 					return;
 				}
 				const NativeInputDispatch::Result queue = NativeInputDispatch::QueueMenuAction(
-					{.menu = result.menu, .callback = callback, .function = result.handler});
+					{.target = target, .callback = callback, .function = result.handler});
 				result.dispatch_action_id = queue.id;
 				result.deferred = queue.Succeeded();
 				if (!queue.Succeeded())
