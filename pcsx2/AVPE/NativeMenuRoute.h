@@ -10,4 +10,5 @@ namespace AVPE::NativeMenuRoute
 {
 	lucent::http::Response HandleAction(const std::string& body);
 	lucent::http::Response HandleState();
+	lucent::http::Response HandleReadiness();
 } // namespace AVPE::NativeMenuRoute

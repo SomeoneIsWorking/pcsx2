@@ -62,6 +62,7 @@ namespace AVPE
 		NativeLoadTiming::Reset();
 		NativeMissionLoadTiming::Reset();
 		NativeInputDispatch::Reset();
+		NativeMenuInput::Reset();
 		const char* const bios_trace = std::getenv("AVPE_BIOS_TRACE");
 		NativeBiosTrace::SetEnabled(enabled && (!bios_trace || std::string_view(bios_trace) != "0"));
 	}
@@ -332,6 +333,7 @@ namespace AVPE
 				EECallShuttle::ResetAfterStateLoad();
 				NativeInput::ResetAfterStateLoad();
 				NativeInputDispatch::Reset();
+				NativeMenuInput::Reset();
 			}
 		},
 			true);
@@ -1023,6 +1025,8 @@ namespace AVPE
 			return handle_ee_deferred();
 		if (req.method == "GET" && path == "/input/menu")
 			return NativeMenuRoute::HandleState();
+		if (req.method == "GET" && path == "/input/menu-readiness")
+			return NativeMenuRoute::HandleReadiness();
 		if (req.method == "GET" && path == "/input/menu-pointer")
 			return handle_input_menu_pointer_state();
 		if (req.method == "GET" && path == "/snap")
@@ -1066,7 +1070,7 @@ namespace AVPE
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\",\"GET /memory-card/state\","
 			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\",\"GET /bios/trace\",\"POST /bios/trace/start\",\"POST /bios/trace/start-mission\",\"POST /bios/trace/start-game-load\",\"POST /bios/trace/start-game-save\",\"POST /bios/trace/start-shell-shutdown\",\"POST /bios/trace/capture\",\"POST /bios/trace/capture-mission\",\"POST /bios/trace/capture-game-load\",\"POST /bios/trace/capture-game-save\",\"POST /bios/trace/capture-shell-shutdown\",\"POST /bios/trace/capture-at-guest-boundary\","
 			"\"GET /ee/deferred\","
-			"\"GET /input/menu\",\"GET /input/menu-pointer\","
+			"\"GET /input/menu\",\"GET /input/menu-readiness\",\"GET /input/menu-pointer\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /assets/resolve\","
 			"\"POST /assets/capture-iso-oracle\","
 			"\"POST /guest/reset\","

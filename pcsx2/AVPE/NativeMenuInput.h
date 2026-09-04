@@ -4,6 +4,8 @@
 
 #include "AVPE/EECallShuttle.h"
 
+#include <string>
+
 namespace AVPE::NativeMenuInput
 {
 	enum class Source : u8
@@ -68,6 +70,8 @@ namespace AVPE::NativeMenuInput
 		u64 deferred_call_id = 0;
 		bool stack_restored = true;
 		bool deferred = false;
+		u64 readiness_action_id = 0;
+		bool awaiting_readiness = false;
 		const char* error = "";
 
 		bool Succeeded() const { return status == Status::Success; }
@@ -110,6 +114,13 @@ namespace AVPE::NativeMenuInput
 
 	Result Inspect();
 	Result Apply(Action action);
+	// Arms one exact-vtable/focus physical-pad action for the next matching
+	// normal input dispatch. It never retries after admission or a failed validation.
+	Result ApplyWhenReady(Action action, u32 menu_vtable, u32 focused_item_action);
+	bool ShouldObserveEePc(u32 pc);
+	void ObserveInputProcess();
+	std::string PendingActionJson();
+	void Reset();
 	PointerResult InspectPointer();
 	PointerResult MovePointer(float normalized_x, float normalized_y);
 	PointerResult MovePointerThroughDispatch(float normalized_x, float normalized_y);

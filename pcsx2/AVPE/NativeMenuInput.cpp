@@ -2,10 +2,14 @@
 
 #include "AVPE/NativeMenuInput.h"
 
+#include "AVPE/AVPE.h"
 #include "AVPE/GuestObjects.h"
 #include "AVPE/NativeInputDispatch.h"
 #include "AVPE/NativePointerMotion.h"
+
 #include <array>
+#include <atomic>
+#include <string>
 
 namespace AVPE::NativeMenuInput
 {
@@ -14,12 +18,14 @@ namespace AVPE::NativeMenuInput
 	static constexpr u32 MISSION_GOALS_MENU_VTABLE = 0x00342570;
 	static constexpr u32 MISSION_GOALS_EXIT_VTABLE = 0x00342370;
 	static constexpr u32 CALLBACK_ARRAY_OFFSET = 0x48;
+	static constexpr u32 CALLBACK_CAPACITY_OFFSET = CALLBACK_ARRAY_OFFSET + 0x08;
 	static constexpr u32 FOCUSED_ITEM_HANDLE_OFFSET = 0x26C;
 	static constexpr u32 CALLBACK_STRIDE = 0x18;
 	static constexpr u32 CALLBACK_OWNER_OFFSET = 0x08;
 	static constexpr u32 CALLBACK_MEMBER_OFFSET = 0x0C;
 	static constexpr u32 CALLBACK_FUNCTION_OFFSET = 0x14;
 	static constexpr u32 MENU_INPUT = 0x00125330;
+	static constexpr u32 INPUT_PROCESS = 0x00114490;
 	static constexpr u32 MENU_ITEM_HOTKEY_ACTIVATE = 0x00120F40;
 	static constexpr u32 MENU_ITEM_FOCUS = 0x00120B70;
 	static constexpr u32 MENU_ITEM_FOCUS_VTABLE_OFFSET = 0xB8;
@@ -74,6 +80,20 @@ namespace AVPE::NativeMenuInput
 		u32 function = 0;
 	};
 
+	struct PendingReadyAction
+	{
+		std::atomic_bool armed{false};
+		std::atomic<u64> next_id{1};
+		std::atomic<u64> id{0};
+		std::atomic<u64> dispatched_id{0};
+		std::atomic<u64> rejected_id{0};
+		std::atomic<u32> menu_vtable{0};
+		std::atomic<u32> focused_item_action{0};
+		std::atomic<u8> action{static_cast<u8>(Action::Up)};
+	};
+
+	PendingReadyAction s_pending_ready_action;
+
 	static u32 CallbackFunctionForAction(const Action action)
 	{
 		const size_t index = static_cast<size_t>(action);
@@ -84,7 +104,42 @@ namespace AVPE::NativeMenuInput
 	{
 		u32 entries = 0;
 		u32 count = 0;
+		u32 capacity = 0;
 	};
+
+	static std::string HexWord(const u32 value)
+	{
+		constexpr char hex[] = "0123456789abcdef";
+		std::string text;
+		text.reserve(8);
+		for (u32 shift = 28;; shift -= 4)
+		{
+			text += hex[(value >> shift) & 0xf];
+			if (shift == 0)
+				break;
+		}
+		return text;
+	}
+
+	static u32 PhysicalInputMaskForAction(const Action action)
+	{
+		switch (action)
+		{
+			case Action::Up:
+				return 1u << 0;
+			case Action::Down:
+				return 1u << 2;
+			case Action::Left:
+				return 1u << 3;
+			case Action::Right:
+				return 1u << 1;
+			case Action::Activate:
+				return 1u << 6;
+			case Action::Cancel:
+				return 0;
+		}
+		return 0;
+	}
 
 	static bool IsMenuCallback(const u32 function)
 	{
@@ -117,7 +172,8 @@ namespace AVPE::NativeMenuInput
 			!GuestObjects::ReadWord(input_device + CALLBACK_ARRAY_OFFSET, &registry->entries) ||
 			!GuestObjects::ReadWord(input_device + CALLBACK_ARRAY_OFFSET + sizeof(u32),
 				&registry->count) ||
-			registry->count > MAX_CALLBACK_COUNT)
+			!GuestObjects::ReadWord(input_device + CALLBACK_CAPACITY_OFFSET, &registry->capacity) ||
+			registry->count > registry->capacity || registry->capacity > MAX_CALLBACK_COUNT)
 		{
 			*error = "game input callback registry is invalid or unreadable";
 			return Status::GuestMemoryError;
@@ -620,6 +676,69 @@ namespace AVPE::NativeMenuInput
 		return true;
 	}
 
+	static void QueueCallbackRegistryAction(Result* result, const ActiveMenu& active, const Action action)
+	{
+		if (result->source != Source::CallbackRegistry || action == Action::Cancel)
+		{
+			result->status = Status::FocusUnavailable;
+			result->error = "native actions require a registered non-cancel menu callback";
+			return;
+		}
+
+		u32 target = result->menu;
+		u32 callback = 0;
+		if (action == Action::Activate)
+		{
+			CallbackRegistry registry;
+			const Status registry_status = ReadCallbackRegistry(&registry, &result->error);
+			if (registry_status != Status::Success)
+			{
+				result->status = registry_status;
+				return;
+			}
+			CallbackTarget hotkey;
+			const Status hotkey_status =
+				FindActivateFocusedCallback(registry, result->menu, &hotkey, &result->error);
+			if (hotkey_status == Status::Success)
+			{
+				target = hotkey.object;
+				callback = hotkey.callback;
+				result->handler = hotkey.function;
+				result->action_target = hotkey.object;
+			}
+			else if (hotkey_status != Status::FocusUnavailable)
+			{
+				result->status = hotkey_status;
+				return;
+			}
+		}
+		if (callback == 0)
+		{
+			result->error = "";
+			callback = active.action_callbacks[static_cast<size_t>(action)];
+			result->handler = CallbackFunctionForAction(action);
+		}
+		if (callback == 0 || result->handler == 0)
+		{
+			result->status = Status::FocusUnavailable;
+			result->error = "active menu has no exact registered callback for this action";
+			return;
+		}
+		const NativeInputDispatch::Result queue = NativeInputDispatch::QueueMenuAction(
+			{.target = target, .callback = callback, .function = result->handler});
+		result->dispatch_action_id = queue.id;
+		result->deferred = queue.Succeeded();
+		if (!queue.Succeeded())
+		{
+			result->status = queue.status == NativeInputDispatch::Status::Busy ?
+			                     Status::ShuttleFailure :
+			                     Status::GuestMemoryError;
+			result->error = queue.error;
+			return;
+		}
+		result->status = Status::Success;
+	}
+
 	Result Inspect()
 	{
 		Result result;
@@ -640,58 +759,7 @@ namespace AVPE::NativeMenuInput
 				return;
 			if (result.source == Source::CallbackRegistry && action != Action::Cancel)
 			{
-				u32 target = result.menu;
-				u32 callback = 0;
-				if (action == Action::Activate)
-				{
-					CallbackRegistry registry;
-					const Status registry_status = ReadCallbackRegistry(&registry, &result.error);
-					if (registry_status != Status::Success)
-					{
-						result.status = registry_status;
-						return;
-					}
-					CallbackTarget hotkey;
-					const Status hotkey_status =
-						FindActivateFocusedCallback(registry, result.menu, &hotkey, &result.error);
-					if (hotkey_status == Status::Success)
-					{
-						target = hotkey.object;
-						callback = hotkey.callback;
-						result.handler = hotkey.function;
-						result.action_target = hotkey.object;
-					}
-					else if (hotkey_status != Status::FocusUnavailable)
-					{
-						result.status = hotkey_status;
-						return;
-					}
-				}
-				if (callback == 0)
-				{
-					result.error = "";
-					callback = active.action_callbacks[static_cast<size_t>(action)];
-					result.handler = CallbackFunctionForAction(action);
-				}
-				if (callback == 0 || result.handler == 0)
-				{
-					result.status = Status::FocusUnavailable;
-					result.error = "active menu has no exact registered callback for this action";
-					return;
-				}
-				const NativeInputDispatch::Result queue = NativeInputDispatch::QueueMenuAction(
-					{.target = target, .callback = callback, .function = result.handler});
-				result.dispatch_action_id = queue.id;
-				result.deferred = queue.Succeeded();
-				if (!queue.Succeeded())
-				{
-					result.status = queue.status == NativeInputDispatch::Status::Busy ?
-					                    Status::ShuttleFailure :
-					                    Status::GuestMemoryError;
-					result.error = queue.error;
-					return;
-				}
-				result.status = Status::Success;
+				QueueCallbackRegistryAction(&result, active, action);
 				return;
 			}
 
@@ -748,6 +816,118 @@ namespace AVPE::NativeMenuInput
 			result.status = Status::Success;
 		});
 		return result;
+	}
+
+	Result ApplyWhenReady(const Action action, const u32 menu_vtable, const u32 focused_item_action)
+	{
+		Result result{.action = action};
+		if (action == Action::Cancel || !GuestObjects::IsPlausibleAddress(menu_vtable))
+		{
+			result.status = Status::FocusUnavailable;
+			result.error = "readiness actions require a non-cancel action and a valid menu vtable";
+			return result;
+		}
+
+		EECallShuttle::RunTransaction(
+			[&result, action, menu_vtable, focused_item_action](EECallShuttle::Transaction&) {
+				if (s_pending_ready_action.armed.load(std::memory_order_acquire))
+				{
+					result.status = Status::ShuttleFailure;
+					result.error = "a menu readiness action is already armed";
+					return;
+				}
+
+				InspectOnCPUThread(&result);
+				if (result.status != Status::Success && result.status != Status::MenuUnavailable)
+					return;
+
+				const u64 id = s_pending_ready_action.next_id.fetch_add(1, std::memory_order_relaxed);
+				s_pending_ready_action.menu_vtable.store(menu_vtable, std::memory_order_relaxed);
+				s_pending_ready_action.focused_item_action.store(
+					focused_item_action, std::memory_order_relaxed);
+				s_pending_ready_action.action.store(static_cast<u8>(action), std::memory_order_relaxed);
+				s_pending_ready_action.id.store(id, std::memory_order_relaxed);
+				s_pending_ready_action.armed.store(true, std::memory_order_release);
+				result.status = Status::Success;
+				result.error = "";
+				result.readiness_action_id = id;
+				result.awaiting_readiness = true;
+			});
+		return result;
+	}
+
+	bool ShouldObserveEePc(const u32 pc)
+	{
+		return pc == INPUT_PROCESS && s_pending_ready_action.armed.load(std::memory_order_acquire);
+	}
+
+	void ObserveInputProcess()
+	{
+		if (!s_pending_ready_action.armed.load(std::memory_order_acquire))
+			return;
+
+		Result result{.action = static_cast<Action>(
+						  s_pending_ready_action.action.load(std::memory_order_acquire))};
+		InspectOnCPUThread(&result);
+
+		const u32 menu_vtable = s_pending_ready_action.menu_vtable.load(std::memory_order_acquire);
+		const u32 focused_item_action =
+			s_pending_ready_action.focused_item_action.load(std::memory_order_acquire);
+		if (result.status != Status::Success)
+		{
+			if (result.menu_vtable != menu_vtable)
+				return;
+			s_pending_ready_action.rejected_id.store(
+				s_pending_ready_action.id.load(std::memory_order_acquire), std::memory_order_release);
+			s_pending_ready_action.armed.store(false, std::memory_order_release);
+			return;
+		}
+		if (result.menu_vtable != menu_vtable)
+			return;
+		if (!result.focused_item_action_valid || result.focused_item_action != focused_item_action)
+		{
+			s_pending_ready_action.rejected_id.store(
+				s_pending_ready_action.id.load(std::memory_order_acquire), std::memory_order_release);
+			s_pending_ready_action.armed.store(false, std::memory_order_release);
+			return;
+		}
+
+		if (AVPE::ActiveButtonInjection().inputs_mask != 0)
+			return;
+
+		AVPE::PressButtons(PhysicalInputMaskForAction(result.action), 250);
+		const u64 id = s_pending_ready_action.id.load(std::memory_order_acquire);
+		s_pending_ready_action.dispatched_id.store(id, std::memory_order_release);
+		s_pending_ready_action.armed.store(false, std::memory_order_release);
+	}
+
+	std::string PendingActionJson()
+	{
+		const bool armed = s_pending_ready_action.armed.load(std::memory_order_acquire);
+		const u64 id = s_pending_ready_action.id.load(std::memory_order_acquire);
+		const u64 dispatched = s_pending_ready_action.dispatched_id.load(std::memory_order_acquire);
+		const u64 rejected = s_pending_ready_action.rejected_id.load(std::memory_order_acquire);
+		const char* state = armed ? "pending" : dispatched == id && id != 0 ? "dispatched" :
+		                                    rejected == id && id != 0       ? "rejected" :
+		                                                                      "none";
+		return "{\"state\":\"" + std::string(state) + "\",\"id\":" + std::to_string(id) +
+		       ",\"menu_vtable\":\"0x" +
+		       HexWord(s_pending_ready_action.menu_vtable.load(std::memory_order_acquire)) +
+		       "\",\"focused_item_action\":\"0x" +
+		       HexWord(s_pending_ready_action.focused_item_action.load(std::memory_order_acquire)) +
+		       "\",\"dispatched_id\":" + std::to_string(dispatched) +
+		       ",\"rejected_id\":" + std::to_string(rejected) + "}";
+	}
+
+	void Reset()
+	{
+		s_pending_ready_action.armed.store(false, std::memory_order_release);
+		s_pending_ready_action.id.store(0, std::memory_order_release);
+		s_pending_ready_action.dispatched_id.store(0, std::memory_order_release);
+		s_pending_ready_action.rejected_id.store(0, std::memory_order_release);
+		s_pending_ready_action.menu_vtable.store(0, std::memory_order_release);
+		s_pending_ready_action.focused_item_action.store(0, std::memory_order_release);
+		s_pending_ready_action.action.store(static_cast<u8>(Action::Up), std::memory_order_release);
 	}
 
 	static void InspectPointerOnCPUThread(PointerResult* result)

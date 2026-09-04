@@ -9,4 +9,6 @@ namespace AVPE::HttpJson
 {
 	std::optional<std::string> StringField(const std::string& body, const std::string& key);
 	std::optional<float> FloatField(const std::string& body, const std::string& key);
+	std::optional<u32> HexU32Field(const std::string& body, const std::string& key);
 } // namespace AVPE::HttpJson
+#include "common/Pcsx2Defs.h"

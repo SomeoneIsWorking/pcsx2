@@ -53,4 +53,24 @@ namespace AVPE::HttpJson
 			return std::nullopt;
 		return value;
 	}
+
+	std::optional<u32> HexU32Field(const std::string& body, const std::string& key)
+	{
+		const std::optional<std::string> text = StringField(body, key);
+		if (!text || text->size() != 10 || text->compare(0, 2, "0x") != 0)
+			return std::nullopt;
+
+		u32 value = 0;
+		for (size_t index = 2; index < text->size(); ++index)
+		{
+			const char digit = (*text)[index];
+			if (digit >= '0' && digit <= '9')
+				value = (value << 4) | static_cast<u32>(digit - '0');
+			else if (digit >= 'a' && digit <= 'f')
+				value = (value << 4) | static_cast<u32>(digit - 'a' + 10);
+			else
+				return std::nullopt;
+		}
+		return value;
+	}
 } // namespace AVPE::HttpJson
