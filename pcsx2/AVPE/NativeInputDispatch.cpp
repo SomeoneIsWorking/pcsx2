@@ -21,12 +21,18 @@ namespace AVPE::NativeInputDispatch
 		constexpr std::string_view kSchema = "avpe-input-dispatch-v2";
 		constexpr std::string_view kTargetSerial = "SLUS-20147";
 		constexpr u32 kTargetCrc = 0x64DA78A3;
+		constexpr u32 kInputProcessPc = 0x00114490;
 		constexpr u32 kCallbackDispatchPc = 0x001147CC;
 		constexpr u32 kCallbackDispatchReturnPc = 0x001147D8;
+		constexpr u32 kCallbackArrayOffset = 0x48;
+		constexpr u32 kCallbackCapacityOffset = kCallbackArrayOffset + 8;
+		constexpr u32 kCallbackEntrySize = 0x18;
+		constexpr u32 kCallbackOwnerHandleOffset = 8;
 		constexpr u32 kMemberFunctionWords = 3;
 		constexpr u32 kInputDataWords = 3;
 		constexpr u32 kMaxCallbackRecords = 32;
 		constexpr u32 kPointerUpdateFunction = 0x001B51A0;
+		constexpr u32 kAttractExitVtable = 0x00343AF0;
 
 		struct PendingPointerMotion
 		{
@@ -76,7 +82,19 @@ namespace AVPE::NativeInputDispatch
 			std::array<CallbackRecord, kMaxCallbackRecords> records{};
 		};
 
+		struct RegistrySnapshot
+		{
+			std::atomic<u64> scans{0};
+			std::atomic<u64> failures{0};
+			std::atomic_bool valid{false};
+			std::atomic<u32> callback_count{0};
+			std::atomic<u32> callback_capacity{0};
+			std::atomic_bool attract_registered{false};
+			std::atomic<u32> attract_owner{0};
+		};
+
 		DispatchSnapshot s_snapshot;
+		RegistrySnapshot s_registry;
 		PendingPointerMotion s_pending;
 		PendingMenuAction s_pending_menu_action;
 
@@ -206,6 +224,58 @@ namespace AVPE::NativeInputDispatch
 			return true;
 		}
 
+		void ObserveCallbackRegistry()
+		{
+			if (!IsEnabled())
+				return;
+
+			const u32 input_device = cpuRegs.GPR.n.a0.UL[0];
+			u32 callbacks = 0;
+			u32 count = 0;
+			u32 capacity = 0;
+			if (!GuestObjects::ReadWord(input_device + kCallbackArrayOffset, &callbacks) ||
+				!GuestObjects::ReadWord(input_device + kCallbackArrayOffset + sizeof(u32), &count) ||
+				!GuestObjects::ReadWord(input_device + kCallbackCapacityOffset, &capacity) ||
+				count > capacity || (count != 0 && !GuestObjects::IsPlausibleAddress(callbacks)))
+			{
+				s_registry.failures.fetch_add(1, std::memory_order_release);
+				s_registry.valid.store(false, std::memory_order_release);
+				return;
+			}
+
+			bool attract_registered = false;
+			u32 attract_owner = 0;
+			for (u32 index = 0; index < count; ++index)
+			{
+				u32 handle = 0;
+				u32 owner = 0;
+				u32 vtable = 0;
+				const u32 callback = callbacks + index * kCallbackEntrySize;
+				if (!GuestObjects::ReadWord(callback + kCallbackOwnerHandleOffset, &handle))
+				{
+					s_registry.failures.fetch_add(1, std::memory_order_release);
+					s_registry.valid.store(false, std::memory_order_release);
+					return;
+				}
+				if (!GuestObjects::ResolveHandle(handle, &owner) ||
+					!GuestObjects::ReadWord(owner, &vtable))
+					continue;
+				if (vtable == kAttractExitVtable)
+				{
+					attract_registered = true;
+					attract_owner = owner;
+					break;
+				}
+			}
+
+			s_registry.attract_owner.store(attract_owner, std::memory_order_relaxed);
+			s_registry.attract_registered.store(attract_registered, std::memory_order_relaxed);
+			s_registry.callback_count.store(count, std::memory_order_relaxed);
+			s_registry.callback_capacity.store(capacity, std::memory_order_relaxed);
+			s_registry.scans.fetch_add(1, std::memory_order_release);
+			s_registry.valid.store(true, std::memory_order_release);
+		}
+
 		void AppendWord(std::string& body, const u32 value)
 		{
 			constexpr char kHex[] = "0123456789abcdef";
@@ -287,7 +357,7 @@ namespace AVPE::NativeInputDispatch
 
 	bool ShouldInstrumentEePc(const u32 pc)
 	{
-		return pc == kCallbackDispatchPc || pc == kCallbackDispatchReturnPc;
+		return pc == kInputProcessPc || pc == kCallbackDispatchPc || pc == kCallbackDispatchReturnPc;
 	}
 
 	Result QueuePointerMotion(const PointerMotionRequest& request)
@@ -340,6 +410,11 @@ namespace AVPE::NativeInputDispatch
 
 	void ObserveEeExecution(const u32 pc)
 	{
+		if (pc == kInputProcessPc)
+		{
+			ObserveCallbackRegistry();
+			return;
+		}
 		if (pc == kCallbackDispatchReturnPc)
 		{
 			CompletePendingMenuAction();
@@ -389,6 +464,22 @@ namespace AVPE::NativeInputDispatch
 		const u32 record_count = s_snapshot.record_count.load(std::memory_order_acquire);
 		std::string body = "{\"schema\":\"" + std::string(kSchema) + "\",\"dispatch_pc\":";
 		AppendWord(body, kCallbackDispatchPc);
+		body += ",\"registry_process_pc\":";
+		AppendWord(body, kInputProcessPc);
+		body += ",\"registry_scans\":" +
+		        std::to_string(s_registry.scans.load(std::memory_order_acquire));
+		body += ",\"registry_failures\":" +
+		        std::to_string(s_registry.failures.load(std::memory_order_acquire));
+		body += ",\"registry_valid\":" +
+		        std::string(s_registry.valid.load(std::memory_order_acquire) ? "true" : "false");
+		body += ",\"registry_callback_count\":" +
+		        std::to_string(s_registry.callback_count.load(std::memory_order_acquire));
+		body += ",\"registry_callback_capacity\":" +
+		        std::to_string(s_registry.callback_capacity.load(std::memory_order_acquire));
+		body += ",\"attract_registered\":" +
+		        std::string(s_registry.attract_registered.load(std::memory_order_acquire) ? "true" : "false");
+		body += ",\"attract_owner\":";
+		AppendWord(body, s_registry.attract_owner.load(std::memory_order_acquire));
 		body += ",\"observed_dispatches\":" + std::to_string(observed);
 		body += ",\"accepted_dispatches\":" + std::to_string(accepted);
 		body += ",\"rejected_dispatches\":" + std::to_string(observed - accepted);
@@ -430,6 +521,13 @@ namespace AVPE::NativeInputDispatch
 		s_snapshot.accepted.store(0, std::memory_order_release);
 		s_snapshot.decoded.store(0, std::memory_order_release);
 		s_snapshot.truncated.store(0, std::memory_order_release);
+		s_registry.scans.store(0, std::memory_order_release);
+		s_registry.failures.store(0, std::memory_order_release);
+		s_registry.valid.store(false, std::memory_order_release);
+		s_registry.callback_count.store(0, std::memory_order_release);
+		s_registry.callback_capacity.store(0, std::memory_order_release);
+		s_registry.attract_registered.store(false, std::memory_order_release);
+		s_registry.attract_owner.store(0, std::memory_order_release);
 		s_pending.pending.store(false, std::memory_order_release);
 		s_pending.queued_id.store(0, std::memory_order_release);
 		s_pending.injected_id.store(0, std::memory_order_release);
