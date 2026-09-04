@@ -4,6 +4,8 @@
 
 #include "AVPE/NativeGameLoadBoundary.h"
 #include "AVPE/NativeGameSaveBoundary.h"
+#include "AVPE/NativeBiosTrace.h"
+#include "AVPE/NativeMovieBiosBoundary.h"
 #include "AVPE/NativeShellShutdownBoundary.h"
 #include "Host.h"
 
@@ -67,5 +69,25 @@ namespace AVPE::NativeBiosBoundaryRoute
 	lucent::http::Response CaptureShellShutdown()
 	{
 		return CaptureBoundary([](const auto timeout) { return NativeShellShutdownBoundary::CaptureJson(timeout); });
+	}
+
+	lucent::http::Response CaptureAtGuestBoundary()
+	{
+		const std::string snapshot = NativeBiosTrace::CaptureAtGuestBoundaryJson(std::chrono::seconds(5));
+		if (snapshot.empty())
+			return lucent::http::Response::text(504, "Gateway Timeout",
+				"guest CPU frame boundary was not observed before the BIOS trace deadline\n");
+		return lucent::http::Response::json(200, "OK", snapshot);
+	}
+
+	lucent::http::Response CaptureMovie()
+	{
+		const std::string snapshot = NativeMovieBiosBoundary::CaptureJson(std::chrono::seconds(30));
+		if (snapshot.empty())
+			return lucent::http::Response::text(504, "Gateway Timeout",
+				"native EALOGO movie close was not observed before the BIOS trace deadline\n");
+		if (snapshot.find("\"complete\":false") != std::string::npos)
+			return lucent::http::Response::json(504, "Gateway Timeout", snapshot);
+		return lucent::http::Response::json(200, "OK", snapshot);
 	}
 } // namespace AVPE::NativeBiosBoundaryRoute

@@ -8,6 +8,7 @@
 #include "AVPE/NativeBiosTrace.h"
 #include "AVPE/NativeCdvdCompletion.h"
 #include "AVPE/NativeLoadTiming.h"
+#include "AVPE/NativeMovieBiosBoundary.h"
 #include "DebugTools/SymbolGuardian.h"
 #include "IopBios.h"
 #include "IopMem.h"
@@ -1699,6 +1700,7 @@ namespace R3000A
 				AVPE::NativeBiosTrace::RecordHandledIopImport(call.library, call.ordinal,
 					call.function, call.arguments[0], call.arguments[1], call.arguments[2],
 					call.arguments[3], static_cast<s32>(v0), call.hle, call.debug);
+				AVPE::NativeMovieBiosBoundary::ObserveHandledIopImport(call.library, call.function);
 			}
 			else
 			{

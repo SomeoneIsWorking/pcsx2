@@ -97,6 +97,7 @@ set(pcsx2Sources
 	AVPE/NativeBiosEventStore.cpp
 	AVPE/NativeBiosBoundaryRoute.cpp
 	AVPE/NativeBiosTrace.cpp
+	AVPE/NativeMovieBiosBoundary.cpp
 	AVPE/NativeGameLoadBoundary.cpp
 	AVPE/NativeGameSaveBoundary.cpp
 	AVPE/NativeShellShutdownBoundary.cpp

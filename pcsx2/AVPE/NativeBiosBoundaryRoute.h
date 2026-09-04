@@ -12,4 +12,6 @@ namespace AVPE::NativeBiosBoundaryRoute
 	lucent::http::Response CaptureGameSave();
 	lucent::http::Response StartShellShutdown();
 	lucent::http::Response CaptureShellShutdown();
+	lucent::http::Response CaptureAtGuestBoundary();
+	lucent::http::Response CaptureMovie();
 } // namespace AVPE::NativeBiosBoundaryRoute
