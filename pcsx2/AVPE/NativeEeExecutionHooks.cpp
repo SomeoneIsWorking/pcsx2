@@ -8,6 +8,7 @@
 #include "AVPE/NativeGameSaveBoundary.h"
 #include "AVPE/NativeHostYield.h"
 #include "AVPE/NativeInputDispatch.h"
+#include "AVPE/NativeMenuInput.h"
 #include "AVPE/NativeMissionLoadTiming.h"
 #include "AVPE/NativeShellShutdownBoundary.h"
 #include "R5900.h"
@@ -47,7 +48,7 @@ namespace AVPE::NativeEeExecutionHooks
 		       NativeGameSaveBoundary::ShouldInstrumentEePc(pc) ||
 		       NativeShellShutdownBoundary::ShouldInstrumentEePc(pc) ||
 		       NativeMissionLoadTiming::ShouldInstrumentEePc(pc) || NativeHostYield::ShouldInstrumentEePc(pc) ||
-		       NativeInputDispatch::ShouldInstrumentEePc(pc);
+		       NativeInputDispatch::ShouldInstrumentEePc(pc) || NativeMenuInput::ShouldObserveEePc(pc);
 	}
 
 	void ObserveEeExecution(const u32 pc)
@@ -68,5 +69,7 @@ namespace AVPE::NativeEeExecutionHooks
 			NativeHostYield::ObserveEeExecution(pc);
 		if (NativeInputDispatch::ShouldInstrumentEePc(pc))
 			NativeInputDispatch::ObserveEeExecution(pc);
+		if (NativeMenuInput::ShouldObserveEePc(pc))
+			NativeMenuInput::ObserveInputProcess();
 	}
 } // namespace AVPE::NativeEeExecutionHooks
