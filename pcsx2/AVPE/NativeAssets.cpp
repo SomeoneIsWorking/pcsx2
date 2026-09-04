@@ -7,6 +7,7 @@
 #include "AVPE/NativeCdvdCompletion.h"
 #include "AVPE/NativeAssetStore.h"
 #include "AVPE/NativeLoadTiming.h"
+#include "AVPE/NativeMovieBiosBoundary.h"
 #include "VMManager.h"
 
 #include <algorithm>
@@ -464,6 +465,9 @@ namespace AVPE::NativeAssets
 
 	void NoteNativeOpen(const std::string_view path)
 	{
+		const ParsedPath parsed = ParseSupportedPath(path);
+		if (parsed.relative)
+			NativeMovieBiosBoundary::ObserveNativeOpen(*parsed.relative);
 		std::lock_guard lock(s_observation_mutex);
 		if (OpenObservation* observation = FindObservation(path))
 			++observation->native_open_count;
@@ -489,6 +493,9 @@ namespace AVPE::NativeAssets
 
 	void NoteNativeClose(const std::string_view path)
 	{
+		const ParsedPath parsed = ParseSupportedPath(path);
+		if (parsed.relative)
+			NativeMovieBiosBoundary::ObserveNativeClose(*parsed.relative);
 		std::lock_guard lock(s_observation_mutex);
 		if (OpenObservation* observation = FindObservation(path))
 			++observation->close_count;
