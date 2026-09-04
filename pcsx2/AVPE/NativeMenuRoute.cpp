@@ -5,6 +5,7 @@
 #include "AVPE/EECallShuttle.h"
 #include "AVPE/HttpJson.h"
 #include "AVPE/NativeMenuInput.h"
+#include "VMManager.h"
 
 #include <lucent/log.h>
 
@@ -52,6 +53,9 @@ namespace AVPE::NativeMenuRoute
 		else
 			return lucent::http::Response::text(
 				400, "Bad Request", "action must be up, down, left, right, activate, or cancel\n");
+		if (!VMManager::HasValidVM())
+			return lucent::http::Response::json(
+				409, "Conflict", R"({"error":"native menu input requires a valid VM"})");
 
 		const NativeMenuInput::Result result = NativeMenuInput::Apply(action);
 		if (!result.Succeeded())
@@ -83,6 +87,9 @@ namespace AVPE::NativeMenuRoute
 
 	lucent::http::Response HandleState()
 	{
+		if (!VMManager::HasValidVM())
+			return lucent::http::Response::json(
+				409, "Conflict", R"({"error":"native menu state requires a valid VM"})");
 		const NativeMenuInput::Result result = NativeMenuInput::Inspect();
 		char response[448];
 		std::snprintf(response, sizeof(response),
