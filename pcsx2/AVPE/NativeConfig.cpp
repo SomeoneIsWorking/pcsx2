@@ -10,7 +10,7 @@ namespace AVPE::NativeConfig
 {
 	namespace
 	{
-		enum class DiagnosticMode
+		enum class DiagnosticMode : u8
 		{
 			Disabled,
 			Oracle,
