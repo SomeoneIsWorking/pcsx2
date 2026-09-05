@@ -333,7 +333,6 @@ namespace AVPE
 			if (ok)
 			{
 				native_asset_state = NativeAssetStateSnapshot::CaptureJsonOnCPUThread();
-				EECallShuttle::ResetAfterStateLoad();
 				NativeInput::ResetAfterStateLoad();
 				NativeInputDispatch::Reset();
 				NativeMenuInput::Reset();
@@ -617,6 +616,8 @@ namespace AVPE
 		{
 			case EECallShuttle::DeferredState::Idle:
 				return "idle";
+			case EECallShuttle::DeferredState::Queued:
+				return "queued";
 			case EECallShuttle::DeferredState::Running:
 				return "running";
 			case EECallShuttle::DeferredState::Completed:
@@ -1024,10 +1025,8 @@ namespace AVPE
 			return NativeBiosBoundaryRoute::CaptureMovie();
 		if (req.method == "GET" && path == "/ee/deferred")
 			return handle_ee_deferred();
-		if (req.method == "GET" && path == "/input/menu")
-			return NativeMenuRoute::HandleState();
-		if (req.method == "GET" && path == "/input/menu-readiness")
-			return NativeMenuRoute::HandleReadiness();
+		if (auto response = NativeMenuRoute::Handle(req))
+			return std::move(*response);
 		if (req.method == "GET" && path == "/input/menu-pointer")
 			return handle_input_menu_pointer_state();
 		if (req.method == "GET" && path == "/snap")
@@ -1052,8 +1051,6 @@ namespace AVPE
 			return handle_input_mouse_button(req.body);
 		if (req.method == "POST" && path == "/input/camera")
 			return NativeCameraRoute::Handle(req.body);
-		if (req.method == "POST" && path == "/input/menu-action")
-			return NativeMenuRoute::HandleAction(req.body);
 		if (req.method == "POST" && path == "/input/menu-pointer-move")
 			return handle_input_menu_pointer_move(req.body, false);
 		if (req.method == "POST" && path == "/input/menu-pointer-dispatch")
@@ -1071,7 +1068,7 @@ namespace AVPE
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\",\"GET /memory-card/state\","
 			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\",\"GET /bios/trace\",\"POST /bios/trace/start\",\"POST /bios/trace/start-mission\",\"POST /bios/trace/start-game-load\",\"POST /bios/trace/start-game-save\",\"POST /bios/trace/start-shell-shutdown\",\"POST /bios/trace/capture\",\"POST /bios/trace/capture-mission\",\"POST /bios/trace/capture-game-load\",\"POST /bios/trace/capture-game-save\",\"POST /bios/trace/capture-shell-shutdown\",\"POST /bios/trace/capture-at-guest-boundary\",\"POST /bios/trace/capture-movie\","
 			"\"GET /ee/deferred\","
-			"\"GET /input/menu\",\"GET /input/menu-readiness\",\"GET /input/menu-pointer\","
+			"\"GET /input/menu\",\"GET /input/menu-readiness\",\"GET /input/movie-cancellation\",\"GET /input/menu-pointer\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /assets/resolve\","
 			"\"POST /assets/capture-iso-oracle\","
 			"\"POST /guest/reset\","

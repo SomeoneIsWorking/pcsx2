@@ -29,10 +29,12 @@ namespace AVPE::EECallShuttle
 	static constexpr u32 GUEST_STACK_BUFFER_SIZE = GUEST_CALL_FRAME_SIZE - GUEST_ARGUMENT_HOME_SIZE;
 	static std::atomic_bool s_faulted{false};
 	static std::atomic_bool s_active{false};
+	static bool s_vm_executing = false;
 	static u32 s_last_avpe_text_pc = 0;
 
 	struct DeferredCall
 	{
+		Request request;
 		DeferredState state = DeferredState::Idle;
 		u64 id = 0;
 		u64 next_id = 1;
@@ -145,6 +147,10 @@ namespace AVPE::EECallShuttle
 		}
 		if (request.cycle_budget == 0 || request.cycle_budget > MAX_CYCLE_BUDGET)
 			return Fail(Status::InvalidRequest, "cycle budget must be in 1..30000000");
+		if ((request.caller_begin != 0 || request.caller_end != 0) &&
+			(request.caller_begin < TARGET_TEXT_BEGIN || request.caller_end > TARGET_TEXT_END ||
+				request.caller_begin >= request.caller_end || ((request.caller_begin | request.caller_end) & 3) != 0))
+			return Fail(Status::InvalidRequest, "deferred caller interval must be aligned AVP:E executable text");
 		if (s_faulted.load(std::memory_order_acquire))
 			return Fail(Status::Faulted, "EE call shuttle is faulted; load a known state before another call");
 		if (!VMManager::HasValidVM())
@@ -181,7 +187,9 @@ namespace AVPE::EECallShuttle
 		const Result validation = ValidateRequest(request);
 		if (!validation.Succeeded())
 			return validation;
-		if (s_deferred.state == DeferredState::Running)
+		if (request.caller_begin != 0 || request.can_execute)
+			return Fail(Status::InvalidRequest, "caller-scoped requests require deferred execution");
+		if (s_deferred.state == DeferredState::Running || s_deferred.state == DeferredState::Queued)
 			return Fail(Status::Busy, "a deferred EE call is still running");
 		if (stack_argument.has_value() &&
 			(*stack_argument >= request.arguments.size() || stack_bytes.empty() ||
@@ -289,8 +297,33 @@ namespace AVPE::EECallShuttle
 			return {.status = validation.status, .error = validation.error};
 		if (VMManager::GetState() != VMState::Running)
 			return {.status = Status::VMUnavailable, .error = "VM must be running for a deferred EE call"};
-		if (s_active.load(std::memory_order_acquire) || s_deferred.state == DeferredState::Running)
+		if (s_active.load(std::memory_order_acquire) || s_deferred.state == DeferredState::Running ||
+			s_deferred.state == DeferredState::Queued)
 			return {.status = Status::Busy, .error = "another EE call is still running"};
+		if (s_vm_executing && !eeEventTestIsActive)
+			return {.status = Status::InvalidRequest, .error = "deferred admission requires a host event or idle VM boundary"};
+
+		s_deferred.request = request;
+		s_deferred.result = {};
+		s_deferred.id = s_deferred.next_id++;
+		if (s_deferred.next_id == 0)
+			s_deferred.next_id = 1;
+		s_deferred.state = DeferredState::Queued;
+		// VSync input polling is inside counter processing. Its remaining
+		// interrupts must finish before we replace the EE architectural context.
+		if (s_vm_executing)
+			Cpu->ExitExecution();
+		return {.status = Status::Success, .id = s_deferred.id};
+	}
+
+	static DeferredTicket PrepareQueuedCall()
+	{
+		const Request& request = s_deferred.request;
+		const Result validation = ValidateRequest(request);
+		if (!validation.Succeeded())
+			return {.status = validation.status, .error = validation.error};
+		if (request.can_execute && !request.can_execute())
+			return {.status = Status::Interrupted, .error = "queued guest call owner no longer permits execution"};
 
 		const u32 interrupted_sp = cpuRegs.GPR.n.sp.UL[0];
 		if ((interrupted_sp & 0xf) != 0 || interrupted_sp < GUEST_CALL_FRAME_SIZE)
@@ -309,9 +342,6 @@ namespace AVPE::EECallShuttle
 		s_deferred.stack_address = stack_address;
 		s_deferred.return_pc = cpuRegs.pc;
 		s_deferred.result = {};
-		s_deferred.id = s_deferred.next_id++;
-		if (s_deferred.next_id == 0)
-			s_deferred.next_id = 1;
 
 		for (u32 i = 0; i < request.arguments.size(); ++i)
 		{
@@ -329,14 +359,64 @@ namespace AVPE::EECallShuttle
 		cpuRegs.pcWriteback = 0;
 		s_deferred.state = DeferredState::Running;
 
-		// The return address may already have a linked recompiler block. Clearing
-		// its first word forces the dispatch through TryCompleteDeferredCall before
-		// the interrupted instruction is allowed to execute. The queue operation
-		// runs from a host event callback, so request a block-end exit and return
-		// through that callback instead of fast-jumping across its stack frames.
+		// Force return through the restoration hook even if this PC already has
+		// a linked recompiler block. We are outside Cpu->Execute here, so no
+		// event/interrupt handler can overwrite the newly installed call context.
 		Cpu->Clear(s_deferred.return_pc, 1);
-		Cpu->ExitExecution();
 		return {.status = Status::Success, .id = s_deferred.id};
+	}
+
+	bool CanInstallDeferredContext(const u32 pc, const u32 stack_pointer, const bool exception_active, const Request& request)
+	{
+		return !exception_active && pc >= TARGET_TEXT_BEGIN && pc < TARGET_TEXT_END &&
+		       (pc & 3) == 0 && (stack_pointer & 0xF) == 0 &&
+		       stack_pointer >= GUEST_CALL_FRAME_SIZE && stack_pointer <= Ps2MemSize::ExposedRam &&
+		       (request.caller_begin == 0 || (pc >= request.caller_begin && pc < request.caller_end));
+	}
+
+	static bool DeferredContextReady()
+	{
+		return CanInstallDeferredContext(cpuRegs.pc, cpuRegs.GPR.n.sp.UL[0],
+			cpuRegs.CP0.n.Status.b.EXL || cpuRegs.CP0.n.Status.b.ERL, s_deferred.request);
+	}
+
+	bool CancelQueuedCall(const u64 id)
+	{
+		if (s_deferred.state != DeferredState::Queued || id == 0 || id != s_deferred.id)
+			return false;
+		s_deferred.state = DeferredState::Failed;
+		s_deferred.result = Fail(Status::Interrupted, "queued guest call invalidated by its owner");
+		return true;
+	}
+
+	bool YieldForQueuedCall()
+	{
+		if (s_vm_executing && !eeEventTestIsActive &&
+			s_deferred.state == DeferredState::Queued && DeferredContextReady())
+		{
+			Cpu->ExitExecution();
+			return true;
+		}
+		return false;
+	}
+
+	void BeginVmExecution()
+	{
+		if (s_deferred.state == DeferredState::Queued && DeferredContextReady())
+		{
+			const auto prepared = PrepareQueuedCall();
+			if (!prepared.Accepted())
+			{
+				s_deferred.state = DeferredState::Failed;
+				s_deferred.result = Fail(prepared.status, prepared.error);
+			}
+		}
+		s_vm_executing = true;
+	}
+
+	void EndVmExecution()
+	{
+		s_vm_executing = false;
 	}
 
 	bool TryCompleteDeferredCall(const u32 pc)
@@ -422,6 +502,14 @@ namespace AVPE::EECallShuttle
 			snapshot.state = s_deferred.state;
 			snapshot.id = s_deferred.id;
 			snapshot.result = s_deferred.result;
+			if (s_deferred.state == DeferredState::Running)
+			{
+				snapshot.result.return_pc = s_deferred.return_pc;
+				snapshot.result.stopped_pc = s_deferred.return_pc;
+				snapshot.result.staging_address = s_deferred.stack_address;
+				snapshot.result.elapsed_cycles = cpuRegs.cycle - s_deferred.saved_cpu.cycle;
+				snapshot.result.stack_restored = false;
+			}
 		});
 		return snapshot;
 	}
@@ -432,5 +520,6 @@ namespace AVPE::EECallShuttle
 		s_deferred.state = DeferredState::Idle;
 		s_deferred.id = 0;
 		s_deferred.result = {};
+		s_deferred.request = {};
 	}
 } // namespace AVPE::EECallShuttle

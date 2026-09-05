@@ -9,6 +9,7 @@
 #include "AVPE/NativeHostYield.h"
 #include "AVPE/NativeInputDispatch.h"
 #include "AVPE/NativeMenuInput.h"
+#include "AVPE/NativeMovieInput.h"
 #include "AVPE/NativeMissionLoadTiming.h"
 #include "AVPE/NativeShellShutdownBoundary.h"
 #include "AVPE/NativeTitleTransition.h"
@@ -50,7 +51,8 @@ namespace AVPE::NativeEeExecutionHooks
 		       NativeShellShutdownBoundary::ShouldInstrumentEePc(pc) ||
 		       NativeTitleTransition::ShouldInstrumentEePc(pc) ||
 		       NativeMissionLoadTiming::ShouldInstrumentEePc(pc) || NativeHostYield::ShouldInstrumentEePc(pc) ||
-		       NativeInputDispatch::ShouldInstrumentEePc(pc) || NativeMenuInput::ShouldObserveEePc(pc);
+		       NativeInputDispatch::ShouldInstrumentEePc(pc) || NativeMenuInput::ShouldObserveEePc(pc) ||
+		       NativeMovieInput::ShouldInstrumentEePc(pc);
 	}
 
 	void ObserveEeExecution(const u32 pc)
@@ -75,5 +77,7 @@ namespace AVPE::NativeEeExecutionHooks
 			NativeInputDispatch::ObserveEeExecution(pc);
 		if (NativeMenuInput::ShouldObserveEePc(pc))
 			NativeMenuInput::ObserveInputProcess();
+		if (NativeMovieInput::ShouldInstrumentEePc(pc))
+			NativeMovieInput::ObserveEeExecution(pc);
 	}
 } // namespace AVPE::NativeEeExecutionHooks
