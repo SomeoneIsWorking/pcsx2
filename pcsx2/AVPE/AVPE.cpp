@@ -7,6 +7,7 @@
 #include "AVPE/NativeBiosBoundaryRoute.h"
 #include "AVPE/NativeBiosTrace.h"
 #include "AVPE/NativeCdvdCompletion.h"
+#include "AVPE/NativeConfig.h"
 #include "AVPE/NativeInput.h"
 #include "AVPE/NativeInputDispatch.h"
 #include "AVPE/NativeCameraRoute.h"
@@ -31,13 +32,11 @@
 
 #include <lucent/http.h>
 #include <lucent/log.h>
-#include <lucent/config.h>
 
 #include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <optional>
@@ -56,6 +55,7 @@ namespace AVPE
 
 	void SetSurfacelessControlTest(bool enabled)
 	{
+		NativeConfig::Initialize();
 		s_control_test_mode.store(enabled, std::memory_order_release);
 		s_control_test_surface_verified.store(false, std::memory_order_release);
 		NativeAssets::ResetObservation();
@@ -65,8 +65,7 @@ namespace AVPE
 		NativeMovieBiosBoundary::Reset();
 		NativeInputDispatch::Reset();
 		NativeMenuInput::Reset();
-		const char* const bios_trace = std::getenv("AVPE_BIOS_TRACE");
-		NativeBiosTrace::SetEnabled(enabled && (!bios_trace || std::string_view(bios_trace) != "0"));
+		NativeBiosTrace::SetEnabled(enabled && NativeConfig::BiosTraceEnabled());
 	}
 
 	bool IsSurfacelessControlTest()
@@ -1079,11 +1078,10 @@ namespace AVPE
 	bool Start()
 	{
 		std::call_once(s_start_once, []() {
-			lucent::config::set_prefix("AVPE_");
-			const char* const nonce = std::getenv("AVPE_CONTROL_NONCE");
-			s_control_nonce = nonce ? nonce : "";
-			const int port = lucent::config::number("HTTP_PORT", 28447);
-			s_server.emplace(lucent::http::ServerOptions{.port = static_cast<u16>(port)}, &dispatch);
+			NativeConfig::Initialize();
+			s_control_nonce = NativeConfig::ControlNonce();
+			const std::uint16_t port = NativeConfig::ControlPort();
+			s_server.emplace(lucent::http::ServerOptions{.port = port}, &dispatch);
 			if (!s_server->start())
 			{
 				lucent::error("avpe", "control server failed to bind 127.0.0.1:{}", port);

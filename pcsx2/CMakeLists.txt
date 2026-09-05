@@ -90,6 +90,7 @@ set(pcsx2Sources
 	IopMem.cpp
 	PINE.cpp
 	AVPE/AVPE.cpp
+	AVPE/NativeConfig.cpp
 	AVPE/EECallShuttle.cpp
 	AVPE/GuestObjects.cpp
 	AVPE/LoadTimingPoint.cpp

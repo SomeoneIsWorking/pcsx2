@@ -4,9 +4,9 @@
 
 #include "AVPE/AVPE.h"
 #include "AVPE/LoadTimingPoint.h"
+#include "AVPE/NativeConfig.h"
 #include "VMManager.h"
 
-#include <cstdlib>
 #include <mutex>
 #include <optional>
 #include <string_view>
@@ -17,7 +17,6 @@ namespace AVPE::NativeLoadTiming
 	{
 		constexpr std::string_view kSchema = "avpe-load-timing-v1";
 		constexpr std::string_view kTargetSerial = "SLUS-20147";
-		constexpr std::string_view kModeEnvironment = "AVPE_LOAD_TIMING";
 
 		std::mutex s_mutex;
 		std::optional<LoadTimingPoint::Point> s_start;
@@ -30,11 +29,7 @@ namespace AVPE::NativeLoadTiming
 
 		std::optional<std::string_view> Mode()
 		{
-			const char* const configured = std::getenv(kModeEnvironment.data());
-			if (!configured)
-				return std::nullopt;
-			const std::string_view mode(configured);
-			return mode == "oracle" || mode == "native" ? std::optional<std::string_view>(mode) : std::nullopt;
+			return NativeConfig::LoadTimingMode();
 		}
 
 		bool IsEnabled()
@@ -140,7 +135,7 @@ namespace AVPE::NativeLoadTiming
 	std::string SnapshotJson()
 	{
 		const std::optional<std::string_view> mode = Mode();
-		const bool byte_trace_disabled = std::getenv("AVPE_ASSET_BYTE_TRACE") == nullptr;
+		const bool byte_trace_disabled = NativeConfig::AssetByteTraceIsUnset();
 		std::lock_guard lock(s_mutex);
 		const bool complete = mode && byte_trace_disabled && s_start && s_end && BackendsMatchMode(*mode) &&
 		                      s_end->ee_cycle > s_start->ee_cycle && s_end->iop_cycle > s_start->iop_cycle &&

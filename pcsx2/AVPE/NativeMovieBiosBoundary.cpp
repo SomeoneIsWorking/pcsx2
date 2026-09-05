@@ -4,9 +4,9 @@
 
 #include "AVPE/AVPE.h"
 #include "AVPE/NativeBiosTrace.h"
+#include "AVPE/NativeConfig.h"
 
 #include <condition_variable>
-#include <cstdlib>
 #include <mutex>
 
 namespace AVPE::NativeMovieBiosBoundary
@@ -30,8 +30,7 @@ namespace AVPE::NativeMovieBiosBoundary
 
 		bool IsRequested()
 		{
-			const char* const requested = std::getenv("AVPE_BIOS_MOVIE_TRACE");
-			return IsSurfacelessControlTest() && requested && std::string_view(requested) == "1";
+			return IsSurfacelessControlTest() && NativeConfig::BiosMovieTraceRequested();
 		}
 
 		std::string AppendBoundary(std::string snapshot, const bool complete)
