@@ -4,6 +4,7 @@
 #include "AVPE/NativeIopExecutionHooks.h"
 #include "AVPE/NativeIopReturnSites.h"
 #include "AVPE/NativeMenuInput.h"
+#include "AVPE/NativeTitleTransition.h"
 #include "R3000A.h"
 
 #include <gtest/gtest.h>
@@ -28,6 +29,14 @@ TEST(NativeGameLoadBoundaryTest, InstrumentsOnlyGroundedLoadPcs)
 	EXPECT_TRUE(AVPE::NativeGameLoadBoundary::ShouldInstrumentEePc(0x00130000));
 	EXPECT_TRUE(AVPE::NativeGameLoadBoundary::ShouldInstrumentEePc(0x00130168));
 	EXPECT_FALSE(AVPE::NativeGameLoadBoundary::ShouldInstrumentEePc(0x0013016C));
+}
+
+TEST(NativeTitleTransitionTest, InstrumentsOnlyGroundedTitleTransitionEntries)
+{
+	EXPECT_TRUE(AVPE::NativeTitleTransition::ShouldInstrumentEePc(0x00209F30));
+	EXPECT_TRUE(AVPE::NativeTitleTransition::ShouldInstrumentEePc(0x002075F0));
+	EXPECT_FALSE(AVPE::NativeTitleTransition::ShouldInstrumentEePc(0x00209F34));
+	EXPECT_FALSE(AVPE::NativeTitleTransition::ShouldInstrumentEePc(0x002075EC));
 }
 
 TEST(NativeBiosTraceTest, RecordsOrderedEventsAndOnlyGroundedResults)

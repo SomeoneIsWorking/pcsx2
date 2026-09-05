@@ -19,6 +19,8 @@
 #include "AVPE/NativeMemoryCardState.h"
 #include "AVPE/NativeMenuInput.h"
 #include "AVPE/NativeMenuRoute.h"
+#include "AVPE/NativeTitleTransition.h"
+#include "AVPE/NativeTitleTransitionRoute.h"
 #include "Config.h"
 #include "Host.h"
 #include "Host/AudioStreamTypes.h"
@@ -29,7 +31,6 @@
 
 #include "common/Console.h"
 #include "common/Error.h"
-
 #include <lucent/http.h>
 #include <lucent/log.h>
 
@@ -65,6 +66,7 @@ namespace AVPE
 		NativeMovieBiosBoundary::Reset();
 		NativeInputDispatch::Reset();
 		NativeMenuInput::Reset();
+		NativeTitleTransition::Reset();
 		NativeBiosTrace::SetEnabled(enabled && NativeConfig::BiosTraceEnabled());
 	}
 
@@ -335,6 +337,7 @@ namespace AVPE
 				NativeInput::ResetAfterStateLoad();
 				NativeInputDispatch::Reset();
 				NativeMenuInput::Reset();
+				NativeTitleTransition::Reset();
 			}
 		},
 			true);
@@ -989,6 +992,10 @@ namespace AVPE
 			return lucent::http::Response::json(200, "OK", NativeMissionLoadTiming::SnapshotJson());
 		if (req.method == "GET" && path == "/input/dispatch")
 			return lucent::http::Response::json(200, "OK", NativeInputDispatch::SnapshotJson());
+		if (req.method == "GET" && path == "/title-transition")
+			return NativeTitleTransitionRoute::Snapshot();
+		if (req.method == "POST" && path == "/title-transition/start")
+			return NativeTitleTransitionRoute::Start();
 		if (req.method == "GET" && path == "/bios/trace")
 			return handle_bios_trace();
 		if (req.method == "POST" && path == "/bios/trace/start")
