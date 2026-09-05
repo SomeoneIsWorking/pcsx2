@@ -5,6 +5,7 @@
 #include "AVPE/AVPE.h"
 #include "AVPE/NativeAssetByteTrace.h"
 #include "AVPE/NativeCdvdCompletion.h"
+#include "AVPE/NativeConfig.h"
 #include "AVPE/NativeAssetStore.h"
 #include "AVPE/NativeLoadTiming.h"
 #include "AVPE/NativeMovieBiosBoundary.h"
@@ -12,7 +13,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cstdlib>
 #include <limits>
 #include <mutex>
 #include <optional>
@@ -24,8 +24,6 @@ namespace AVPE::NativeAssets
 	{
 		constexpr std::string_view kTargetSerial = "SLUS-20147";
 		constexpr size_t kMaximumObservedPaths = 128;
-		constexpr std::string_view kStoreEnvironment = "AVPE_NATIVE_ASSET_ROOT";
-		constexpr std::string_view kManifestSha256Environment = "AVPE_NATIVE_ASSET_MANIFEST_SHA256";
 		constexpr u32 kNativeCdvdLsnBegin = 0xe0000000;
 		constexpr u32 kNativeCdvdLsnEnd = 0xf0000000;
 		constexpr u32 kCdvdSectorSize = 2048;
@@ -155,8 +153,8 @@ namespace AVPE::NativeAssets
 		OpenResolution ResolveStoreFile(const std::string_view path, const bool streams_only)
 		{
 			const ParsedPath parsed = ParseSupportedPath(path);
-			const char* const configured_root = std::getenv(kStoreEnvironment.data());
-			if (!IsTargetRecognized() || !parsed.supported_namespace || !configured_root || !*configured_root)
+			const std::string_view configured_root = NativeConfig::NativeAssetRoot();
+			if (!IsTargetRecognized() || !parsed.supported_namespace || configured_root.empty())
 				return {};
 			if (streams_only && !parsed.stream_namespace)
 				return {};
@@ -165,11 +163,12 @@ namespace AVPE::NativeAssets
 			if (streams_only && !parsed.relative->ends_with(".VAG") && !parsed.relative->ends_with(".ZIV"))
 				return {};
 
-			const char* const manifest_sha256 = std::getenv(kManifestSha256Environment.data());
-			if (!manifest_sha256 || !*manifest_sha256)
+			const std::string_view manifest_sha256 = NativeConfig::NativeAssetManifestSha256();
+			if (manifest_sha256.empty())
 				return {.disposition = OpenDisposition::RefusedInvalidStore};
 
-			const NativeAssetStoreResult result = s_store.Resolve(configured_root, manifest_sha256, *parsed.relative);
+			const NativeAssetStoreResult result =
+				s_store.Resolve(configured_root, manifest_sha256, *parsed.relative);
 			if (result.disposition == NativeAssetStoreDisposition::Missing)
 				return {.disposition = OpenDisposition::RefusedMissing};
 			if (result.disposition != NativeAssetStoreDisposition::Found)

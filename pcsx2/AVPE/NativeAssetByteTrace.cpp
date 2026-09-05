@@ -3,6 +3,7 @@
 #include "AVPE/NativeAssetByteTrace.h"
 
 #include "AVPE/AVPE.h"
+#include "AVPE/NativeConfig.h"
 #include "CDVD/IsoReader.h"
 #include "VMManager.h"
 
@@ -12,7 +13,6 @@
 #include <array>
 #include <bitset>
 #include <cctype>
-#include <cstdlib>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -24,7 +24,6 @@ namespace AVPE::NativeAssetByteTrace
 	{
 		constexpr std::string_view kSchema = "avpe-asset-byte-trace-v1";
 		constexpr std::string_view kTargetSerial = "SLUS-20147";
-		constexpr std::string_view kModeEnvironment = "AVPE_ASSET_BYTE_TRACE";
 		constexpr size_t kSectorSize = 2048;
 		constexpr size_t kChunksPerFile = 16;
 		constexpr size_t kMaximumFiles = 32;
@@ -62,11 +61,7 @@ namespace AVPE::NativeAssetByteTrace
 
 		std::optional<std::string_view> Mode()
 		{
-			const char* const configured = std::getenv(kModeEnvironment.data());
-			if (!configured)
-				return std::nullopt;
-			const std::string_view mode(configured);
-			return mode == "oracle" || mode == "native" ? std::optional<std::string_view>(mode) : std::nullopt;
+			return NativeConfig::AssetByteTraceMode();
 		}
 
 		std::string NormalizeGuestPath(const std::string_view path)
