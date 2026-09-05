@@ -1,6 +1,7 @@
 // AVP:E menu-item discovery. Fork-local; not for upstream PCSX2.
 
 #include "AVPE/NativeMenuItems.h"
+#include "AVPE/NativeAttractInput.h"
 
 #include <array>
 
@@ -13,16 +14,10 @@ namespace AVPE::NativeMenuItems
 	static constexpr u32 OBJECT_HANDLE_OFFSET = 0x18;
 	static constexpr u32 FIRST_CHILD_OFFSET = 0x08;
 	static constexpr u32 NEXT_SIBLING_OFFSET = 0x10;
-	static constexpr u32 CALLBACK_STRIDE = 0x18;
-	static constexpr u32 CALLBACK_OWNER_OFFSET = 0x08;
-	static constexpr u32 CALLBACK_MEMBER_OFFSET = 0x0C;
-	static constexpr u32 CALLBACK_DIRECT_FUNCTION_OFFSET = 0x14;
-	static constexpr u32 ATTRACT_EXIT_INPUT = 0x00206A60;
-	static constexpr u32 ATTRACT_EXIT_ANALOG = 0x002069E0;
 	static constexpr u32 MAX_MENU_OBJECTS = 256;
 
 	static Status ReadMenuDescendants(const u32 menu,
-		std::array<u32, MAX_MENU_OBJECTS>* descendants, u32* descendant_count, const char** error, const Access& read)
+		std::array<u32, MAX_MENU_OBJECTS>* descendants, u32* descendant_count, const char** error, const NativeInputCallbacks::Access& read)
 	{
 		*descendant_count = 0;
 		std::array<u32, MAX_MENU_OBJECTS> pending{};
@@ -85,7 +80,7 @@ namespace AVPE::NativeMenuItems
 	}
 
 	static bool ReadDescendantHandles(const std::array<u32, MAX_MENU_OBJECTS>& descendants,
-		const u32 descendant_count, std::array<u32, MAX_MENU_OBJECTS>* handles, const Access& read)
+		const u32 descendant_count, std::array<u32, MAX_MENU_OBJECTS>* handles, const NativeInputCallbacks::Access& read)
 	{
 		for (u32 index = 0; index < descendant_count; ++index)
 		{
@@ -101,13 +96,21 @@ namespace AVPE::NativeMenuItems
 	}
 
 	Status FindActivationCallback(const u32 entries, const u32 count, const u32 menu, const u32 focused,
-		CallbackTarget* target, const char** error, const Access& read)
+		NativeInputCallbacks::Target* target, const char** error, const NativeInputCallbacks::Access& read)
 	{
 		*target = {};
-		if (count > MAX_MENU_OBJECTS)
+		if (count > NativeInputCallbacks::MaxCount)
 		{
 			*error = "menu callback registry exceeds its bound";
 			return Status::GuestMemoryError;
+		}
+		const NativeAttractInput::Result attract = NativeAttractInput::FindCancellation(entries, count, read);
+		if (attract.status != NativeAttractInput::Status::Absent)
+		{
+			*error = attract.status == NativeAttractInput::Status::Available ?
+			             "title attract input owner must finish cancellation before menu activation" :
+			             attract.error;
+			return attract.status == NativeAttractInput::Status::Invalid ? Status::GuestMemoryError : Status::AmbiguousMenu;
 		}
 		std::array<u32, MAX_MENU_OBJECTS> descendants{};
 		u32 descendant_count = 0;
@@ -122,39 +125,19 @@ namespace AVPE::NativeMenuItems
 			return Status::GuestMemoryError;
 		}
 
-		CallbackTarget focused_target;
+		NativeInputCallbacks::Target focused_target;
 		for (u32 index = 0; index < count; ++index)
 		{
-			const u32 callback = entries + index * CALLBACK_STRIDE;
+			const u32 callback = entries + index * NativeInputCallbacks::Stride;
 			u32 owner_handle = 0;
 			u32 owner = 0;
-			if (!read.word(callback + CALLBACK_OWNER_OFFSET, &owner_handle))
+			if (!read.word(callback + NativeInputCallbacks::OwnerOffset, &owner_handle))
 			{
 				*error = "menu hotkey callback owner handle is unreadable";
 				return Status::GuestMemoryError;
 			}
 			if (!ContainsValue(descendant_handles, descendant_count, owner_handle))
-			{
-				u32 direct_function = 0;
-				if (!read.word(callback + CALLBACK_DIRECT_FUNCTION_OFFSET, &direct_function))
-				{
-					*error = "menu callback registry member is unreadable";
-					return Status::GuestMemoryError;
-				}
-				if (direct_function == ATTRACT_EXIT_INPUT || direct_function == ATTRACT_EXIT_ANALOG)
-				{
-					u32 owner_vtable = 0;
-					if (!read.handle(owner_handle, &owner) || !read.word(owner, &owner_vtable) ||
-						owner_vtable != GuestObjects::AttractExitVtable)
-					{
-						*error = "title attract callback owner is invalid or unreadable";
-						return Status::GuestMemoryError;
-					}
-					*error = "title attract input owner must finish cancellation before menu activation";
-					return Status::AmbiguousMenu;
-				}
 				continue;
-			}
 			if (!read.handle(owner_handle, &owner) ||
 				!ContainsValue(descendants, descendant_count, owner))
 			{
@@ -172,7 +155,7 @@ namespace AVPE::NativeMenuItems
 				continue;
 
 			u32 function = 0;
-			if (!read.member(owner, callback + CALLBACK_MEMBER_OFFSET, &function))
+			if (!read.member(owner, callback + NativeInputCallbacks::MemberOffset, &function))
 			{
 				*error = "activation callback member is invalid or unreadable";
 				return Status::GuestMemoryError;
@@ -204,7 +187,7 @@ namespace AVPE::NativeMenuItems
 		return Status::Success;
 	}
 
-	Status FindMissionGoalsExitItem(const u32 menu, u32* exit_item, const char** error, const Access& read)
+	Status FindMissionGoalsExitItem(const u32 menu, u32* exit_item, const char** error, const NativeInputCallbacks::Access& read)
 	{
 		*exit_item = 0;
 		std::array<u32, MAX_MENU_OBJECTS> descendants{};

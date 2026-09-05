@@ -127,6 +127,7 @@ set(pcsx2Sources
 	AVPE/HttpJson.cpp
 	AVPE/NativeMenuInput.cpp
 	AVPE/NativeMenuItems.cpp
+	AVPE/NativeAttractInput.cpp
 	AVPE/NativeMenuRoute.cpp
 	AVPE/NativePointerMotion.cpp
 	Mdec.cpp

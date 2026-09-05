@@ -4,6 +4,7 @@
 
 #include "AVPE/AVPE.h"
 #include "AVPE/GuestObjects.h"
+#include "AVPE/NativeInputCallbacks.h"
 #include "R5900.h"
 #include "VMManager.h"
 #include "vtlb.h"
@@ -26,8 +27,8 @@ namespace AVPE::NativeInputDispatch
 		constexpr u32 kCallbackDispatchReturnPc = 0x001147D8;
 		constexpr u32 kCallbackArrayOffset = 0x48;
 		constexpr u32 kCallbackCapacityOffset = kCallbackArrayOffset + 8;
-		constexpr u32 kCallbackEntrySize = 0x18;
-		constexpr u32 kCallbackOwnerHandleOffset = 8;
+		constexpr u32 kCallbackEntrySize = NativeInputCallbacks::Stride;
+		constexpr u32 kCallbackOwnerHandleOffset = NativeInputCallbacks::OwnerOffset;
 		constexpr u32 kMemberFunctionWords = 3;
 		constexpr u32 kInputDataWords = 3;
 		constexpr u32 kMaxCallbackRecords = 32;

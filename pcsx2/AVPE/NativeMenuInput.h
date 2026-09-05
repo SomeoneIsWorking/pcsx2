@@ -13,6 +13,7 @@ namespace AVPE::NativeMenuInput
 		None,
 		CallbackRegistry,
 		MissionGoalsLoad,
+		AttractCancellation,
 	};
 
 	enum class Action : u8

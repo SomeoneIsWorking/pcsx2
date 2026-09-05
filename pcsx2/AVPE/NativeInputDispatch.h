@@ -44,7 +44,7 @@ namespace AVPE::NativeInputDispatch
 	// ordinary GInputDevice dispatch. This must run on the EE CPU thread.
 	Result QueuePointerMotion(const PointerMotionRequest& request);
 
-	// Queue one already-registered menu or menu-item callback for the next
+	// Queue one already-registered menu, menu-item, or attract input callback for the next
 	// ordinary GInputDevice dispatch. NativeMenuInput validates its action
 	// meaning and ownership; this owner only preserves the guest dispatch ABI.
 	Result QueueMenuAction(const MenuActionRequest& request);
