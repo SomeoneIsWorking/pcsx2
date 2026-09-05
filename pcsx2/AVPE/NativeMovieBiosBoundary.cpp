@@ -15,7 +15,7 @@ namespace AVPE::NativeMovieBiosBoundary
 	{
 		constexpr std::string_view MoviePath = "MOVIES/EALOGO.PSS";
 
-		enum class State
+		enum class State : u8
 		{
 			Idle,
 			Capturing,
