@@ -202,7 +202,7 @@ namespace AVPE::NativeBiosTrace
 			const bool enabled = s_enabled.load(std::memory_order_relaxed);
 			if (disable_after_snapshot)
 				s_enabled.store(false, std::memory_order_release);
-			std::string json = "{\"schema\":\"avpe-bios-trace-v6\",\"enabled\":";
+			std::string json = "{\"schema\":\"avpe-bios-trace-v7\",\"enabled\":";
 			json += enabled ? "true" : "false";
 			s_event_store.AppendSnapshotFields(json);
 			json += '}';
@@ -757,10 +757,10 @@ namespace AVPE::NativeBiosTrace
 	}
 
 	void RecordException(const std::string_view domain, const u32 code, const u32 pc,
-		const bool branch_delay)
+		const bool branch_delay, const ExceptionTransition& transition)
 	{
 		RecordEvent([&](NativeBiosEventStore::Store& store) {
-			store.RecordException(domain, code, pc, branch_delay);
+			store.RecordException(domain, code, pc, branch_delay, transition);
 		});
 	}
 

@@ -5,7 +5,7 @@
 #include "Common.h"
 
 #include "AVPE/NativeAssets.h"
-#include "AVPE/NativeBiosTrace.h"
+#include "AVPE/NativeExceptionObservation.h"
 
 #include "SIO/Sio0.h"
 #include "Sif.h"
@@ -64,8 +64,7 @@ void psxShutdown() {
 
 void psxException(u32 code, u32 bd)
 {
-	AVPE::NativeBiosTrace::RecordException(
-		"iop", code, psxRegs.pc, bd != 0);
+	const AVPE::NativeExceptionObservation observation(AVPE::NativeExceptionObservation::Domain::Iop, code, bd != 0);
 	//	PSXCPU_LOG("psxException %x: %x, %x", code, psxHu32(0x1070), psxHu32(0x1074));
 	//Console.WriteLn("!! psxException %x: %x, %x", code, psxHu32(0x1070), psxHu32(0x1074));
 	// Set the Cause

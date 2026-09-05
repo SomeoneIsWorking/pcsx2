@@ -96,6 +96,7 @@ set(pcsx2Sources
 	AVPE/LoadTimingPoint.cpp
 	AVPE/NativeAssetByteTrace.cpp
 	AVPE/NativeBiosEventStore.cpp
+	AVPE/NativeExceptionObservation.cpp
 	AVPE/NativeBiosBoundaryRoute.cpp
 	AVPE/NativeBiosTrace.cpp
 	AVPE/NativeMovieBiosBoundary.cpp
