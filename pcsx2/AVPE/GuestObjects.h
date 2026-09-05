@@ -6,6 +6,8 @@
 
 namespace AVPE::GuestObjects
 {
+	inline constexpr u32 AttractExitVtable = 0x00343AF0;
+
 	bool ReadBytes(u32 address, void* destination, u32 size);
 	bool ReadWord(u32 address, u32* value);
 	bool IsPlausibleAddress(u32 address);
