@@ -5,7 +5,9 @@
 #include "AVPE/AVPE.h"
 #include "AVPE/GuestObjects.h"
 #include "AVPE/NativeInputDispatch.h"
+#include "AVPE/NativePadReadiness.h"
 #include "AVPE/NativePointerMotion.h"
+#include "R5900.h"
 
 #include <array>
 #include <atomic>
@@ -894,7 +896,8 @@ namespace AVPE::NativeMenuInput
 			return;
 		}
 
-		if (AVPE::ActiveButtonInjection().inputs_mask != 0)
+		if (!NativePadReadiness::IsReady(cpuRegs.GPR.n.a0.UL[0]) ||
+			AVPE::ActiveButtonInjection().inputs_mask != 0)
 			return;
 
 		AVPE::PressButtons(PhysicalInputMaskForAction(result.action), 250);

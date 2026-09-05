@@ -118,6 +118,7 @@ set(pcsx2Sources
 	AVPE/NativeHostYield.cpp
 	AVPE/NativeMissionLoadTiming.cpp
 	AVPE/NativeMemoryCardState.cpp
+	AVPE/NativePadReadiness.cpp
 	AVPE/NativeInputDispatch.cpp
 	AVPE/NativeInput.cpp
 	AVPE/NativeInputData.cpp
