@@ -27,6 +27,7 @@ namespace AVPE::EECallShuttle
 	enum class DeferredState : u8
 	{
 		Idle,
+		Queued,
 		Running,
 		Completed,
 		Failed,
@@ -37,6 +38,13 @@ namespace AVPE::EECallShuttle
 		u32 function = 0;
 		std::array<u64, 4> arguments{};
 		u64 cycle_budget = 3'000'000;
+		// Optional caller-function interval for calls whose lifetime must remain
+		// on a particular guest owner (for example, a movie's reader thread).
+		u32 caller_begin = 0;
+		u32 caller_end = 0;
+		// Read-only CPU-thread lifetime check, evaluated immediately before
+		// installing a queued call's context. Empty means no additional policy.
+		std::function<bool()> can_execute;
 	};
 
 	struct Result
@@ -91,6 +99,15 @@ namespace AVPE::EECallShuttle
 	// Transaction is the only CPU-thread execution token exposed to AVPE owners.
 	void RunTransaction(const std::function<void(Transaction&)>& operation);
 	DeferredSnapshot GetDeferredSnapshot();
+
+	// VMManager brackets the outer CPU executor. Admission from a host event
+	// only queues data; guest context is installed after that event unwinds.
+	void BeginVmExecution();
+	void EndVmExecution();
+	bool CanInstallDeferredContext(u32 pc, u32 stack_pointer, bool exception_active, const Request& request = {});
+	bool CancelQueuedCall(u64 id);
+	// Called before CPU event processing starts, never from inside an event.
+	bool YieldForQueuedCall();
 
 	// CPU-core boundary hook. A deferred call runs through the ordinary VM
 	// scheduler, then this restores the interrupted architectural context before

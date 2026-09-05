@@ -3,6 +3,8 @@
 
 #include "Achievements.h"
 #include "AVPE/NativeAssets.h"
+#include "AVPE/EECallShuttle.h"
+#include "AVPE/NativeMovieInput.h"
 #include "BuildVersion.h"
 #include "CDVD/CDVD.h"
 #include "CDVD/IsoReader.h"
@@ -2767,7 +2769,9 @@ void VMManager::Execute()
 	}
 
 	// Execute until we're asked to stop.
+	AVPE::EECallShuttle::BeginVmExecution();
 	Cpu->Execute();
+	AVPE::EECallShuttle::EndVmExecution();
 }
 
 void VMManager::IdlePollUpdate()
@@ -2935,6 +2939,7 @@ void VMManager::Internal::PollInputOnCPUThread()
 {
 	Host::PumpMessagesOnCPUThread();
 	InputManager::PollSources();
+	AVPE::NativeMovieInput::PollOnCPUThread();
 
 	if (EmuConfig.EnableRecordingTools)
 	{

@@ -5,9 +5,11 @@
 #include "AVPE/EECallShuttle.h"
 #include "AVPE/HttpJson.h"
 #include "AVPE/NativeMenuInput.h"
+#include "AVPE/NativeMovieInput.h"
 #include "VMManager.h"
 
 #include <lucent/log.h>
+#include <lucent/http.h>
 
 #include <cstdio>
 
@@ -30,6 +32,40 @@ namespace AVPE::NativeMenuRoute
 			}
 		}
 	} // namespace
+
+	std::optional<lucent::http::Response> Handle(const lucent::http::Request& request)
+	{
+		const auto path = request.path();
+		if (request.method == "GET" && path == "/input/menu")
+			return HandleState();
+		if (request.method == "GET" && path == "/input/menu-readiness")
+			return HandleReadiness();
+		if (request.method == "GET" && path == "/input/movie-cancellation")
+			return HandleMovieState();
+		if (request.method == "POST" && path == "/input/menu-action")
+			return HandleAction(request.body);
+		return std::nullopt;
+	}
+
+	std::string FormatActionResponse(const std::string& action_name, const NativeMenuInput::Result& result)
+	{
+		const char* execution = result.awaiting_readiness ? "pending" : result.deferred ? "deferred" :
+		                                                                                  "synchronous";
+		char response[1024];
+		std::snprintf(response, sizeof(response),
+			R"({"action":"%s","source":"%s","menu":"0x%08X","menu_vtable":"0x%08X","handler":"0x%08X","action_target":"0x%08X","focused_item_action":"0x%08X","focused_item_action_valid":%s,"callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X","focus_text_address":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X","focus_text_address":"0x%08X"},"execution":"%s","stopped_pc":"0x%08X","last_avpe_text_pc":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu,"deferred":%s,"dispatch_action_id":%llu,"deferred_call_id":%llu,"readiness_action_id":%llu,"movie_action_id":%llu,"awaiting_readiness":%s})",
+			action_name.c_str(), NativeMenuInput::SourceName(result.source), result.menu, result.menu_vtable, result.handler,
+			result.action_target, result.focused_item_action, result.focused_item_action_valid ? "true" : "false", result.callback_count, result.before.handle, result.before.object, result.before.vtable, result.before.text_address, result.after.handle,
+			result.after.object, result.after.vtable, result.after.text_address, execution,
+			result.stopped_pc, result.last_avpe_text_pc,
+			result.stack_restored ? "true" : "false", static_cast<unsigned long long>(result.elapsed_cycles),
+			result.deferred ? "true" : "false", static_cast<unsigned long long>(result.dispatch_action_id),
+			static_cast<unsigned long long>(result.deferred_call_id),
+			static_cast<unsigned long long>(result.readiness_action_id),
+			static_cast<unsigned long long>(result.movie_action_id),
+			result.awaiting_readiness ? "true" : "false");
+		return response;
+	}
 
 	lucent::http::Response HandleAction(const std::string& body)
 	{
@@ -91,17 +127,7 @@ namespace AVPE::NativeMenuRoute
 				response);
 		}
 
-		char response[1024];
-		std::snprintf(response, sizeof(response),
-			R"({"action":"%s","source":"%s","menu":"0x%08X","menu_vtable":"0x%08X","handler":"0x%08X","action_target":"0x%08X","focused_item_action":"0x%08X","focused_item_action_valid":%s,"callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X","focus_text_address":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X","focus_text_address":"0x%08X"},"execution":"%s","stopped_pc":"0x%08X","last_avpe_text_pc":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu,"deferred":%s,"dispatch_action_id":%llu,"deferred_call_id":%llu,"readiness_action_id":%llu,"awaiting_readiness":%s})",
-			action_name->c_str(), NativeMenuInput::SourceName(result.source), result.menu, result.menu_vtable, result.handler,
-			result.action_target, result.focused_item_action, result.focused_item_action_valid ? "true" : "false", result.callback_count, result.before.handle, result.before.object, result.before.vtable, result.before.text_address, result.after.handle,
-			result.after.object, result.after.vtable, result.after.text_address, result.deferred ? "deferred" : "synchronous", result.stopped_pc, result.last_avpe_text_pc,
-			result.stack_restored ? "true" : "false", static_cast<unsigned long long>(result.elapsed_cycles),
-			result.deferred ? "true" : "false", static_cast<unsigned long long>(result.dispatch_action_id),
-			static_cast<unsigned long long>(result.deferred_call_id),
-			static_cast<unsigned long long>(result.readiness_action_id),
-			result.awaiting_readiness ? "true" : "false");
+		const std::string response = FormatActionResponse(*action_name, result);
 		return lucent::http::Response::json(
 			result.deferred || result.awaiting_readiness ? 202 : 200,
 			result.deferred || result.awaiting_readiness ? "Accepted" : "OK", response);
@@ -129,5 +155,18 @@ namespace AVPE::NativeMenuRoute
 	lucent::http::Response HandleReadiness()
 	{
 		return lucent::http::Response::json(200, "OK", NativeMenuInput::PendingActionJson());
+	}
+
+	lucent::http::Response HandleMovieState()
+	{
+		if (!VMManager::HasValidVM())
+			return lucent::http::Response::json(409, "Conflict", R"({"error":"movie state requires a valid VM"})");
+		const auto action = NativeMovieInput::Inspect();
+		char response[512];
+		std::snprintf(response, sizeof(response),
+			R"({"state":"%s","id":%llu,"player":"0x%08X","decoder":"0x%08X","deferred_call_id":%llu,"error":"%s"})",
+			NativeMovieInput::StateName(action.state), static_cast<unsigned long long>(action.id),
+			action.player, action.decoder, static_cast<unsigned long long>(action.deferred_call_id), action.error);
+		return lucent::http::Response::json(200, "OK", response);
 	}
 } // namespace AVPE::NativeMenuRoute

@@ -8,6 +8,7 @@
 #include "AVPE/NativeInputCallbacks.h"
 #include "AVPE/NativeInputDispatch.h"
 #include "AVPE/NativeMenuItems.h"
+#include "AVPE/NativeMovieInput.h"
 #include "AVPE/NativePadReadiness.h"
 #include "AVPE/NativePointerMotion.h"
 #include "R5900.h"
@@ -268,6 +269,8 @@ namespace AVPE::NativeMenuInput
 				return "mission-goals-load";
 			case Source::AttractCancellation:
 				return "attract-cancellation";
+			case Source::MovieCancellation:
+				return "movie-cancellation";
 			case Source::None:
 			default:
 				return "none";
@@ -496,6 +499,22 @@ namespace AVPE::NativeMenuInput
 		result->status = Status::Success;
 	}
 
+	static bool TryMovieCancellation(Result* result)
+	{
+		const auto movie = NativeMovieInput::RequestOnCPUThread();
+		if (movie.admission == NativeMovieInput::Admission::Absent)
+			return false;
+		*result = Result{.action = result->action};
+		result->source = Source::MovieCancellation;
+		result->handler = NativeMovieInput::AbortFunction;
+		result->movie_action_id = movie.action.id;
+		result->action_target = movie.action.player;
+		result->awaiting_readiness = movie.admission == NativeMovieInput::Admission::Accepted;
+		result->status = result->awaiting_readiness ? Status::Success : Status::FocusUnavailable;
+		result->error = movie.error;
+		return true;
+	}
+
 	static bool TryAttractCancellation(Result* result)
 	{
 		CallbackRegistry registry;
@@ -589,6 +608,8 @@ namespace AVPE::NativeMenuInput
 	{
 		Result result{.action = action};
 		EECallShuttle::RunTransaction([&result, action](EECallShuttle::Transaction& transaction) {
+			if (action == Action::Activate && TryMovieCancellation(&result))
+				return;
 			ActiveMenu active;
 			InspectOnCPUThread(&result, &active);
 			if (action == Action::Activate && result.source != Source::MissionGoalsLoad &&

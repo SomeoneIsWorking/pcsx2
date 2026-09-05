@@ -14,6 +14,8 @@
 #include "MTVU.h"
 #include "VMManager.h"
 #include "AVPE/NativeBiosTrace.h"
+#include "AVPE/NativeMovieInput.h"
+#include "AVPE/EECallShuttle.h"
 
 #include "Hardware.h"
 #include "IPU/IPUdma.h"
@@ -60,6 +62,8 @@ uptr g_argPtrs[kMaxArgs];
 
 void cpuReset()
 {
+	AVPE::NativeMovieInput::Reset();
+	AVPE::EECallShuttle::ResetAfterStateLoad();
 	std::memset(&cpuRegs, 0, sizeof(cpuRegs));
 	std::memset(&fpuRegs, 0, sizeof(fpuRegs));
 	std::memset(&tlb, 0, sizeof(tlb));
@@ -363,6 +367,8 @@ static bool cpuIntsEnabled(int Interrupt)
 // and the recompiler.  (moved here to help alleviate redundant code)
 __fi void _cpuEventTest_Shared()
 {
+	if (AVPE::EECallShuttle::YieldForQueuedCall())
+		return;
 	eeEventTestIsActive = true;
 	cpuRegs.nextEventCycle = cpuRegs.cycle + eeWaitCycles;
 	cpuRegs.lastEventCycle = cpuRegs.cycle;

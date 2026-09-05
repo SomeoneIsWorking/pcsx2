@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Achievements.h"
+#include "AVPE/NativeMovieInput.h"
+#include "AVPE/EECallShuttle.h"
 #include "BuildVersion.h"
 #include "CDVD/CDVD.h"
 #include "COP0.h"
@@ -50,6 +52,8 @@ static tlbs s_tlb_backup[std::size(tlb)];
 
 static void PreLoadPrep()
 {
+	AVPE::NativeMovieInput::Reset();
+	AVPE::EECallShuttle::ResetAfterStateLoad();
 	// ensure everything is in sync before we start overwriting stuff.
 	if (THREAD_VU1)
 		vu1Thread.WaitVU();

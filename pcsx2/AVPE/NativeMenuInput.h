@@ -14,6 +14,7 @@ namespace AVPE::NativeMenuInput
 		CallbackRegistry,
 		MissionGoalsLoad,
 		AttractCancellation,
+		MovieCancellation,
 	};
 
 	enum class Action : u8
@@ -69,6 +70,7 @@ namespace AVPE::NativeMenuInput
 		u32 stopped_pc = 0;
 		u32 last_avpe_text_pc = 0;
 		u64 dispatch_action_id = 0;
+		u64 movie_action_id = 0;
 		u64 deferred_call_id = 0;
 		bool stack_restored = true;
 		bool deferred = false;

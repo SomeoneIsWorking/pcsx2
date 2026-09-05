@@ -128,6 +128,7 @@ set(pcsx2Sources
 	AVPE/NativeMenuInput.cpp
 	AVPE/NativeMenuItems.cpp
 	AVPE/NativeAttractInput.cpp
+	AVPE/NativeMovieInput.cpp
 	AVPE/NativeMenuRoute.cpp
 	AVPE/NativePointerMotion.cpp
 	Mdec.cpp
