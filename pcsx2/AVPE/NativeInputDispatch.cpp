@@ -32,7 +32,6 @@ namespace AVPE::NativeInputDispatch
 		constexpr u32 kInputDataWords = 3;
 		constexpr u32 kMaxCallbackRecords = 32;
 		constexpr u32 kPointerUpdateFunction = 0x001B51A0;
-		constexpr u32 kAttractExitVtable = 0x00343AF0;
 
 		struct PendingPointerMotion
 		{
@@ -260,7 +259,7 @@ namespace AVPE::NativeInputDispatch
 				if (!GuestObjects::ResolveHandle(handle, &owner) ||
 					!GuestObjects::ReadWord(owner, &vtable))
 					continue;
-				if (vtable == kAttractExitVtable)
+				if (vtable == GuestObjects::AttractExitVtable)
 				{
 					attract_registered = true;
 					attract_owner = owner;
