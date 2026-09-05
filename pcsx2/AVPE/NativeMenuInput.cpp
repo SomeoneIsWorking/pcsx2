@@ -4,6 +4,8 @@
 
 #include "AVPE/AVPE.h"
 #include "AVPE/GuestObjects.h"
+#include "AVPE/NativeAttractInput.h"
+#include "AVPE/NativeInputCallbacks.h"
 #include "AVPE/NativeInputDispatch.h"
 #include "AVPE/NativeMenuItems.h"
 #include "AVPE/NativePadReadiness.h"
@@ -22,9 +24,9 @@ namespace AVPE::NativeMenuInput
 	static constexpr u32 CALLBACK_ARRAY_OFFSET = 0x48;
 	static constexpr u32 CALLBACK_CAPACITY_OFFSET = CALLBACK_ARRAY_OFFSET + 0x08;
 	static constexpr u32 FOCUSED_ITEM_HANDLE_OFFSET = 0x26C;
-	static constexpr u32 CALLBACK_STRIDE = 0x18;
-	static constexpr u32 CALLBACK_OWNER_OFFSET = 0x08;
-	static constexpr u32 CALLBACK_FUNCTION_OFFSET = 0x14;
+	static constexpr u32 CALLBACK_STRIDE = NativeInputCallbacks::Stride;
+	static constexpr u32 CALLBACK_OWNER_OFFSET = NativeInputCallbacks::OwnerOffset;
+	static constexpr u32 CALLBACK_FUNCTION_OFFSET = NativeInputCallbacks::DirectFunctionOffset;
 	static constexpr u32 MENU_INPUT = 0x00125330;
 	static constexpr u32 INPUT_PROCESS = 0x00114490;
 	static constexpr u32 MENU_ITEM_FOCUS = 0x00120B70;
@@ -41,7 +43,7 @@ namespace AVPE::NativeMenuInput
 	static constexpr u32 POINTER_ACTION_VTABLE_OFFSET = 0xE0;
 	static constexpr u32 POINTER_CHECK_VTABLE_OFFSET = 0xCC;
 	static constexpr u32 POINTER_UPDATE_VTABLE_FUNCTION = 0x001B51A0;
-	static constexpr u32 MAX_CALLBACK_COUNT = 256;
+	static constexpr u32 MAX_CALLBACK_COUNT = NativeInputCallbacks::MaxCount;
 	static constexpr std::array<u32, 6> MENU_CALLBACKS = {
 		0x00124BD0,
 		0x00124BE0,
@@ -264,6 +266,8 @@ namespace AVPE::NativeMenuInput
 				return "callback-registry";
 			case Source::MissionGoalsLoad:
 				return "mission-goals-load";
+			case Source::AttractCancellation:
+				return "attract-cancellation";
 			case Source::None:
 			default:
 				return "none";
@@ -475,6 +479,52 @@ namespace AVPE::NativeMenuInput
 		return true;
 	}
 
+	static void QueueRegisteredAction(Result* result, const NativeInputCallbacks::Target& target)
+	{
+		const NativeInputDispatch::Result queue = NativeInputDispatch::QueueMenuAction(
+			{.target = target.object, .callback = target.callback, .function = target.function});
+		result->dispatch_action_id = queue.id;
+		result->deferred = queue.Succeeded();
+		if (!queue.Succeeded())
+		{
+			result->status = queue.status == NativeInputDispatch::Status::Busy ?
+			                     Status::ShuttleFailure :
+			                     Status::GuestMemoryError;
+			result->error = queue.error;
+			return;
+		}
+		result->status = Status::Success;
+	}
+
+	static bool TryAttractCancellation(Result* result)
+	{
+		CallbackRegistry registry;
+		const char* error = "";
+		if (ReadCallbackRegistry(&registry, &error) != Status::Success)
+			return false; // Preserve the existing menu/modal discovery result.
+		const NativeAttractInput::Result attract =
+			NativeAttractInput::FindCancellation(registry.entries, registry.count);
+		if (attract.status == NativeAttractInput::Status::Absent)
+			return false;
+		if (attract.status != NativeAttractInput::Status::Available)
+		{
+			result->status = attract.status == NativeAttractInput::Status::Invalid ?
+			                     Status::GuestMemoryError :
+			                     Status::AmbiguousMenu;
+			result->error = attract.error;
+			return true;
+		}
+		// One activation cancels attract mode only. A later user action may
+		// activate the title after the guest removes its attract registrations.
+		*result = Result{.action = result->action};
+		result->source = Source::AttractCancellation;
+		result->callback_count = registry.count;
+		result->handler = attract.target.function;
+		result->action_target = attract.target.object;
+		QueueRegisteredAction(result, attract.target);
+		return true;
+	}
+
 	static void QueueCallbackRegistryAction(Result* result, const ActiveMenu& active, const Action action)
 	{
 		if (result->source != Source::CallbackRegistry || action == Action::Cancel)
@@ -495,7 +545,7 @@ namespace AVPE::NativeMenuInput
 				result->status = registry_status;
 				return;
 			}
-			NativeMenuItems::CallbackTarget hotkey;
+			NativeInputCallbacks::Target hotkey;
 			const Status hotkey_status =
 				NativeMenuItems::FindActivationCallback(registry.entries, registry.count,
 					result->menu, result->before.object, &hotkey, &result->error);
@@ -524,19 +574,7 @@ namespace AVPE::NativeMenuInput
 			result->error = "active menu has no exact registered callback for this action";
 			return;
 		}
-		const NativeInputDispatch::Result queue = NativeInputDispatch::QueueMenuAction(
-			{.target = target, .callback = callback, .function = result->handler});
-		result->dispatch_action_id = queue.id;
-		result->deferred = queue.Succeeded();
-		if (!queue.Succeeded())
-		{
-			result->status = queue.status == NativeInputDispatch::Status::Busy ?
-			                     Status::ShuttleFailure :
-			                     Status::GuestMemoryError;
-			result->error = queue.error;
-			return;
-		}
-		result->status = Status::Success;
+		QueueRegisteredAction(result, {.object = target, .callback = callback, .function = result->handler});
 	}
 
 	Result Inspect()
@@ -553,6 +591,9 @@ namespace AVPE::NativeMenuInput
 		EECallShuttle::RunTransaction([&result, action](EECallShuttle::Transaction& transaction) {
 			ActiveMenu active;
 			InspectOnCPUThread(&result, &active);
+			if (action == Action::Activate && result.source != Source::MissionGoalsLoad &&
+				TryAttractCancellation(&result))
+				return;
 			if (result.status != Status::Success)
 				return;
 			if (!PrepareMissionGoalsActivation(&result, transaction, action))
