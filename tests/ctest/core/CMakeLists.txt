@@ -1,5 +1,6 @@
 add_pcsx2_test(core_test
 	avpe_button_injection_tests.cpp
+	avpe_native_pad_readiness_tests.cpp
 	avpe_native_cdvd_completion_tests.cpp
 	avpe_native_bios_trace_tests.cpp
 	avpe_native_window_tests.cpp
