@@ -6,11 +6,104 @@
 #include "AVPE/NativeMenuInput.h"
 #include "AVPE/NativeTitleTransition.h"
 #include "R3000A.h"
+#include "R5900.h"
 
 #include <gtest/gtest.h>
 
 #include <chrono>
 #include <string>
+
+namespace
+{
+	class ExceptionRegisterRestore final
+	{
+	public:
+		~ExceptionRegisterRestore()
+		{
+			cpuRegs = m_ee;
+			psxRegs = m_iop;
+			AVPE::NativeBiosTrace::SetEnabled(false);
+		}
+
+	private:
+		cpuRegisters m_ee = cpuRegs;
+		psxRegisters m_iop = psxRegs;
+	};
+} // namespace
+
+TEST(NativeBiosTraceTest, ObservesActualEeTransitionsIncludingNestedAndEarlyReturn)
+{
+	const ExceptionRegisterRestore restore;
+	struct Case
+	{
+		u32 status, code, delay, expected_status, expected_cause, expected_epc, vector;
+	};
+	const Case cases[] = {
+		{0x10001, 0x400, 0, 0x10003, 0x400, 0x100004, 0x80000200},
+		{0x10001, 0x400, 1, 0x10003, 0x80000400, 0x100000, 0x80000200},
+		{2, 0x400, 0, 2, 0x400, 0x1234, 0x80000180},
+		{0x400000, 32, 0, 0x400002, 32, 0x100004, 0xbfc00380},
+		{4, 0, 0, 4, 0, 0x1234, 0xbfc00000},
+	};
+	for (const Case& item : cases)
+	{
+		for (const bool enabled : {false, true})
+		{
+			AVPE::NativeBiosTrace::SetEnabled(enabled);
+			cpuRegs.pc = 0x100004;
+			cpuRegs.CP0.n.Status.val = item.status;
+			cpuRegs.CP0.n.EPC = 0x1234;
+			cpuException(item.code, item.delay);
+			EXPECT_EQ(cpuRegs.pc, item.vector);
+			EXPECT_EQ(cpuRegs.CP0.n.Status.val, item.expected_status);
+			EXPECT_EQ(cpuRegs.CP0.n.Cause, item.expected_cause);
+			EXPECT_EQ(cpuRegs.CP0.n.EPC, item.expected_epc);
+			const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
+			if (!enabled)
+			{
+				EXPECT_NE(snapshot.find("\"events\":[]"), std::string::npos);
+				continue;
+			}
+			const std::string transition = "\"transition\":{\"status_before\":" + std::to_string(item.status) +
+			                               ",\"status_after\":" + std::to_string(item.expected_status) +
+			                               ",\"cause_after\":" + std::to_string(item.expected_cause) +
+			                               ",\"epc_after\":" + std::to_string(item.expected_epc) +
+			                               ",\"vector_pc\":" + std::to_string(item.vector) + "}";
+			EXPECT_NE(snapshot.find(transition), std::string::npos);
+		}
+	}
+}
+
+TEST(NativeBiosTraceTest, ObservesActualIopStatusStackAndBootstrapVector)
+{
+	const ExceptionRegisterRestore restore;
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	psxRegs.pc = 0x100004;
+	psxRegs.CP0.n.Status = 0x40000f;
+	psxRegs.CP0.n.Cause = 0x400;
+	psxException(32, 1);
+	EXPECT_EQ(psxRegs.pc, 0xbfc00180u);
+	EXPECT_EQ(psxRegs.CP0.n.Status, 0x40003cu);
+	EXPECT_EQ(psxRegs.CP0.n.Cause, 0x80000420u);
+	EXPECT_EQ(psxRegs.CP0.n.EPC, 0x100000u);
+	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
+	EXPECT_NE(snapshot.find("\"domain\":\"iop\""), std::string::npos);
+	EXPECT_NE(snapshot.find("\"transition\":{\"status_before\":4194319,\"status_after\":4194364,\"cause_after\":2147484704,\"epc_after\":1048576,\"vector_pc\":3217031552}"), std::string::npos);
+}
+
+TEST(NativeBiosTraceTest, CoalescesOnlyIdenticalExceptionTransitions)
+{
+	AVPE::NativeBiosTrace::SetEnabled(true);
+	AVPE::NativeBiosTrace::ExceptionTransition transition{1, 3, 32, 4096, 0x80000180};
+	AVPE::NativeBiosTrace::RecordException("ee", 32, 4096, false, transition);
+	AVPE::NativeBiosTrace::RecordException("ee", 32, 4096, false, transition);
+	transition.vector_pc = 0xbfc00380;
+	AVPE::NativeBiosTrace::RecordException("ee", 32, 4096, false, transition);
+	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
+	EXPECT_NE(snapshot.find("\"calls\":2"), std::string::npos);
+	EXPECT_NE(snapshot.find("\"sequence\":2,\"kind\":\"exception\""), std::string::npos);
+	EXPECT_EQ(snapshot.find("\"sequence\":3"), std::string::npos);
+}
 
 TEST(NativeBiosTraceTest, DisabledTraceDoesNotRetainEvents)
 {
@@ -56,7 +149,7 @@ TEST(NativeBiosTraceTest, RecordsOrderedEventsAndOnlyGroundedResults)
 	AVPE::NativeBiosTrace::RecordEeSyscall(
 		60, "GetMemorySize", 13, 14, 15, 16, 0x02000000, 0, Outcome::DirectResult,
 		Disposition::ReturningResult);
-	AVPE::NativeBiosTrace::RecordException("ee", 8, 0x1000, true);
+	AVPE::NativeBiosTrace::RecordException("ee", 8, 0x1000, true, {});
 	AVPE::NativeBiosTrace::RecordTimer("iop", 2, true, 0x10001, 0xffff, 1234, false);
 	AVPE::NativeBiosTrace::RecordTimer("ee", 1, false, 10, 10, 42, true);
 	AVPE::NativeBiosTrace::RecordHandledIopImport(
@@ -65,7 +158,7 @@ TEST(NativeBiosTraceTest, RecordsOrderedEventsAndOnlyGroundedResults)
 		"cdvdman", 8, "sceCdGetError", 5, 6, 7, 8, true, false, 0x1000, 0x2000);
 
 	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
-	EXPECT_NE(snapshot.find("\"schema\":\"avpe-bios-trace-v6\""), std::string::npos);
+	EXPECT_NE(snapshot.find("\"schema\":\"avpe-bios-trace-v7\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"sequence\":1"), std::string::npos);
 	EXPECT_NE(snapshot.find("\"kind\":\"module\""), std::string::npos);
 	EXPECT_NE(snapshot.find("\"kind\":\"interrupt\""), std::string::npos);
@@ -286,8 +379,8 @@ TEST(NativeBiosTraceTest, CoalescesRepeatedSyscallAndExceptionIdentity)
 		Outcome::Bios, Disposition::ReturningResult);
 	AVPE::NativeBiosTrace::RecordEeSyscall(122, "sceSifGetReg", 5, 6, 7, 8, 0, 0,
 		Outcome::Bios, Disposition::ReturningResult);
-	AVPE::NativeBiosTrace::RecordException("ee", 32, 0x1234, false);
-	AVPE::NativeBiosTrace::RecordException("ee", 32, 0x1234, false);
+	AVPE::NativeBiosTrace::RecordException("ee", 32, 0x1234, false, {});
+	AVPE::NativeBiosTrace::RecordException("ee", 32, 0x1234, false, {});
 
 	const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
 	EXPECT_NE(snapshot.find("\"calls\":2"), std::string::npos);

@@ -22,6 +22,7 @@ namespace AVPE::NativeBiosEventStore
 			std::string module;
 			std::string name;
 			std::string domain;
+			ExceptionTransition transition;
 			u16 ordinal = 0;
 			std::array<u32, 4> arguments{};
 			s32 first_result = 0;
@@ -292,6 +293,11 @@ namespace AVPE::NativeBiosEventStore
 				json += ",\"code\":" + std::to_string(event.code);
 				json += ",\"pc\":" + std::to_string(event.pc);
 				json += ",\"branch_delay\":" + std::string(event.branch_delay ? "true" : "false");
+				json += ",\"transition\":{\"status_before\":" + std::to_string(event.transition.status_before);
+				json += ",\"status_after\":" + std::to_string(event.transition.status_after);
+				json += ",\"cause_after\":" + std::to_string(event.transition.cause_after);
+				json += ",\"epc_after\":" + std::to_string(event.transition.epc_after);
+				json += ",\"vector_pc\":" + std::to_string(event.transition.vector_pc) + '}';
 				json += ",\"calls\":" + std::to_string(event.calls);
 			}
 			else if (event.kind == "timer")
@@ -646,12 +652,12 @@ namespace AVPE::NativeBiosEventStore
 	}
 
 	void Store::RecordException(const std::string_view domain, const u32 code, const u32 pc,
-		const bool branch_delay)
+		const bool branch_delay, const ExceptionTransition& transition)
 	{
 		for (Event& event : m_impl->events)
 		{
 			if (event.kind == "exception" && event.domain == domain && event.code == code &&
-				event.pc == pc && event.branch_delay == branch_delay)
+				event.pc == pc && event.branch_delay == branch_delay && event.transition == transition)
 			{
 				++event.calls;
 				return;
@@ -665,6 +671,7 @@ namespace AVPE::NativeBiosEventStore
 		event->code = code;
 		event->pc = pc;
 		event->branch_delay = branch_delay;
+		event->transition = transition;
 		event->calls = 1;
 	}
 

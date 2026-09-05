@@ -14,6 +14,7 @@ namespace AVPE::NativeBiosTrace
 	constexpr u32 MaximumEvents = 4096;
 	using EeSyscallDisposition = NativeBiosEventStore::EeSyscallDisposition;
 	using EeSyscallOutcome = NativeBiosEventStore::EeSyscallOutcome;
+	using ExceptionTransition = NativeBiosEventStore::ExceptionTransition;
 
 	void Reset();
 	void SetEnabled(bool enabled);
@@ -35,7 +36,8 @@ namespace AVPE::NativeBiosTrace
 	void RecordCurrentEeSyscall(u8 number, EeSyscallOutcome outcome);
 	bool ShouldInstrumentEeSyscallReturn(u32 pc);
 	void ObserveEeSyscallReturn(u32 pc);
-	void RecordException(std::string_view domain, u32 code, u32 pc, bool branch_delay);
+	void RecordException(std::string_view domain, u32 code, u32 pc, bool branch_delay,
+		const ExceptionTransition& transition);
 	void RecordTimer(std::string_view domain, u32 index, bool overflow, u64 count, u64 target,
 		u64 cycle, bool delivered);
 	void RecordModule(std::string_view module, u8 major, u8 minor, std::string_view operation);

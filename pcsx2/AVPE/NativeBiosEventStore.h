@@ -10,6 +10,16 @@
 
 namespace AVPE::NativeBiosEventStore
 {
+	struct ExceptionTransition
+	{
+		u32 status_before = 0;
+		u32 status_after = 0;
+		u32 cause_after = 0;
+		u32 epc_after = 0;
+		u32 vector_pc = 0;
+		bool operator==(const ExceptionTransition&) const = default;
+	};
+
 	enum class EeSyscallOutcome : u8
 	{
 		Bios,
@@ -48,7 +58,8 @@ namespace AVPE::NativeBiosEventStore
 		void RecordEeBiosSyscallEntry(u8 number, std::string_view name, u32 a0, u32 a1, u32 a2,
 			u32 a3, u32 stack_pointer, u32 resume_pc, EeSyscallDisposition disposition);
 		void RecordEeBiosSyscallReturn(u32 stack_pointer, u32 resume_pc, s32 result, u64 result_u64);
-		void RecordException(std::string_view domain, u32 code, u32 pc, bool branch_delay);
+		void RecordException(std::string_view domain, u32 code, u32 pc, bool branch_delay,
+			const ExceptionTransition& transition);
 		void RecordTimer(std::string_view domain, u32 index, bool overflow, u64 count, u64 target,
 			u64 cycle, bool delivered);
 		void RecordModule(std::string_view module, u8 major, u8 minor, std::string_view operation);
