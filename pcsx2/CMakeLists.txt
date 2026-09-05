@@ -102,6 +102,8 @@ set(pcsx2Sources
 	AVPE/NativeGameLoadBoundary.cpp
 	AVPE/NativeGameSaveBoundary.cpp
 	AVPE/NativeShellShutdownBoundary.cpp
+	AVPE/NativeTitleTransition.cpp
+	AVPE/NativeTitleTransitionRoute.cpp
 	AVPE/NativeAssetCache.cpp
 	AVPE/NativeAssetFile.cpp
 	AVPE/NativeAssetStore.cpp
