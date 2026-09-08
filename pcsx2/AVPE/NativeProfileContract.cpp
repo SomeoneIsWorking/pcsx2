@@ -18,6 +18,9 @@ namespace AVPE::NativeProfileContract
 		constexpr u32 kTargetCrc = 0x64DA78A3;
 		constexpr u32 kProfileSingletonAddress = 0x0036703C;
 		constexpr u32 kMaximumPayloadBytes = 0x2000;
+		constexpr u32 kProfilePayloadBytes = 0x20;
+		constexpr u32 kProfileRevision = 0x1CD9DEE3;
+		constexpr u32 kProfileSlotCount = 4;
 	} // namespace
 
 	std::optional<Snapshot> CaptureObject(const u32 object)
@@ -55,7 +58,9 @@ namespace AVPE::NativeProfileContract
 
 	bool RestorePayload(const Snapshot& snapshot)
 	{
-		if (snapshot.data == 0 || snapshot.payload.empty() || snapshot.payload.size() != snapshot.size ||
+		if (snapshot.data == 0 || snapshot.size != kProfilePayloadBytes ||
+			snapshot.revision != kProfileRevision || snapshot.slot_count != kProfileSlotCount ||
+			snapshot.payload.size() != snapshot.size ||
 			!GuestObjects::IsPlausibleAddress(snapshot.data))
 			return false;
 		return vtlb_memSafeWriteBytes(snapshot.data, snapshot.payload.data(), snapshot.size);

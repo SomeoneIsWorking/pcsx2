@@ -174,7 +174,8 @@ namespace AVPE::NativeSaveBackend
 
 	static bool PersistProfileSave(const NativeProfileContract::Snapshot& snapshot, const s32 result)
 	{
-		if (VMManager::GetDiscSerial() != kSerial || VMManager::GetDiscCRC() != kCrc || result != 0)
+		if (EmuFolders::DataRoot.empty() || VMManager::GetDiscSerial() != kSerial ||
+			VMManager::GetDiscCRC() != kCrc || result != 0)
 			return false;
 		const std::filesystem::path path = SavePath();
 		rapidjson::Document document;
@@ -230,7 +231,8 @@ namespace AVPE::NativeSaveBackend
 
 	static bool RestoreProfile(const NativeProfileContract::Snapshot& snapshot)
 	{
-		if (VMManager::GetDiscSerial() != kSerial || VMManager::GetDiscCRC() != kCrc)
+		if (EmuFolders::DataRoot.empty() || VMManager::GetDiscSerial() != kSerial ||
+			VMManager::GetDiscCRC() != kCrc)
 			return false;
 		const std::filesystem::path path = SavePath();
 		if (!std::filesystem::exists(path))
