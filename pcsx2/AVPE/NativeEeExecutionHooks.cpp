@@ -12,6 +12,8 @@
 #include "AVPE/NativeMovieInput.h"
 #include "AVPE/NativeMissionLoadTiming.h"
 #include "AVPE/NativeShellShutdownBoundary.h"
+#include "AVPE/NativeProfileContract.h"
+#include "AVPE/NativeSaveBackend.h"
 #include "AVPE/NativeTitleTransition.h"
 #include "R5900.h"
 
@@ -57,6 +59,11 @@ namespace AVPE::NativeEeExecutionHooks
 
 	void ObserveEeExecution(const u32 pc)
 	{
+		if (pc == 0x00130000)
+		{
+			if (const auto profile = NativeProfileContract::CaptureCurrent())
+				NativeSaveBackend::ObserveProfileLoadEntry(*profile);
+		}
 		if (NativeBiosTrace::ShouldInstrumentEeSyscallReturn(pc))
 			NativeBiosTrace::ObserveEeSyscallReturn(pc);
 		if (NativeBiosTrace::ShouldInstrumentMissionBoundary(pc))

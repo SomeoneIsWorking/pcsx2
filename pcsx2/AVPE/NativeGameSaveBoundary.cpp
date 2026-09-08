@@ -6,6 +6,8 @@
 #include "AVPE/GuestObjects.h"
 #include "AVPE/LoadTimingPoint.h"
 #include "AVPE/NativeBiosTrace.h"
+#include "AVPE/NativeProfileContract.h"
+#include "AVPE/NativeSaveBackend.h"
 #include "R5900.h"
 #include "VMManager.h"
 
@@ -42,17 +44,7 @@ namespace AVPE::NativeGameSaveBoundary
 		u32 s_sequence_errors = 0;
 		std::string s_capture;
 
-		struct ProfileSnapshot
-		{
-			u32 object = 0;
-			u32 data = 0;
-			u32 size = 0;
-			u32 revision = 0;
-			u32 slot_count = 0;
-			std::vector<u8> payload;
-		};
-
-		std::optional<ProfileSnapshot> s_profile;
+		std::optional<NativeProfileContract::Snapshot> s_profile;
 
 		bool IsSupportedTarget()
 		{
@@ -65,28 +57,6 @@ namespace AVPE::NativeGameSaveBoundary
 			u32 profile = 0;
 			return GuestObjects::ReadWord(ProfileSingletonAddress, &profile) && profile != 0 &&
 			       cpuRegs.GPR.n.a0.UL[0] == profile;
-		}
-
-		std::optional<ProfileSnapshot> CaptureProfile()
-		{
-			const u32 object = cpuRegs.GPR.n.a0.UL[0];
-			if (object == 0 || !GuestObjects::IsPlausibleAddress(object))
-				return std::nullopt;
-
-			ProfileSnapshot snapshot;
-			snapshot.object = object;
-			if (!GuestObjects::ReadWord(object + 0x18, &snapshot.data) ||
-				!GuestObjects::ReadWord(object + 0x1C, &snapshot.size) ||
-				!GuestObjects::ReadWord(object + 0x20, &snapshot.revision) ||
-				!GuestObjects::ReadWord(object + 0x24, &snapshot.slot_count) ||
-				snapshot.data == 0 || snapshot.size == 0 || snapshot.size > 0x2000 ||
-				!GuestObjects::IsPlausibleAddress(snapshot.data))
-				return std::nullopt;
-
-			snapshot.payload.resize(snapshot.size);
-			if (!GuestObjects::ReadBytes(snapshot.data, snapshot.payload.data(), snapshot.size))
-				return std::nullopt;
-			return snapshot;
 		}
 
 		std::string HexWord(const u32 value)
@@ -115,7 +85,7 @@ namespace AVPE::NativeGameSaveBoundary
 			json += ",\"host_time_ns\":" + std::to_string(point.host_time_ns) + '}';
 		}
 
-		void AppendProfile(std::string& json, const ProfileSnapshot& profile)
+		void AppendProfile(std::string& json, const NativeProfileContract::Snapshot& profile)
 		{
 			json += "{\"object\":\"0x";
 			json += HexWord(profile.object);
@@ -196,6 +166,15 @@ namespace AVPE::NativeGameSaveBoundary
 
 	void ObserveEeExecution(const u32 pc)
 	{
+		if (pc == SaveGameEntryPc)
+		{
+			if (const auto profile = NativeProfileContract::CaptureCurrent())
+				NativeSaveBackend::ObserveProfileEntry(*profile);
+		}
+		else if (pc == SaveGameReturnPc)
+		{
+			NativeSaveBackend::ObserveProfileReturn(cpuRegs.GPR.n.v0.SL[0]);
+		}
 		if (!s_armed.load(std::memory_order_acquire) || !IsSupportedTarget())
 			return;
 		std::lock_guard lock(s_mutex);
@@ -219,7 +198,7 @@ namespace AVPE::NativeGameSaveBoundary
 			// selected its slot.
 			NativeBiosTrace::Reset();
 			NativeBiosTrace::SetEnabled(true);
-			s_profile = CaptureProfile();
+			s_profile = NativeProfileContract::CaptureCurrent();
 			s_entry = LoadTimingPoint::CaptureNext(s_ordinal);
 			return;
 		}

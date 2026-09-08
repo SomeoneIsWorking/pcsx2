@@ -93,6 +93,8 @@ set(pcsx2Sources
 	AVPE/NativeConfig.cpp
 	AVPE/EECallShuttle.cpp
 	AVPE/GuestObjects.cpp
+	AVPE/NativeProfileContract.cpp
+	AVPE/NativeSaveBackend.cpp
 	AVPE/LoadTimingPoint.cpp
 	AVPE/NativeAssetByteTrace.cpp
 	AVPE/NativeBiosEventStore.cpp
