@@ -812,6 +812,8 @@ namespace AVPE
 			body += ",\"native_open_count\":" + std::to_string(observation.native_open_count);
 			body += ",\"original_fallback_count\":" + std::to_string(observation.original_fallback_count);
 			body += ",\"refused_count\":" + std::to_string(observation.refused_count);
+			body += ",\"guest_result_valid\":" + std::string(observation.guest_result_valid ? "true" : "false");
+			body += ",\"guest_result\":" + std::to_string(observation.guest_result);
 			body += ",\"read_calls\":" + std::to_string(observation.read_calls);
 			body += ",\"bytes_read\":" + std::to_string(observation.bytes_read);
 			body += ",\"seek_calls\":" + std::to_string(observation.seek_calls);

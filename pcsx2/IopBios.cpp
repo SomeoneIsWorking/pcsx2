@@ -696,6 +696,7 @@ namespace R3000A
 						v0 = -IOP_EIO;
 						break;
 				}
+				AVPE::NativeAssets::NoteGuestOpenResult(path, static_cast<s32>(v0));
 				pc = ra;
 				return 1;
 			}
@@ -705,6 +706,7 @@ namespace R3000A
 				if (!freefdcount())
 				{
 					v0 = -IOP_EMFILE;
+					AVPE::NativeAssets::NoteGuestOpenResult(path, static_cast<s32>(v0));
 					pc = ra;
 					return 1;
 				}
@@ -736,6 +738,7 @@ namespace R3000A
 							AVPE::NativeAssets::NoteNativeOpen(path);
 					}
 				}
+				AVPE::NativeAssets::NoteGuestOpenResult(path, static_cast<s32>(v0));
 
 				pc = ra;
 				return 1;
