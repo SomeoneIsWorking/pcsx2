@@ -68,6 +68,8 @@ namespace AVPE::NativeAssets
 		u32 native_open_count = 0;
 		u32 original_fallback_count = 0;
 		u32 refused_count = 0;
+		bool guest_result_valid = false;
+		s32 guest_result = 0;
 		u32 read_calls = 0;
 		u64 bytes_read = 0;
 		u32 seek_calls = 0;
@@ -103,6 +105,7 @@ namespace AVPE::NativeAssets
 	void NoteOriginalFallback(std::string_view path);
 	void NoteCdvdOriginalFallback(std::string_view path);
 	void NoteNativeOpen(std::string_view path);
+	void NoteGuestOpenResult(std::string_view path, s32 result);
 	void NoteNativeRead(std::string_view path, u32 bytes_requested, s32 result);
 	void NoteNativeSeek(std::string_view path);
 	void NoteNativeClose(std::string_view path);

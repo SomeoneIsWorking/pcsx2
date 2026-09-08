@@ -472,6 +472,16 @@ namespace AVPE::NativeAssets
 			++observation->native_open_count;
 	}
 
+	void NoteGuestOpenResult(const std::string_view path, const s32 result)
+	{
+		std::lock_guard lock(s_observation_mutex);
+		if (OpenObservation* observation = FindObservation(path))
+		{
+			observation->guest_result_valid = true;
+			observation->guest_result = result;
+		}
+	}
+
 	void NoteNativeRead(const std::string_view path, const u32 bytes_requested, const s32 result)
 	{
 		std::lock_guard lock(s_observation_mutex);
