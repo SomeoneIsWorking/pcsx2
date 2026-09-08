@@ -15,6 +15,12 @@ namespace AVPE::NativeMenuItems
 	static constexpr u32 FIRST_CHILD_OFFSET = 0x08;
 	static constexpr u32 NEXT_SIBLING_OFFSET = 0x10;
 	static constexpr u32 MAX_MENU_OBJECTS = 256;
+	static constexpr u32 SLIDER_CONTROL_VTABLE = 0x00341E20;
+	static constexpr u32 SLIDER_INPUT_DOWN = 0x001FD400;
+	static constexpr u32 SLIDER_INPUT_UP = 0x001FD420;
+	static constexpr u32 AUDIO_OPTIONS_VTABLE = 0x00341D20;
+	static constexpr u32 AUDIO_BACK_BUTTON_ID = 0x0797F09F;
+	static constexpr u32 OBJECT_NAME_OFFSET = 0x1C;
 
 	static Status ReadMenuDescendants(const u32 menu,
 		std::array<u32, MAX_MENU_OBJECTS>* descendants, u32* descendant_count, const char** error, const NativeInputCallbacks::Access& read)
@@ -95,7 +101,8 @@ namespace AVPE::NativeMenuItems
 		return true;
 	}
 
-	Status FindActivationCallback(const u32 entries, const u32 count, const u32 menu, const u32 focused,
+	static Status FindHotkeyCallback(const u32 entries, const u32 count, const u32 menu, const u32 focused,
+		const u32 required_name,
 		NativeInputCallbacks::Target* target, const char** error, const NativeInputCallbacks::Access& read)
 	{
 		*target = {};
@@ -151,7 +158,18 @@ namespace AVPE::NativeMenuItems
 				*error = "menu hotkey item action is unreadable";
 				return Status::GuestMemoryError;
 			}
-			if (item_action != ACTIVATE_FOCUSED_ACTION && owner != focused)
+			if (required_name != 0)
+			{
+				u32 name = 0;
+				if (!read.word(owner + OBJECT_NAME_OFFSET, &name))
+				{
+					*error = "menu hotkey item name is unreadable";
+					return Status::GuestMemoryError;
+				}
+				if (name != required_name)
+					continue;
+			}
+			else if (item_action != ACTIVATE_FOCUSED_ACTION && owner != focused)
 				continue;
 
 			u32 function = 0;
@@ -162,7 +180,7 @@ namespace AVPE::NativeMenuItems
 			}
 			if (function != MENU_ITEM_HOTKEY_ACTIVATE)
 				continue;
-			if (item_action != ACTIVATE_FOCUSED_ACTION)
+			if (required_name == 0 && item_action != ACTIVATE_FOCUSED_ACTION)
 			{
 				if (focused_target.object == 0)
 					focused_target = {.object = owner, .callback = callback, .function = function};
@@ -170,7 +188,7 @@ namespace AVPE::NativeMenuItems
 			}
 			if (target->object != 0 && target->object != owner)
 			{
-				*error = "more than one ActivateFocused hotkey item is active";
+				*error = "more than one matching menu hotkey item is active";
 				return Status::AmbiguousMenu;
 			}
 			if (target->object == 0)
@@ -185,6 +203,102 @@ namespace AVPE::NativeMenuItems
 			return Status::FocusUnavailable;
 		}
 		return Status::Success;
+	}
+
+	Status FindActivationCallback(const u32 entries, const u32 count, const u32 menu, const u32 focused,
+		NativeInputCallbacks::Target* target, const char** error, const NativeInputCallbacks::Access& read)
+	{
+		return FindHotkeyCallback(entries, count, menu, focused, 0, target, error, read);
+	}
+
+	Status FindCancellationCallback(const u32 entries, const u32 count, const u32 menu,
+		NativeInputCallbacks::Target* target, const char** error, const NativeInputCallbacks::Access& read)
+	{
+		*target = {};
+		u32 vtable = 0;
+		if (!read.word(menu, &vtable))
+		{
+			*error = "cancel menu identity is unreadable";
+			return Status::GuestMemoryError;
+		}
+		if (vtable != AUDIO_OPTIONS_VTABLE)
+			return Status::FocusUnavailable;
+		// GAudioOptionsMenu::ItemActivated (001FD640) restores preview audio
+		// only for AudioBackButton. Generic GMenu::Cancel skips that lifecycle.
+		const Status status = FindHotkeyCallback(entries, count, menu, 0, AUDIO_BACK_BUTTON_ID, target, error, read);
+		if (status == Status::FocusUnavailable)
+		{
+			*error = "Audio options has no registered Back action";
+			return Status::GuestMemoryError;
+		}
+		return status;
+	}
+
+	Status FindAdjustmentCallback(const u32 entries, const u32 count, const u32 menu,
+		const u32 focused, const NativeMenuInput::Action action, NativeInputCallbacks::Target* target,
+		const char** error, const NativeInputCallbacks::Access& read)
+	{
+		*target = {};
+		using Action = NativeMenuInput::Action;
+		if (action != Action::Left && action != Action::Right)
+			return Status::FocusUnavailable;
+		if (count > NativeInputCallbacks::MaxCount)
+		{
+			*error = "menu callback registry exceeds its bound";
+			return Status::GuestMemoryError;
+		}
+		if (focused == 0)
+			return Status::FocusUnavailable;
+		u32 vtable = 0;
+		if (!read.is_object(focused) || !read.word(focused, &vtable))
+		{
+			*error = "focused menu item is invalid or unreadable";
+			return Status::GuestMemoryError;
+		}
+		if (vtable != SLIDER_CONTROL_VTABLE)
+			return Status::FocusUnavailable;
+		std::array<u32, MAX_MENU_OBJECTS> descendants{};
+		u32 descendant_count = 0;
+		const Status tree_status = ReadMenuDescendants(menu, &descendants, &descendant_count, error, read);
+		if (tree_status != Status::Success)
+			return tree_status;
+		u32 focused_handle = 0;
+		u32 resolved = 0;
+		if (!ContainsValue(descendants, descendant_count, focused) ||
+			!read.word(focused + OBJECT_HANDLE_OFFSET, &focused_handle) || focused_handle == 0 ||
+			!read.handle(focused_handle, &resolved) || resolved != focused)
+		{
+			*error = "focused slider is not a valid menu descendant";
+			return Status::GuestMemoryError;
+		}
+		// GSliderControl::Focus (001FD2C0) registers these original members;
+		// its InputDown/InputUp own rate, clamping, and presentation callbacks.
+		const u32 expected = action == Action::Left ? SLIDER_INPUT_DOWN : SLIDER_INPUT_UP;
+		for (u32 index = 0; index < count; ++index)
+		{
+			const u32 callback = entries + index * NativeInputCallbacks::Stride;
+			u32 owner_handle = 0;
+			if (!read.word(callback + NativeInputCallbacks::OwnerOffset, &owner_handle))
+			{
+				*error = "slider callback owner handle is unreadable";
+				return Status::GuestMemoryError;
+			}
+			if (owner_handle != focused_handle)
+				continue;
+			u32 function = 0;
+			if (!read.member(focused, callback + NativeInputCallbacks::MemberOffset, &function))
+			{
+				*error = "slider callback member is invalid or unreadable";
+				return Status::GuestMemoryError;
+			}
+			if (function == expected)
+			{
+				*target = {.object = focused, .callback = callback, .function = function};
+				return Status::Success;
+			}
+		}
+		*error = "focused slider has no registered adjustment callback";
+		return Status::GuestMemoryError;
 	}
 
 	Status FindMissionGoalsExitItem(const u32 menu, u32* exit_item, const char** error, const NativeInputCallbacks::Access& read)

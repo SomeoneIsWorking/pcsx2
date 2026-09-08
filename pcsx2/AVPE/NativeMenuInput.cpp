@@ -555,7 +555,7 @@ namespace AVPE::NativeMenuInput
 
 		u32 target = result->menu;
 		u32 callback = 0;
-		if (action == Action::Activate)
+		if (action == Action::Activate || action == Action::Left || action == Action::Right)
 		{
 			CallbackRegistry registry;
 			const Status registry_status = ReadCallbackRegistry(&registry, &result->error);
@@ -565,9 +565,11 @@ namespace AVPE::NativeMenuInput
 				return;
 			}
 			NativeInputCallbacks::Target hotkey;
-			const Status hotkey_status =
-				NativeMenuItems::FindActivationCallback(registry.entries, registry.count,
-					result->menu, result->before.object, &hotkey, &result->error);
+			const Status hotkey_status = action == Action::Activate ?
+			                                 NativeMenuItems::FindActivationCallback(registry.entries, registry.count,
+												 result->menu, result->before.object, &hotkey, &result->error) :
+			                                 NativeMenuItems::FindAdjustmentCallback(registry.entries, registry.count,
+												 result->menu, result->before.object, action, &hotkey, &result->error);
 			if (hotkey_status == Status::Success)
 			{
 				target = hotkey.object;
@@ -596,6 +598,29 @@ namespace AVPE::NativeMenuInput
 		QueueRegisteredAction(result, {.object = target, .callback = callback, .function = result->handler});
 	}
 
+	static bool TryRegisteredCancellation(Result* result)
+	{
+		CallbackRegistry registry;
+		result->status = ReadCallbackRegistry(&registry, &result->error);
+		if (result->status != Status::Success)
+			return true;
+		NativeInputCallbacks::Target target;
+		result->status = NativeMenuItems::FindCancellationCallback(
+			registry.entries, registry.count, result->menu, &target, &result->error);
+		if (result->status == Status::FocusUnavailable)
+		{
+			result->status = Status::Success;
+			return false;
+		}
+		if (result->status == Status::Success)
+		{
+			result->handler = target.function;
+			result->action_target = target.object;
+			QueueRegisteredAction(result, target);
+		}
+		return true;
+	}
+
 	Result Inspect()
 	{
 		Result result;
@@ -618,6 +643,9 @@ namespace AVPE::NativeMenuInput
 			if (result.status != Status::Success)
 				return;
 			if (!PrepareMissionGoalsActivation(&result, transaction, action))
+				return;
+			if (result.source == Source::CallbackRegistry && action == Action::Cancel &&
+				TryRegisteredCancellation(&result))
 				return;
 			if (result.source == Source::CallbackRegistry && action != Action::Cancel)
 			{
