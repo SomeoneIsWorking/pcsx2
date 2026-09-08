@@ -11,9 +11,12 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <iomanip>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <string_view>
+#include <vector>
 
 namespace AVPE::NativeGameSaveBoundary
 {
@@ -39,6 +42,18 @@ namespace AVPE::NativeGameSaveBoundary
 		u32 s_sequence_errors = 0;
 		std::string s_capture;
 
+		struct ProfileSnapshot
+		{
+			u32 object = 0;
+			u32 data = 0;
+			u32 size = 0;
+			u32 revision = 0;
+			u32 slot_count = 0;
+			std::vector<u8> payload;
+		};
+
+		std::optional<ProfileSnapshot> s_profile;
+
 		bool IsSupportedTarget()
 		{
 			return IsSurfacelessControlTest() && VMManager::GetDiscSerial() == TargetSerial &&
@@ -52,6 +67,44 @@ namespace AVPE::NativeGameSaveBoundary
 			       cpuRegs.GPR.n.a0.UL[0] == profile;
 		}
 
+		std::optional<ProfileSnapshot> CaptureProfile()
+		{
+			const u32 object = cpuRegs.GPR.n.a0.UL[0];
+			if (object == 0 || !GuestObjects::IsPlausibleAddress(object))
+				return std::nullopt;
+
+			ProfileSnapshot snapshot;
+			snapshot.object = object;
+			if (!GuestObjects::ReadWord(object + 0x18, &snapshot.data) ||
+				!GuestObjects::ReadWord(object + 0x1C, &snapshot.size) ||
+				!GuestObjects::ReadWord(object + 0x20, &snapshot.revision) ||
+				!GuestObjects::ReadWord(object + 0x24, &snapshot.slot_count) ||
+				snapshot.data == 0 || snapshot.size == 0 || snapshot.size > 0x2000 ||
+				!GuestObjects::IsPlausibleAddress(snapshot.data))
+				return std::nullopt;
+
+			snapshot.payload.resize(snapshot.size);
+			if (!GuestObjects::ReadBytes(snapshot.data, snapshot.payload.data(), snapshot.size))
+				return std::nullopt;
+			return snapshot;
+		}
+
+		std::string HexWord(const u32 value)
+		{
+			std::ostringstream stream;
+			stream << std::hex << std::setfill('0') << std::setw(8) << std::uppercase << value;
+			return stream.str();
+		}
+
+		std::string Hex(const std::vector<u8>& bytes)
+		{
+			std::ostringstream stream;
+			stream << std::hex << std::setfill('0');
+			for (const u8 byte : bytes)
+				stream << std::setw(2) << static_cast<unsigned int>(byte);
+			return stream.str();
+		}
+
 		void AppendPoint(std::string& json, const LoadTimingPoint::Point& point, const u32 pc)
 		{
 			json += "{\"pc\":" + std::to_string(pc);
@@ -60,6 +113,19 @@ namespace AVPE::NativeGameSaveBoundary
 			json += ",\"iop_cycle\":" + std::to_string(point.iop_cycle);
 			json += ",\"frame\":" + std::to_string(point.frame);
 			json += ",\"host_time_ns\":" + std::to_string(point.host_time_ns) + '}';
+		}
+
+		void AppendProfile(std::string& json, const ProfileSnapshot& profile)
+		{
+			json += "{\"object\":\"0x";
+			json += HexWord(profile.object);
+			json += "\",\"data\":\"0x";
+			json += HexWord(profile.data);
+			json += "\",\"size\":" + std::to_string(profile.size);
+			json += ",\"revision\":\"0x";
+			json += HexWord(profile.revision);
+			json += "\",\"slot_count\":" + std::to_string(profile.slot_count);
+			json += ",\"payload_hex\":\"" + Hex(profile.payload) + "\"}";
 		}
 
 		std::string BuildResult(const std::string& trace)
@@ -81,6 +147,11 @@ namespace AVPE::NativeGameSaveBoundary
 			result += ",\"succeeded\":" + std::string(complete && s_result == 0 ? "true" : "false");
 			result += ",\"result\":" + std::to_string(s_result);
 			result += ",\"sequence_errors\":" + std::to_string(s_sequence_errors);
+			result += ",\"profile\":";
+			if (s_profile)
+				AppendProfile(result, *s_profile);
+			else
+				result += "null";
 			result += ",\"entry\":";
 			if (s_entry)
 				AppendPoint(result, *s_entry, SaveGameEntryPc);
@@ -111,6 +182,7 @@ namespace AVPE::NativeGameSaveBoundary
 		s_pacify_process_calls = 0;
 		s_sequence_errors = 0;
 		s_capture.clear();
+		s_profile.reset();
 		s_armed.store(true, std::memory_order_release);
 		return true;
 	}
@@ -147,6 +219,7 @@ namespace AVPE::NativeGameSaveBoundary
 			// selected its slot.
 			NativeBiosTrace::Reset();
 			NativeBiosTrace::SetEnabled(true);
+			s_profile = CaptureProfile();
 			s_entry = LoadTimingPoint::CaptureNext(s_ordinal);
 			return;
 		}
