@@ -96,6 +96,79 @@ namespace
 		EXPECT_EQ(Find(first), Status::AmbiguousMenu);
 	}
 
+	TEST_F(NativeMenuItemsTest, RoutesHorizontalActionsOnlyToFocusedRegisteredSlider)
+	{
+		using Action = AVPE::NativeMenuInput::Action;
+		words[first] = 0x00341E20;
+		AddCallback(0, first, 1, 0x001FD400);
+		AddCallback(1, first, 1, 0x001FD420);
+		for (const auto action : {Action::Left, Action::Right})
+		{
+			EXPECT_EQ(AVPE::NativeMenuItems::FindAdjustmentCallback(
+						  callbacks, 2, menu, first, action, &target, &error, access),
+				Status::Success);
+			EXPECT_EQ(target.object, first);
+			EXPECT_EQ(target.function, action == Action::Left ? 0x001FD400u : 0x001FD420u);
+		}
+		for (const auto action : {Action::Up, Action::Down, Action::Activate, Action::Cancel})
+			EXPECT_EQ(AVPE::NativeMenuItems::FindAdjustmentCallback(
+						  callbacks, 2, menu, first, action, &target, &error, access),
+				Status::FocusUnavailable);
+		EXPECT_EQ(AVPE::NativeMenuItems::FindAdjustmentCallback(
+					  callbacks, 2, menu, second, Action::Left, &target, &error, access),
+			Status::FocusUnavailable);
+	}
+
+	TEST_F(NativeMenuItemsTest, RefusesStaleUnregisteredAndForeignSliderCallbacks)
+	{
+		using Action = AVPE::NativeMenuInput::Action;
+		words[first] = 0x00341E20;
+		const auto find = [&]() {
+			return AVPE::NativeMenuItems::FindAdjustmentCallback(
+				callbacks, 2, menu, first, Action::Left, &target, &error, access);
+		};
+		EXPECT_EQ(find(), Status::GuestMemoryError);
+		AddCallback(0, first, 1, 0x001FD400);
+		EXPECT_EQ(find(), Status::Success);
+		handles[1] = second;
+		EXPECT_EQ(find(), Status::GuestMemoryError);
+		handles[1] = first;
+		words[menu + 8] = second;
+		EXPECT_EQ(find(), Status::GuestMemoryError);
+		words[menu + 8] = first;
+		members.erase({first, callbacks + 0xC});
+		EXPECT_EQ(find(), Status::GuestMemoryError);
+		EXPECT_EQ(AVPE::NativeMenuItems::FindAdjustmentCallback(
+					  callbacks, 257, menu, first, Action::Left, &target, &error, access),
+			Status::GuestMemoryError);
+		EXPECT_EQ(target.object, 0u);
+	}
+
+	TEST_F(NativeMenuItemsTest, AudioCancelRequiresUniqueRegisteredBackItem)
+	{
+		words[menu] = 0x00341D20;
+		words[first + 0x1C] = 0x0797F09F;
+		words[second + 0x1C] = 0;
+		const auto find = [&]() {
+			return AVPE::NativeMenuItems::FindCancellationCallback(
+				callbacks, 2, menu, &target, &error, access);
+		};
+		EXPECT_EQ(find(), Status::Success);
+		EXPECT_EQ(target.object, first);
+		EXPECT_EQ(target.function, hotkey);
+		words[second + 0x1C] = 0x0797F09F;
+		EXPECT_EQ(find(), Status::AmbiguousMenu);
+		words[first + 0x1C] = 0;
+		words[second + 0x1C] = 0;
+		EXPECT_EQ(find(), Status::GuestMemoryError);
+		words[first + 0x1C] = 0x0797F09F;
+		members[{first, callbacks + 0xC}] = 0x001FD400;
+		EXPECT_EQ(find(), Status::GuestMemoryError);
+		words[menu] = 0x00342120;
+		EXPECT_EQ(find(), Status::FocusUnavailable);
+		EXPECT_EQ(target.object, 0u);
+	}
+
 	TEST_F(NativeMenuItemsTest, CoalescesEquivalentPhysicalBindingsForTheSameItem)
 	{
 		AddCallback(1, first, 1);
