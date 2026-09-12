@@ -181,7 +181,9 @@ void Host::OnVMStarted()
 
 void Host::OnVMDestroyed()
 {
-	AVPE::Runtime::RequestApplicationExit(EXIT_SUCCESS);
+	// Initialize also calls this callback while unwinding a failed boot.
+	if (AVPE::Runtime::Get()->GetEmulationThread().BootCompletedSuccessfully())
+		AVPE::Runtime::RequestApplicationExit(EXIT_SUCCESS);
 }
 
 void Host::OnVMPaused()
