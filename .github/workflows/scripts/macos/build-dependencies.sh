@@ -14,6 +14,11 @@ fi
 export MACOSX_DEPLOYMENT_TARGET=11.0
 
 NPROCS="$(getconf _NPROCESSORS_ONLN)"
+TARGET_ARCH="$(uname -m)"
+case "$TARGET_ARCH" in
+	x86_64|arm64) ;;
+	*) echo "Unsupported macOS dependency architecture: $TARGET_ARCH" >&2; exit 1 ;;
+esac
 SCRIPTDIR=$(realpath $(dirname "${BASH_SOURCE[0]}"))
 INSTALLDIR="$1"
 if [ "${INSTALLDIR:0:1}" != "/" ]; then
@@ -55,8 +60,8 @@ CMAKE_COMMON=(
 	-DCMAKE_SHARED_LINKER_FLAGS="-dead_strip -dead_strip_dylibs"
 	-DCMAKE_PREFIX_PATH="$INSTALLDIR"
 	-DCMAKE_INSTALL_PREFIX="$INSTALLDIR"
-	-DCMAKE_OSX_ARCHITECTURES="x86_64"
-	-DCMAKE_APPLE_SILICON_PROCESSOR="x86_64"
+	-DCMAKE_OSX_ARCHITECTURES="$TARGET_ARCH"
+	-DCMAKE_APPLE_SILICON_PROCESSOR="$TARGET_ARCH"
 	-DCMAKE_INSTALL_NAME_DIR='$<INSTALL_PREFIX>/lib'
 )
 
@@ -137,7 +142,7 @@ if [ "$BUILD_FFMPEG" -ne 0 ]; then
 	cd "ffmpeg-$FFMPEG"
 	LDFLAGS="-dead_strip $LDFLAGS" CFLAGS="-Os $CFLAGS" CXXFLAGS="-Os $CXXFLAGS" \
 		./configure --prefix="$INSTALLDIR" \
-		--enable-cross-compile --arch=x86_64 --cc='clang -arch x86_64' --cxx='clang++ -arch x86_64' \
+		--enable-cross-compile --arch="$TARGET_ARCH" --cc="clang -arch $TARGET_ARCH" --cxx="clang++ -arch $TARGET_ARCH" \
 		--disable-all --disable-autodetect --disable-static --enable-shared \
 		--enable-avcodec --enable-avformat --enable-avutil --enable-swresample --enable-swscale \
 		--enable-audiotoolbox --enable-videotoolbox \
@@ -182,7 +187,7 @@ echo "Installing libjpegturbo..."
 rm -fr "libjpeg-turbo-$LIBJPEGTURBO"
 tar xf "libjpeg-turbo-$LIBJPEGTURBO.tar.gz"
 cd "libjpeg-turbo-$LIBJPEGTURBO"
-cmake "${CMAKE_COMMON[@]}" "$CMAKE_ARCH_X64" -DENABLE_STATIC=OFF -DENABLE_SHARED=ON -B build
+cmake "${CMAKE_COMMON[@]}" -DENABLE_STATIC=OFF -DENABLE_SHARED=ON -B build
 make -C build "-j$NPROCS"
 make -C build install
 cd ..
@@ -225,15 +230,14 @@ make -C build "-j$NPROCS"
 make -C build install
 cd ..
 
-# MoltenVK already builds universal binaries, nothing special to do here.
 echo "Installing MoltenVK..."
 rm -fr "MoltenVK-${MOLTENVK}"
 tar xf "v$MOLTENVK.tar.gz"
 cd "MoltenVK-${MOLTENVK}"
 sed -i '' 's/xcodebuild "$@"/xcodebuild $XCODEBUILD_EXTRA_ARGS "$@"/g' fetchDependencies
 sed -i '' 's/XCODEBUILD :=/XCODEBUILD ?=/g' Makefile
-XCODEBUILD_EXTRA_ARGS="VALID_ARCHS=x86_64" ./fetchDependencies --macos
-XCODEBUILD="set -o pipefail && xcodebuild VALID_ARCHS=x86_64" make macos MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0 MVK_CONFIG_USE_METAL_PRIVATE_API=1
+XCODEBUILD_EXTRA_ARGS="ARCHS=$TARGET_ARCH VALID_ARCHS=$TARGET_ARCH" ./fetchDependencies --macos
+XCODEBUILD="set -o pipefail && xcodebuild ARCHS=$TARGET_ARCH VALID_ARCHS=$TARGET_ARCH" make macos MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0 MVK_CONFIG_USE_METAL_PRIVATE_API=1
 cp Package/Latest/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib "$INSTALLDIR/lib/"
 cd ..
 
@@ -322,7 +326,7 @@ tar xf "../../shaderc-spirv-tools-$SHADERC_SPIRVTOOLS.tar.gz"
 mv "SPIRV-Tools-$SHADERC_SPIRVTOOLS" "spirv-tools"
 cd ..
 patch -p1 < "$SCRIPTDIR/../common/shaderc-changes.patch"
-cmake "${CMAKE_COMMON[@]}" "$CMAKE_ARCH_UNIVERSAL" -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON -B build
+cmake "${CMAKE_COMMON[@]}" -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON -B build
 make -C build "-j$NPROCS"
 make -C build install
 cd ..
