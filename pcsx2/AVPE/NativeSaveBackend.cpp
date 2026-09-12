@@ -42,7 +42,7 @@ namespace AVPE::NativeSaveBackend
 
 		std::filesystem::path SavePath()
 		{
-			return std::filesystem::path(EmuFolders::DataRoot) / "AVPE" / "avpe-saves.avpesave";
+			return std::filesystem::path(EmuConfig.CustomDataPath) / "avpe-saves.avpesave";
 		}
 
 		std::string Hex(const u8* bytes, const size_t size)
@@ -174,7 +174,7 @@ namespace AVPE::NativeSaveBackend
 
 	static bool PersistProfileSave(const NativeProfileContract::Snapshot& snapshot, const s32 result)
 	{
-		if (EmuFolders::DataRoot.empty() || VMManager::GetDiscSerial() != kSerial ||
+		if (EmuConfig.CustomDataPath.empty() || VMManager::GetDiscSerial() != kSerial ||
 			VMManager::GetDiscCRC() != kCrc || result != 0)
 			return false;
 		const std::filesystem::path path = SavePath();
@@ -231,7 +231,7 @@ namespace AVPE::NativeSaveBackend
 
 	static bool RestoreProfile(const NativeProfileContract::Snapshot& snapshot)
 	{
-		if (EmuFolders::DataRoot.empty() || VMManager::GetDiscSerial() != kSerial ||
+		if (EmuConfig.CustomDataPath.empty() || VMManager::GetDiscSerial() != kSerial ||
 			VMManager::GetDiscCRC() != kCrc)
 			return false;
 		const std::filesystem::path path = SavePath();
