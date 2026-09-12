@@ -12,6 +12,8 @@ add_pcsx2_test(core_test
 	MockMemoryInterface.h
 	StubHost.cpp
 )
+set_target_properties(core_test PROPERTIES
+	RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 target_compile_definitions(core_test PRIVATE
 	AVPE_TEST_SCRATCH_ROOT="${CMAKE_BINARY_DIR}/avpe-test-data")

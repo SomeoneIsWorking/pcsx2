@@ -41,7 +41,8 @@ endif()
 target_compile_definitions(avpe PRIVATE QT_NO_EXCEPTIONS)
 
 fixup_file_properties(avpe)
-setup_main_executable(avpe STANDALONE INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in")
+setup_main_executable(avpe STANDALONE NO_DEPLOY_CODESIGN
+	INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in")
 
 # The AVPE host owns a relocatable install boundary for hosted/package checks.
 # PCSX2's legacy developer install rules target its source-tree bin directory;

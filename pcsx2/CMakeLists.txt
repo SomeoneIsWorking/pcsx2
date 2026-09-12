@@ -1315,7 +1315,7 @@ set_property(GLOBAL PROPERTY PCSX2_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set_property(GLOBAL PROPERTY PCSX2_METAL_SHADERS ${pcsx2GSMetalShaders})
 
 function(setup_main_executable target)
-	cmake_parse_arguments(SETUP "STANDALONE" "INFO_PLIST" "" ${ARGN})
+	cmake_parse_arguments(SETUP "STANDALONE;NO_DEPLOY_CODESIGN" "INFO_PLIST" "" ${ARGN})
 	file(GLOB_RECURSE RESOURCE_FILES ${CMAKE_SOURCE_DIR}/bin/resources/*)
 	foreach(path IN LISTS RESOURCE_FILES)
 		get_filename_component(file ${path} NAME)
@@ -1497,8 +1497,12 @@ function(setup_main_executable target)
 			set(postprocessBundleType ALL)
 		endif()
 
+		set(macdeployqt_sign_options)
+		if(SETUP_NO_DEPLOY_CODESIGN)
+			list(APPEND macdeployqt_sign_options -no-codesign)
+		endif()
 		add_custom_target(${target}-postprocess-bundle ${postprocessBundleType}
-			COMMAND Qt6::macdeployqt "$<TARGET_FILE_DIR:${target}>/../.." -no-strip
+			COMMAND Qt6::macdeployqt "$<TARGET_FILE_DIR:${target}>/../.." -no-strip ${macdeployqt_sign_options}
 		)
 		add_dependencies(${target}-postprocess-bundle ${target})
 	endif()
