@@ -1478,10 +1478,10 @@ function(setup_main_executable target)
 			set(postprocessBundleType ALL)
 		endif()
 
-		add_custom_target(pcsx2-postprocess-bundle ${postprocessBundleType}
+		add_custom_target(${target}-postprocess-bundle ${postprocessBundleType}
 			COMMAND Qt6::macdeployqt "$<TARGET_FILE_DIR:${target}>/../.." -no-strip
 		)
-		add_dependencies(pcsx2-postprocess-bundle ${target})
+		add_dependencies(${target}-postprocess-bundle ${target})
 	endif()
 
 	if(ENABLE_SETCAP AND UNIX AND NOT APPLE)
