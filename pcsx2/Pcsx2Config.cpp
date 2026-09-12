@@ -2091,6 +2091,7 @@ std::string Pcsx2Config::FullpathToMcd(uint slot) const
 
 void Pcsx2Config::CopyRuntimeConfig(Pcsx2Config& cfg)
 {
+	CustomDataPath = std::move(cfg.CustomDataPath);
 	CurrentBlockdump = std::move(cfg.CurrentBlockdump);
 	CurrentIRX = std::move(cfg.CurrentIRX);
 	CurrentGameArgs = std::move(cfg.CurrentGameArgs);
