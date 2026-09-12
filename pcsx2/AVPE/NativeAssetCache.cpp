@@ -127,8 +127,7 @@ namespace AVPE
 		{
 			std::vector<std::uint64_t> run;
 			run.reserve(kMaximumCoalescedPages);
-			for (std::uint64_t page = first_page;
-				page <= last_page && run.size() < kMaximumCoalescedPages; ++page)
+			for (std::uint64_t page = first_page; page <= last_page && run.size() < kMaximumCoalescedPages; ++page)
 			{
 				const Key key{record.generation, record.id, page};
 				if (pages.contains(key))

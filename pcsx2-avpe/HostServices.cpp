@@ -309,8 +309,7 @@ std::string Host::TranslatePluralToString(
 	(void)disambiguation;
 	TinyString count_string = TinyString::from_format("{}", count);
 	std::string result(msg);
-	for (std::string::size_type position = result.find("%n"); position != std::string::npos;
-		position = result.find("%n"))
+	for (std::string::size_type position = result.find("%n"); position != std::string::npos; position = result.find("%n"))
 	{
 		result.replace(position, 2, count_string.view());
 	}
