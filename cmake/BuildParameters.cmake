@@ -315,7 +315,9 @@ if(NOT CMAKE_GENERATOR MATCHES "Xcode")
 	# Assume Xcode builds aren't being used for distribution
 	# Helpful because Xcode builds don't build multiple metallibs for different macOS versions
 	# Also helpful because Xcode's interactive shader debugger requires apps be built for the latest macOS
-	set(CMAKE_OSX_DEPLOYMENT_TARGET 11.0)
+	if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+		set(CMAKE_OSX_DEPLOYMENT_TARGET 11.0)
+	endif()
 endif()
 
 # CMake defaults the suffix for modules to .so on macOS but wx tells us that the

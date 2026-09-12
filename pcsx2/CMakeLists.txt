@@ -1315,6 +1315,7 @@ set_property(GLOBAL PROPERTY PCSX2_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set_property(GLOBAL PROPERTY PCSX2_METAL_SHADERS ${pcsx2GSMetalShaders})
 
 function(setup_main_executable target)
+	cmake_parse_arguments(SETUP "STANDALONE" "INFO_PLIST" "" ${ARGN})
 	file(GLOB_RECURSE RESOURCE_FILES ${CMAKE_SOURCE_DIR}/bin/resources/*)
 	foreach(path IN LISTS RESOURCE_FILES)
 		get_filename_component(file ${path} NAME)
@@ -1351,7 +1352,9 @@ function(setup_main_executable target)
 			${PCSX2_SOURCE_DIR}/windows/PCSX2.rc
 		)
 		set_target_properties(${target} PROPERTIES WIN32_EXECUTABLE TRUE)
-		install(TARGETS ${target} DESTINATION ${CMAKE_SOURCE_DIR}/bin)
+		if(NOT SETUP_STANDALONE)
+			install(TARGETS ${target} DESTINATION ${CMAKE_SOURCE_DIR}/bin)
+		endif()
 		if(MSVC)
 			install(FILES $<TARGET_PDB_FILE:${target}> DESTINATION ${CMAKE_SOURCE_DIR}/bin)
 		endif()
@@ -1392,15 +1395,29 @@ function(setup_main_executable target)
 
 	if (UNIX AND NOT APPLE)
 		if (PACKAGE_MODE)
-			install(TARGETS ${target} DESTINATION ${CMAKE_INSTALL_FULL_BINDIR})
-			install(DIRECTORY ${CMAKE_SOURCE_DIR}/bin/resources DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/PCSX2)
-			install(DIRECTORY ${CMAKE_BINARY_DIR}/bin/translations DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/PCSX2)
+			if(NOT SETUP_STANDALONE)
+				install(TARGETS ${target} DESTINATION ${CMAKE_INSTALL_FULL_BINDIR})
+				install(DIRECTORY ${CMAKE_SOURCE_DIR}/bin/resources DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/PCSX2)
+				install(DIRECTORY ${CMAKE_BINARY_DIR}/bin/translations DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/PCSX2)
+			endif()
 		else()
-			install(TARGETS ${target} DESTINATION ${CMAKE_SOURCE_DIR}/bin)
+			if(NOT SETUP_STANDALONE)
+				install(TARGETS ${target} DESTINATION ${CMAKE_SOURCE_DIR}/bin)
+			endif()
 		endif()
 	endif()
 
 	if(APPLE)
+		if(SETUP_STANDALONE)
+			if(NOT SETUP_INFO_PLIST)
+				message(FATAL_ERROR "Standalone macOS executable ${target} requires an Info.plist")
+			endif()
+			set(executable_name ${target})
+			set(bundle_info_plist ${SETUP_INFO_PLIST})
+		else()
+			set(executable_name PCSX2)
+			set(bundle_info_plist "${PCSX2_SOURCE_DIR}/Resources/Info.plist.in")
+		endif()
 		if(CMAKE_GENERATOR MATCHES "Xcode")
 			# If we're generating an xcode project, you can just add the shaders to the main pcsx2 target and xcode will deal with them properly
 			# This will make sure xcode supplies code completion, etc (if you use a custom command, it won't)
@@ -1443,14 +1460,16 @@ function(setup_main_executable target)
 
 		set_target_properties(${target} PROPERTIES
 			MACOSX_BUNDLE true
-			MACOSX_BUNDLE_INFO_PLIST "${PCSX2_SOURCE_DIR}/Resources/Info.plist.in"
+			MACOSX_BUNDLE_INFO_PLIST "${bundle_info_plist}"
 			XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${PCSX2_SOURCE_DIR}/Resources/PCSX2.entitlements"
-			OUTPUT_NAME PCSX2
+			OUTPUT_NAME ${executable_name}
 			# Fixes complaints when Xcode tries to sign for running locally about MoltenVK not being signed
 			XCODE_ATTRIBUTE_OTHER_CODE_SIGN_FLAGS --deep
 		)
 
-		pcsx2_resource(${target} ${PCSX2_SOURCE_DIR}/Resources/PCSX2.icns ${PCSX2_SOURCE_DIR}/Resources)
+		if(NOT SETUP_STANDALONE)
+			pcsx2_resource(${target} ${PCSX2_SOURCE_DIR}/Resources/PCSX2.icns ${PCSX2_SOURCE_DIR}/Resources)
+		endif()
 
 		# Copy shaderc into the bundle
 		target_sources(${target} PRIVATE "${SHADERC_LIBRARY}")
