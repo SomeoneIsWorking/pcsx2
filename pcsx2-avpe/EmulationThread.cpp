@@ -72,6 +72,12 @@ namespace AVPE
 		return QThread::currentThread() == this;
 	}
 
+	bool EmulationThread::BootCompletedSuccessfully() const
+	{
+		Q_ASSERT(IsCurrentThread());
+		return m_boot_completed_successfully;
+	}
+
 	void EmulationThread::RequestShutdown()
 	{
 		if (!IsCurrentThread())
@@ -124,6 +130,7 @@ namespace AVPE
 		}
 		else
 		{
+			m_boot_completed_successfully = true;
 			VMManager::SetState(VMState::Running);
 		}
 

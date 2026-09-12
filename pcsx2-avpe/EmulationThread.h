@@ -28,6 +28,7 @@ namespace AVPE
 		void PumpEvents();
 		void Wake();
 		bool IsCurrentThread() const;
+		bool BootCompletedSuccessfully() const;
 
 	public Q_SLOTS:
 		void RequestShutdown();
@@ -43,5 +44,6 @@ namespace AVPE
 		QEventLoop* m_event_loop = nullptr;
 		std::unique_ptr<VMBootParameters> m_boot_parameters;
 		std::atomic_bool m_stop_requested{false};
+		bool m_boot_completed_successfully = false;
 	};
 } // namespace AVPE
