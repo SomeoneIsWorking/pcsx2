@@ -13,6 +13,7 @@
 #include "AVPE/NativeMissionLoadTiming.h"
 #include "AVPE/NativeShellShutdownBoundary.h"
 #include "AVPE/NativeProfileContract.h"
+#include "AVPE/NativePromptTrace.h"
 #include "AVPE/NativeSaveBackend.h"
 #include "AVPE/NativeTitleTransition.h"
 #include "R5900.h"
@@ -54,7 +55,7 @@ namespace AVPE::NativeEeExecutionHooks
 		       NativeTitleTransition::ShouldInstrumentEePc(pc) ||
 		       NativeMissionLoadTiming::ShouldInstrumentEePc(pc) || NativeHostYield::ShouldInstrumentEePc(pc) ||
 		       NativeInputDispatch::ShouldInstrumentEePc(pc) || NativeMenuInput::ShouldObserveEePc(pc) ||
-		       NativeMovieInput::ShouldInstrumentEePc(pc);
+		       NativeMovieInput::ShouldInstrumentEePc(pc) || NativePromptTrace::ShouldInstrumentEePc(pc);
 	}
 
 	void ObserveEeExecution(const u32 pc)
@@ -86,5 +87,10 @@ namespace AVPE::NativeEeExecutionHooks
 			NativeMenuInput::ObserveInputProcess();
 		if (NativeMovieInput::ShouldInstrumentEePc(pc))
 			NativeMovieInput::ObserveEeExecution(pc);
+		if (NativePromptTrace::ShouldInstrumentEePc(pc))
+		{
+			NativePromptTrace::Process().Observe(cpuRegs.GPR.n.a0.UL[0], cpuRegs.GPR.n.a1.UL[0],
+				GuestObjects::ReadBytes);
+		}
 	}
 } // namespace AVPE::NativeEeExecutionHooks

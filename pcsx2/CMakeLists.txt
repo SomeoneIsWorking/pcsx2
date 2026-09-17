@@ -107,6 +107,9 @@ set(pcsx2Sources
 	AVPE/NativeShellShutdownBoundary.cpp
 	AVPE/NativeTitleTransition.cpp
 	AVPE/NativeTitleTransitionRoute.cpp
+	AVPE/NativePromptTrace.cpp
+	AVPE/NativePromptRoute.cpp
+	AVPE/NativeSnapshotRoute.cpp
 	AVPE/NativeAssetCache.cpp
 	AVPE/NativeAssetFile.cpp
 	AVPE/NativeAssetStore.cpp
