@@ -9,6 +9,7 @@
 #include "AVPE/NativeHostYield.h"
 #include "AVPE/NativeInputDispatch.h"
 #include "AVPE/NativeMenuInput.h"
+#include "AVPE/NativeMeshBoundsTrace.h"
 #include "AVPE/NativeMovieInput.h"
 #include "AVPE/NativeMissionLoadTiming.h"
 #include "AVPE/NativeShellShutdownBoundary.h"
@@ -55,7 +56,8 @@ namespace AVPE::NativeEeExecutionHooks
 		       NativeTitleTransition::ShouldInstrumentEePc(pc) ||
 		       NativeMissionLoadTiming::ShouldInstrumentEePc(pc) || NativeHostYield::ShouldInstrumentEePc(pc) ||
 		       NativeInputDispatch::ShouldInstrumentEePc(pc) || NativeMenuInput::ShouldObserveEePc(pc) ||
-		       NativeMovieInput::ShouldInstrumentEePc(pc) || NativePromptTrace::ShouldInstrumentEePc(pc);
+		       NativeMovieInput::ShouldInstrumentEePc(pc) || NativePromptTrace::ShouldInstrumentEePc(pc) ||
+		       NativeMeshBoundsTrace::ShouldInstrumentEePc(pc);
 	}
 
 	void ObserveEeExecution(const u32 pc)
@@ -90,6 +92,11 @@ namespace AVPE::NativeEeExecutionHooks
 		if (NativePromptTrace::ShouldInstrumentEePc(pc))
 		{
 			NativePromptTrace::Process().Observe(cpuRegs.GPR.n.a0.UL[0], cpuRegs.GPR.n.a1.UL[0],
+				GuestObjects::ReadBytes);
+		}
+		if (NativeMeshBoundsTrace::ShouldInstrumentEePc(pc))
+		{
+			NativeMeshBoundsTrace::Process().Observe(cpuRegs.GPR.n.s3.UL[0], cpuRegs.GPR.n.sp.UL[0],
 				GuestObjects::ReadBytes);
 		}
 	}

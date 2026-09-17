@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Achievements.h"
+#include "AVPE/NativeMeshBoundsTrace.h"
 #include "AVPE/NativeMovieInput.h"
 #include "AVPE/NativePromptTrace.h"
 #include "AVPE/EECallShuttle.h"
@@ -55,6 +56,7 @@ static void PreLoadPrep()
 {
 	AVPE::NativeMovieInput::Reset();
 	AVPE::NativePromptTrace::Process().Reset();
+	AVPE::NativeMeshBoundsTrace::Process().Reset();
 	AVPE::EECallShuttle::ResetAfterStateLoad();
 	// ensure everything is in sync before we start overwriting stuff.
 	if (THREAD_VU1)
