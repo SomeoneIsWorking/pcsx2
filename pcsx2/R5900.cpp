@@ -15,6 +15,7 @@
 #include "VMManager.h"
 #include "AVPE/NativeExceptionObservation.h"
 #include "AVPE/NativeMovieInput.h"
+#include "AVPE/NativePromptTrace.h"
 #include "AVPE/EECallShuttle.h"
 
 #include "Hardware.h"
@@ -63,6 +64,7 @@ uptr g_argPtrs[kMaxArgs];
 void cpuReset()
 {
 	AVPE::NativeMovieInput::Reset();
+	AVPE::NativePromptTrace::Process().Reset();
 	AVPE::EECallShuttle::ResetAfterStateLoad();
 	std::memset(&cpuRegs, 0, sizeof(cpuRegs));
 	std::memset(&fpuRegs, 0, sizeof(fpuRegs));

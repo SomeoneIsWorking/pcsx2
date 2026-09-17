@@ -3,6 +3,7 @@
 
 #include "Achievements.h"
 #include "AVPE/NativeMovieInput.h"
+#include "AVPE/NativePromptTrace.h"
 #include "AVPE/EECallShuttle.h"
 #include "BuildVersion.h"
 #include "CDVD/CDVD.h"
@@ -53,6 +54,7 @@ static tlbs s_tlb_backup[std::size(tlb)];
 static void PreLoadPrep()
 {
 	AVPE::NativeMovieInput::Reset();
+	AVPE::NativePromptTrace::Process().Reset();
 	AVPE::EECallShuttle::ResetAfterStateLoad();
 	// ensure everything is in sync before we start overwriting stuff.
 	if (THREAD_VU1)
