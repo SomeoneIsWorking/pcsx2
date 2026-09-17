@@ -19,6 +19,8 @@
 #include "AVPE/NativeMemoryCardState.h"
 #include "AVPE/NativeMenuInput.h"
 #include "AVPE/NativeMenuRoute.h"
+#include "AVPE/NativeMeshBoundsRoute.h"
+#include "AVPE/NativeMeshBoundsTrace.h"
 #include "AVPE/NativePromptRoute.h"
 #include "AVPE/NativePromptTrace.h"
 #include "AVPE/NativeSnapshotRoute.h"
@@ -70,6 +72,7 @@ namespace AVPE
 		NativeMenuInput::Reset();
 		NativeTitleTransition::Reset();
 		NativePromptTrace::Process().Reset();
+		NativeMeshBoundsTrace::Process().Reset();
 		NativeBiosTrace::SetEnabled(enabled && NativeConfig::BiosTraceEnabled());
 	}
 
@@ -341,6 +344,7 @@ namespace AVPE
 				NativeMenuInput::Reset();
 				NativeTitleTransition::Reset();
 				NativePromptTrace::Process().Reset();
+				NativeMeshBoundsTrace::Process().Reset();
 			}
 		},
 			true);
@@ -987,6 +991,10 @@ namespace AVPE
 		{
 			return std::move(*response);
 		}
+		if (auto response = NativeMeshBoundsRoute::Handle(req))
+		{
+			return std::move(*response);
+		}
 		if (req.method == "GET" && path == "/input/menu-pointer")
 			return handle_input_menu_pointer_state();
 		if (req.method == "GET" && path == "/snap")
@@ -1028,6 +1036,7 @@ namespace AVPE
 			"{\"routes\":[\"GET /status\",\"GET /mem/read\",\"GET /mem/scan\",\"GET /debug\",\"GET /memory-card/state\","
 			"\"GET /assets/opens\",\"GET /assets/cache\",\"GET /assets/byte-trace\",\"GET /assets/load-timing\",\"GET /bios/trace\",\"POST /bios/trace/start\",\"POST /bios/trace/start-mission\",\"POST /bios/trace/start-game-load\",\"POST /bios/trace/start-game-save\",\"POST /bios/trace/start-shell-shutdown\",\"POST /bios/trace/capture\",\"POST /bios/trace/capture-mission\",\"POST /bios/trace/capture-game-load\",\"POST /bios/trace/capture-game-save\",\"POST /bios/trace/capture-shell-shutdown\",\"POST /bios/trace/capture-at-guest-boundary\",\"POST /bios/trace/capture-movie\","
 			"\"GET /ee/deferred\",\"GET /prompt/font-trace\",\"POST /prompt/font-trace\",\"POST /prompt/font-trace/stop\","
+			"\"GET /mesh/bounds-trace\",\"POST /mesh/bounds-trace\",\"POST /mesh/bounds-trace/stop\","
 			"\"GET /input/menu\",\"GET /input/menu-readiness\",\"GET /input/movie-cancellation\",\"GET /input/menu-pointer\","
 			"\"GET /snap\",\"POST /mem/write\",\"POST /assets/resolve\","
 			"\"POST /assets/capture-iso-oracle\","

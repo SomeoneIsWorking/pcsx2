@@ -109,6 +109,8 @@ set(pcsx2Sources
 	AVPE/NativeTitleTransitionRoute.cpp
 	AVPE/NativePromptTrace.cpp
 	AVPE/NativePromptRoute.cpp
+	AVPE/NativeMeshBoundsTrace.cpp
+	AVPE/NativeMeshBoundsRoute.cpp
 	AVPE/NativeSnapshotRoute.cpp
 	AVPE/NativeAssetCache.cpp
 	AVPE/NativeAssetFile.cpp
