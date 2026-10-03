@@ -110,9 +110,13 @@ namespace
 		EXPECT_EQ(found.record.size, kAssetBytes.size());
 		EXPECT_EQ(found.record.path, std::filesystem::canonical(m_files_root / kAssetPath));
 
-		const AVPE::NativeAssetStoreResult missing =
+		const AVPE::NativeAssetStoreResult absent =
 			m_store.Resolve(m_files_root, m_manifest_digest, "TBD/UNLISTED.TBD");
-		EXPECT_EQ(missing.disposition, AVPE::NativeAssetStoreDisposition::Missing);
+		EXPECT_EQ(absent.disposition, AVPE::NativeAssetStoreDisposition::Absent) << absent.error;
+
+		const AVPE::NativeAssetStoreResult non_canonical =
+			m_store.Resolve(m_files_root, m_manifest_digest, "../escape.tbd");
+		EXPECT_EQ(non_canonical.disposition, AVPE::NativeAssetStoreDisposition::Missing) << non_canonical.error;
 	}
 
 	TEST_F(NativeAssetStoreTest, RejectsWrongAdmissionDigest)

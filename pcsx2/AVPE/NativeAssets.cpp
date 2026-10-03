@@ -169,6 +169,14 @@ namespace AVPE::NativeAssets
 
 			const NativeAssetStoreResult result =
 				s_store.Resolve(configured_root, manifest_sha256, *parsed.relative);
+			if (result.disposition == NativeAssetStoreDisposition::Absent)
+			{
+				// A bound, valid store that simply does not list this path holds
+				// no content for it. The title still reads it from the disc, so
+				// the original path must serve it; only a manifest member that
+				// fails validation is a native-store failure to fail closed on.
+				return {};
+			}
 			if (result.disposition == NativeAssetStoreDisposition::Missing)
 				return {.disposition = OpenDisposition::RefusedMissing};
 			if (result.disposition != NativeAssetStoreDisposition::Found)

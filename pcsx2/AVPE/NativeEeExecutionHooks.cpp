@@ -96,8 +96,17 @@ namespace AVPE::NativeEeExecutionHooks
 		}
 		if (NativeMeshBoundsTrace::ShouldInstrumentEePc(pc))
 		{
-			NativeMeshBoundsTrace::Process().Observe(cpuRegs.GPR.n.s3.UL[0], cpuRegs.GPR.n.sp.UL[0],
-				GuestObjects::ReadBytes);
+			NativeMeshBoundsTrace& mesh_bounds = NativeMeshBoundsTrace::Process();
+			if (pc == NativeMeshBoundsTrace::RenderDisplayDispatchPc)
+			{
+				mesh_bounds.ObserveRenderDispatch(cpuRegs.GPR.n.a0.UL[0], cpuRegs.GPR.n.s0.UL[0],
+					cpuRegs.GPR.n.t9.UL[0], GuestObjects::ReadBytes);
+			}
+			else
+			{
+				mesh_bounds.ObserveGetMatrixRect(cpuRegs.GPR.n.s3.UL[0], cpuRegs.GPR.n.sp.UL[0],
+					GuestObjects::ReadBytes);
+			}
 		}
 	}
 } // namespace AVPE::NativeEeExecutionHooks

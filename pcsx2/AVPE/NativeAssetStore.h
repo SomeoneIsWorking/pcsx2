@@ -13,7 +13,13 @@ namespace AVPE
 	enum class NativeAssetStoreDisposition : std::uint8_t
 	{
 		Found,
+		// The requested path is not canonicalizable, so it cannot name a store
+		// member at all.
 		Missing,
+		// The store admitted and bound correctly but its manifest does not list
+		// this path. The store holds no content for it, so the caller must fall
+		// through to its own path rather than report an error.
+		Absent,
 		InvalidStore,
 	};
 
