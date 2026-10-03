@@ -433,7 +433,7 @@ namespace AVPE
 
 			const auto indexed = records_by_key.find(*requested_key);
 			if (indexed == records_by_key.end())
-				return {.disposition = NativeAssetStoreDisposition::Missing, .error = "asset is absent from manifest"};
+				return {.disposition = NativeAssetStoreDisposition::Absent, .error = "asset is absent from manifest"};
 			Record& record = records[indexed->second];
 			return ValidateRecord(record);
 		}
