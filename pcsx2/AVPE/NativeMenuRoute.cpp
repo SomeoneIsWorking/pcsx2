@@ -141,11 +141,12 @@ namespace AVPE::NativeMenuRoute
 			return lucent::http::Response::json(
 				409, "Conflict", R"({"error":"native menu state requires a valid VM"})");
 		const NativeMenuInput::Result result = NativeMenuInput::Inspect();
-		char response[448];
+		char response[512];
 		std::snprintf(response, sizeof(response),
-			R"({"source":"%s","menu":"0x%08X","menu_vtable":"0x%08X","conflicting_menu":"0x%08X","conflicting_menu_vtable":"0x%08X","action_target":"0x%08X","focused_item_action":"0x%08X","focused_item_action_valid":%s,"callback_count":%u,"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X","focus_text_address":"0x%08X"})",
+			R"({"source":"%s","menu":"0x%08X","menu_vtable":"0x%08X","conflicting_menu":"0x%08X","conflicting_menu_vtable":"0x%08X","action_target":"0x%08X","focused_item_action":"0x%08X","focused_item_action_valid":%s,"callback_count":%u,"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X","focus_text_address":"0x%08X","focus_name":"0x%08X","focus_name_valid":%s})",
 			NativeMenuInput::SourceName(result.source), result.menu, result.menu_vtable, result.conflicting_menu, result.conflicting_menu_vtable, result.action_target, result.focused_item_action,
-			result.focused_item_action_valid ? "true" : "false", result.callback_count, result.before.handle, result.before.object, result.before.vtable, result.before.text_address);
+			result.focused_item_action_valid ? "true" : "false", result.callback_count, result.before.handle, result.before.object, result.before.vtable, result.before.text_address,
+			result.before.name, result.before.name_valid ? "true" : "false");
 		if (result.status == NativeMenuInput::Status::AmbiguousMenu)
 			return lucent::http::Response::json(FailureStatus(result), "Native Menu State Ambiguous", response);
 		if (!result.Succeeded())
