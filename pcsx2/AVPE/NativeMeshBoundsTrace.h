@@ -44,6 +44,19 @@ namespace AVPE
 		// the stack, is 0x00136320.
 		static inline constexpr u32 GetMatrixRectReturnPc = 0x00136320;
 		static inline constexpr u32 RectStackOffset = 0x60;
+
+		// PS2ProcessVerts (0x00188720) computes a model-space translation that
+		// GetScreenBoundingBox never sees. `lwc1 f2,0x54(s0)` and `lwc1 f1,0x58(s0)`
+		// load piVar9[0x15] and piVar9[0x16] from the per-primitive parameter
+		// record s0 points at; each is added to an _EFFECT_SHELL-only stack term
+		// and the sums are left at sp+0xE4 and sp+0xE8 before being stored to
+		// packet bytes 0x70 and 0x74 at 0x001892CC and 0x001892D4. The skinned
+		// copy repeats the stores at 0x00189588 and 0x00189590, so observing
+		// either PC reads the same two stack slots.
+		static inline constexpr u32 ProcessVertsTranslatePc = 0x001892D4;
+		static inline constexpr u32 ProcessVertsSkinnedTranslatePc = 0x00189590;
+		static inline constexpr u32 TranslateStackXOffset = 0xE4;
+		static inline constexpr u32 TranslateStackYOffset = 0xE8;
 		static inline constexpr size_t MaxSamples = 32;
 		static inline constexpr size_t MaxAdmittedResources = 8;
 
@@ -72,6 +85,13 @@ namespace AVPE
 			u64 calls = 0;
 		};
 
+		struct Translate
+		{
+			u32 resource = 0; // Armed CRendResource whose draw produced this packet.
+			u32 x_bits = 0; // piVar9[0x15] plus the effect term, as raw float bits.
+			u32 y_bits = 0; // piVar9[0x16] plus the effect term, as raw float bits.
+		};
+
 		struct Snapshot
 		{
 			bool armed = false;
@@ -80,11 +100,14 @@ namespace AVPE
 			u64 matched_dispatches = 0;
 			u64 observed_rects = 0;
 			u64 matched_rects = 0;
+			u64 observed_translates = 0;
+			u64 matched_translates = 0;
 			u64 invalid_dispatches = 0;
 			u64 invalid_reads = 0;
 			u64 dropped_samples = 0;
 			std::vector<Dispatch> dispatches;
 			std::vector<Sample> samples;
+			std::vector<Translate> translates;
 		};
 
 		NativeMeshBoundsTrace();
@@ -94,6 +117,7 @@ namespace AVPE
 		void Reset();
 		void ObserveRenderDispatch(u32 resource, u32 render_node, u32 render, GuestReader read);
 		void ObserveGetMatrixRect(u32 workspace, u32 sp, GuestReader read);
+		void ObserveProcessVertsTranslate(u32 sp, GuestReader read);
 		Snapshot Capture() const;
 
 		static NativeMeshBoundsTrace& Process();
@@ -111,10 +135,17 @@ namespace AVPE
 		u64 m_matched_dispatches = 0;
 		u64 m_observed_rects = 0;
 		u64 m_matched_rects = 0;
+		u64 m_observed_translates = 0;
+		u64 m_matched_translates = 0;
 		u64 m_invalid_dispatches = 0;
 		u64 m_invalid_reads = 0;
 		u64 m_dropped_samples = 0;
+		// Non-zero only between an admitted render dispatch and the vertex
+		// packet that dispatch produces, so the translate is attributed to the
+		// draw that caused it.
+		u32 m_pending_translate_resource = 0;
 		std::vector<Dispatch> m_dispatches;
 		std::vector<Sample> m_samples;
+		std::vector<Translate> m_translates;
 	};
 } // namespace AVPE

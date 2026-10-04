@@ -80,11 +80,15 @@ namespace AVPE
 		m_matched_dispatches = 0;
 		m_observed_rects = 0;
 		m_matched_rects = 0;
+		m_observed_translates = 0;
+		m_matched_translates = 0;
 		m_invalid_dispatches = 0;
 		m_invalid_reads = 0;
 		m_dropped_samples = 0;
+		m_pending_translate_resource = 0;
 		m_dispatches.clear();
 		m_samples.clear();
+		m_translates.clear();
 	}
 
 	bool NativeMeshBoundsTrace::ShouldInstrumentEePc(const u32 pc)
@@ -92,7 +96,8 @@ namespace AVPE
 		// The recompiler decides where to split a block when it compiles it, so
 		// this must match on the PC alone. Gating it on the armed flag would let
 		// blocks compiled while disarmed run the dispatch with no call-out.
-		return pc == RenderDisplayDispatchPc || pc == GetMatrixRectReturnPc;
+		return pc == RenderDisplayDispatchPc || pc == GetMatrixRectReturnPc ||
+		       pc == ProcessVertsTranslatePc || pc == ProcessVertsSkinnedTranslatePc;
 	}
 
 	NativeMeshBoundsTrace& NativeMeshBoundsTrace::Process()
@@ -124,6 +129,10 @@ namespace AVPE
 			return;
 		}
 		++m_matched_dispatches;
+		// The vertex packet this draw builds carries a model-space translation
+		// the culling path never sees. PS2ProcessVerts runs inside this same
+		// call, so latch which admitted resource owns the next packet.
+		m_pending_translate_resource = resource;
 		if (read == nullptr || !GuestObjects::IsPlausibleAddress(render_node) ||
 			!GuestObjects::IsPlausibleAddress(render))
 		{
@@ -234,6 +243,41 @@ namespace AVPE
 		++sample->calls;
 	}
 
+	void NativeMeshBoundsTrace::ObserveProcessVertsTranslate(const u32 sp, const GuestReader read)
+	{
+		if (!m_armed.load(std::memory_order_acquire))
+		{
+			return;
+		}
+		std::scoped_lock lock(m_mutex);
+		if (!m_armed.load(std::memory_order_acquire))
+		{
+			return;
+		}
+		if (m_pending_translate_resource == 0)
+		{
+			return;
+		}
+		++m_observed_translates;
+
+		Translate translate{.resource = m_pending_translate_resource};
+		m_pending_translate_resource = 0;
+		if (read == nullptr || !GuestObjects::IsPlausibleAddress(sp) ||
+			!ReadU32(read, sp + TranslateStackXOffset, &translate.x_bits) ||
+			!ReadU32(read, sp + TranslateStackYOffset, &translate.y_bits))
+		{
+			++m_invalid_reads;
+			return;
+		}
+		++m_matched_translates;
+		if (m_translates.size() >= MaxSamples)
+		{
+			++m_dropped_samples;
+			return;
+		}
+		m_translates.push_back(translate);
+	}
+
 	NativeMeshBoundsTrace::Snapshot NativeMeshBoundsTrace::Capture() const
 	{
 		std::scoped_lock lock(m_mutex);
@@ -243,11 +287,14 @@ namespace AVPE
 			.matched_dispatches = m_matched_dispatches,
 			.observed_rects = m_observed_rects,
 			.matched_rects = m_matched_rects,
+			.observed_translates = m_observed_translates,
+			.matched_translates = m_matched_translates,
 			.invalid_dispatches = m_invalid_dispatches,
 			.invalid_reads = m_invalid_reads,
 			.dropped_samples = m_dropped_samples,
 			.dispatches = m_dispatches,
 			.samples = m_samples,
+			.translates = m_translates,
 		};
 		snapshot.admitted.assign(m_admitted.begin(),
 			m_admitted.begin() + static_cast<std::ptrdiff_t>(m_admitted_count));
