@@ -466,6 +466,38 @@ TEST(NativeBiosTraceTest, RejectsMismatchedBiosReturnBoundary)
 	EXPECT_EQ(snapshot.find("\"kind\":\"ee_syscall_return\""), std::string::npos);
 }
 
+TEST(NativeBiosTraceTest, NamesTheAlarmGroupThatR5900BiosLeavesUninitialised)
+{
+	using Disposition = AVPE::NativeBiosTrace::EeSyscallDisposition;
+
+	// R5900::bios[] is declared [256] but initialized only for 0x00-0x7F, so
+	// these four would otherwise all be reported as "unknown" even though the
+	// title calls SetAlarm and iReleaseAlarm on its normal path.
+	const std::pair<u8, const char*> alarms[] = {
+		{0xFC, "SetAlarm"},
+		{0xFD, "ReleaseAlarm"},
+		{0xFE, "iSetAlarm"},
+		{0xFF, "iReleaseAlarm"},
+	};
+	for (const auto& [number, name] : alarms)
+	{
+		ASSERT_EQ(R5900::bios[number], nullptr)
+			<< "R5900::bios[] unexpectedly already names 0x" << std::hex << (int)number;
+		AVPE::NativeBiosTrace::Reset();
+		AVPE::NativeBiosTrace::SetEnabled(true);
+		AVPE::NativeBiosTrace::RecordEeBiosSyscallEntry(
+			number, name, 0, 0, 0, 0, 0x01FFF000, 0x00102004,
+			Disposition::ReturningResult);
+		const std::string snapshot = AVPE::NativeBiosTrace::SnapshotJson();
+		EXPECT_NE(snapshot.find(std::string("\"number\":") + std::to_string((int)number)),
+			std::string::npos);
+		EXPECT_NE(snapshot.find(std::string("\"name\":\"") + name + "\""),
+			std::string::npos)
+			<< "number 0x" << std::hex << (int)number;
+	}
+	AVPE::NativeBiosTrace::SetEnabled(false);
+}
+
 TEST(NativeBiosTraceTest, NonreturningBiosControlTransferDoesNotEnterPairingState)
 {
 	using Disposition = AVPE::NativeBiosTrace::EeSyscallDisposition;

@@ -479,6 +479,24 @@ namespace AVPE::NativeBiosTrace
 				case 8:
 					return "ResumeT3IntrDispatch";
 				default:
+					break;
+			}
+			// R5900::bios[] is declared [256] but initialized only for 0x00-0x7F,
+			// so every higher service falls through to "unknown" there. The title
+			// reaches the alarm group on its normal path, so name it from ps2sdk
+			// rather than reporting a service the game demonstrably calls as
+			// unnamed.
+			switch (number)
+			{
+				case 0xFC:
+					return "SetAlarm";
+				case 0xFD:
+					return "ReleaseAlarm";
+				case 0xFE:
+					return "iSetAlarm";
+				case 0xFF:
+					return "iReleaseAlarm";
+				default:
 					return R5900::bios[number] ? R5900::bios[number] : "unknown";
 			}
 		}
