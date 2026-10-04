@@ -337,11 +337,14 @@ namespace AVPE::NativeMenuInput
 	static bool ReadFocus(const u32 menu, FocusState* focus)
 	{
 		*focus = {};
-		return GuestObjects::ReadWord(menu + FOCUSED_ITEM_HANDLE_OFFSET, &focus->handle) &&
-		       GuestObjects::ResolveHandle(focus->handle, &focus->object) &&
-		       GuestObjects::ReadWord(focus->object, &focus->vtable) &&
-		       GuestObjects::IsPlausibleAddress(focus->vtable) &&
-		       GuestObjects::ReadWord(focus->object + MENU_ITEM_TEXT_OFFSET, &focus->text_address);
+		if (!GuestObjects::ReadWord(menu + FOCUSED_ITEM_HANDLE_OFFSET, &focus->handle) ||
+			!GuestObjects::ResolveHandle(focus->handle, &focus->object) ||
+			!GuestObjects::ReadWord(focus->object, &focus->vtable) ||
+			!GuestObjects::IsPlausibleAddress(focus->vtable) ||
+			!GuestObjects::ReadWord(focus->object + MENU_ITEM_TEXT_OFFSET, &focus->text_address))
+			return false;
+		focus->name_valid = NativeMenuItems::ReadItemName(focus->object, &focus->name);
+		return true;
 	}
 
 	static bool ReadObjectVtable(const u32 object, u32* vtable)

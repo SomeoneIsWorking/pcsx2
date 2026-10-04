@@ -51,12 +51,14 @@ namespace AVPE::NativeMenuRoute
 	{
 		const char* execution = result.awaiting_readiness ? "pending" : result.deferred ? "deferred" :
 		                                                                                  "synchronous";
-		char response[1024];
+		char response[2048];
 		std::snprintf(response, sizeof(response),
-			R"({"action":"%s","source":"%s","menu":"0x%08X","menu_vtable":"0x%08X","handler":"0x%08X","action_target":"0x%08X","focused_item_action":"0x%08X","focused_item_action_valid":%s,"callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X","focus_text_address":"0x%08X"},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X","focus_text_address":"0x%08X"},"execution":"%s","stopped_pc":"0x%08X","last_avpe_text_pc":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu,"deferred":%s,"dispatch_action_id":%llu,"deferred_call_id":%llu,"readiness_action_id":%llu,"movie_action_id":%llu,"awaiting_readiness":%s})",
+			R"({"action":"%s","source":"%s","menu":"0x%08X","menu_vtable":"0x%08X","handler":"0x%08X","action_target":"0x%08X","focused_item_action":"0x%08X","focused_item_action_valid":%s,"callback_count":%u,"before":{"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X","focus_text_address":"0x%08X","focus_name":"0x%08X","focus_name_valid":%s},"after":{"focus_handle":"0x%08X","focus_object":"0x%08X","focus_vtable":"0x%08X","focus_text_address":"0x%08X","focus_name":"0x%08X","focus_name_valid":%s},"execution":"%s","stopped_pc":"0x%08X","last_avpe_text_pc":"0x%08X","stack_restored":%s,"elapsed_cycles":%llu,"deferred":%s,"dispatch_action_id":%llu,"deferred_call_id":%llu,"readiness_action_id":%llu,"movie_action_id":%llu,"awaiting_readiness":%s})",
 			action_name.c_str(), NativeMenuInput::SourceName(result.source), result.menu, result.menu_vtable, result.handler,
-			result.action_target, result.focused_item_action, result.focused_item_action_valid ? "true" : "false", result.callback_count, result.before.handle, result.before.object, result.before.vtable, result.before.text_address, result.after.handle,
-			result.after.object, result.after.vtable, result.after.text_address, execution,
+			result.action_target, result.focused_item_action, result.focused_item_action_valid ? "true" : "false", result.callback_count, result.before.handle, result.before.object, result.before.vtable, result.before.text_address,
+			result.before.name, result.before.name_valid ? "true" : "false", result.after.handle,
+			result.after.object, result.after.vtable, result.after.text_address, result.after.name,
+			result.after.name_valid ? "true" : "false", execution,
 			result.stopped_pc, result.last_avpe_text_pc,
 			result.stack_restored ? "true" : "false", static_cast<unsigned long long>(result.elapsed_cycles),
 			result.deferred ? "true" : "false", static_cast<unsigned long long>(result.dispatch_action_id),
