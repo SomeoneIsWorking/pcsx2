@@ -27,4 +27,8 @@ namespace AVPE::NativeMenuItems
 		const NativeInputCallbacks::Access& read = {});
 	Status FindMissionGoalsExitItem(u32 menu, u32* exit_item, const char** error,
 		const NativeInputCallbacks::Access& read = {});
+	// The guest's own 32-bit name hash carried by every menu item. Sibling items
+	// in one menu can report an identical action value, so this is the
+	// discriminating per-item identity for discovery and observation.
+	bool ReadItemName(u32 item, u32* name, const NativeInputCallbacks::Access& read = {});
 } // namespace AVPE::NativeMenuItems

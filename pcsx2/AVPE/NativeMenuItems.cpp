@@ -338,4 +338,10 @@ namespace AVPE::NativeMenuItems
 		return Status::Success;
 	}
 
+	bool ReadItemName(u32 item, u32* name, const NativeInputCallbacks::Access& read)
+	{
+		*name = 0;
+		return read.is_object(item) && read.word(item + OBJECT_NAME_OFFSET, name);
+	}
+
 } // namespace AVPE::NativeMenuItems

@@ -47,6 +47,10 @@ namespace AVPE::NativeMenuInput
 		u32 object = 0;
 		u32 vtable = 0;
 		u32 text_address = 0;
+		// The guest's own name hash for this item. Sibling items can share an
+		// action value, so callers that must tell items apart read this.
+		u32 name = 0;
+		bool name_valid = false;
 	};
 
 	struct Result

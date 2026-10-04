@@ -320,4 +320,35 @@ namespace
 		AddCallback(4, 0x01800000, 4, button_input);
 		EXPECT_EQ(Cancel(5).status, AVPE::NativeAttractInput::Status::Ambiguous);
 	}
+	TEST_F(NativeMenuItemsTest, ReadsTheGuestNameHashThatDistinguishesSiblingItems)
+	{
+		// Sibling items may report an identical action value, so the action
+		// cannot identify them; the guest's own name hash can.
+		words[second + 0x110] = words[first + 0x110];
+		words[first + 0x1C] = 0x6449F1DE;
+		words[second + 0x1C] = 0x36D11C7B;
+
+		u32 first_name = 0;
+		u32 second_name = 0;
+		EXPECT_TRUE(AVPE::NativeMenuItems::ReadItemName(first, &first_name, access));
+		EXPECT_TRUE(AVPE::NativeMenuItems::ReadItemName(second, &second_name, access));
+		EXPECT_EQ(first_name, 0x6449F1DEu);
+		EXPECT_EQ(second_name, 0x36D11C7Bu);
+		EXPECT_NE(first_name, second_name);
+	}
+
+	TEST_F(NativeMenuItemsTest, RejectsImplausibleItemsAndClearsTheNameOnFailure)
+	{
+		words[first + 0x1C] = 0x6449F1DE;
+		u32 name = 0xDEADBEEF;
+		EXPECT_FALSE(AVPE::NativeMenuItems::ReadItemName(0x00001000, &name, access));
+		EXPECT_EQ(name, 0u);
+
+		const auto valid_words = words;
+		words.erase(first + 0x1C);
+		name = 0xDEADBEEF;
+		EXPECT_FALSE(AVPE::NativeMenuItems::ReadItemName(first, &name, access));
+		EXPECT_EQ(name, 0u);
+		words = valid_words;
+	}
 } // namespace
