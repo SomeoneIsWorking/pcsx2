@@ -11,6 +11,7 @@
 #include <rapidjson/document.h>
 
 #include <array>
+#include <cstring>
 #include <optional>
 #include <string_view>
 
@@ -96,15 +97,25 @@ namespace AVPE::NativeMeshBoundsRoute
 			}
 			return count != 0;
 		}
+
+		// The translate is the guest's own float; keep the raw bits in the payload
+		// so a consumer can see the exact value rather than a rounded rendering.
+		float TranslateAsFloat(const u32 bits)
+		{
+			float value = 0.0f;
+			std::memcpy(&value, &bits, sizeof(value));
+			return value;
+		}
 	} // namespace
 
 	std::string SnapshotJson()
 	{
 		const NativeMeshBoundsTrace::Snapshot snapshot = NativeMeshBoundsTrace::Process().Capture();
 		std::string output = fmt::format(
-			R"({{"schema":"avpe-mesh-bounds-v5","armed":{},"observed_dispatches":{},"matched_dispatches":{},"observed_rects":{},"matched_rects":{},"invalid_dispatches":{},"invalid_reads":{},"dropped_samples":{},"sample_capacity":{},"admitted":[)",
+			R"({{"schema":"avpe-mesh-bounds-v6","armed":{},"observed_dispatches":{},"matched_dispatches":{},"observed_rects":{},"matched_rects":{},"observed_translates":{},"matched_translates":{},"invalid_dispatches":{},"invalid_reads":{},"dropped_samples":{},"sample_capacity":{},"admitted":[)",
 			snapshot.armed, snapshot.observed_dispatches, snapshot.matched_dispatches, snapshot.observed_rects,
-			snapshot.matched_rects, snapshot.invalid_dispatches, snapshot.invalid_reads,
+			snapshot.matched_rects, snapshot.observed_translates, snapshot.matched_translates,
+			snapshot.invalid_dispatches, snapshot.invalid_reads,
 			snapshot.dropped_samples, NativeMeshBoundsTrace::MaxSamples);
 		for (size_t index = 0; index < snapshot.admitted.size(); ++index)
 		{
@@ -139,6 +150,19 @@ namespace AVPE::NativeMeshBoundsRoute
 				R"({{"workspace":"0x{:08X}","render":"0x{:08X}","bounds_object":"0x{:08X}","xmin":{},"ymin":{},"xmax":{},"ymax":{},"calls":{}}})",
 				sample.workspace, sample.render, sample.bounds_object, sample.xmin, sample.ymin,
 				sample.xmax, sample.ymax, sample.calls);
+		}
+		output += R"(],"translates":[)";
+		for (size_t index = 0; index < snapshot.translates.size(); ++index)
+		{
+			const auto& translate = snapshot.translates[index];
+			if (index != 0)
+			{
+				output.push_back(',');
+			}
+			output += fmt::format(
+				R"({{"resource":"0x{:08X}","x_bits":"0x{:08X}","x":{:.9g},"y_bits":"0x{:08X}","y":{:.9g}}})",
+				translate.resource, translate.x_bits, TranslateAsFloat(translate.x_bits),
+				translate.y_bits, TranslateAsFloat(translate.y_bits));
 		}
 		output += "]}";
 		return output;

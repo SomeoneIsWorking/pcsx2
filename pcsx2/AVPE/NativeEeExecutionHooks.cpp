@@ -102,6 +102,12 @@ namespace AVPE::NativeEeExecutionHooks
 				mesh_bounds.ObserveRenderDispatch(cpuRegs.GPR.n.a0.UL[0], cpuRegs.GPR.n.s0.UL[0],
 					cpuRegs.GPR.n.t9.UL[0], GuestObjects::ReadBytes);
 			}
+			else if (pc == NativeMeshBoundsTrace::ProcessVertsTranslatePc ||
+					 pc == NativeMeshBoundsTrace::ProcessVertsSkinnedTranslatePc)
+			{
+				mesh_bounds.ObserveProcessVertsTranslate(cpuRegs.GPR.n.sp.UL[0],
+					GuestObjects::ReadBytes);
+			}
 			else
 			{
 				mesh_bounds.ObserveGetMatrixRect(cpuRegs.GPR.n.s3.UL[0], cpuRegs.GPR.n.sp.UL[0],
