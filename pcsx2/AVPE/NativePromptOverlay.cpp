@@ -40,18 +40,6 @@ namespace AVPE
 		m_frame = {};
 	}
 
-	DisplayRect NativePromptOverlay::TopOriginDisplay(
-		const DisplayRect& presented, const bool lower_left_origin, const float window_height)
-	{
-		if (!lower_left_origin)
-		{
-			return presented;
-		}
-		const float height = presented.bottom - presented.top;
-		const float top = window_height - presented.bottom;
-		return {presented.left, top, presented.right, top + height};
-	}
-
 	DisplayRect NativePromptOverlay::MapToDisplay(
 		const PromptRect& prompt, const PromptFrame& frame, const DisplayRect& display)
 	{

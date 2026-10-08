@@ -44,24 +44,48 @@ namespace
 		EXPECT_FLOAT_EQ(cover.top, (383.0f - NativePromptOverlay::CoverMargin) * 480.0f / 448.0f);
 	}
 
-	TEST(NativePromptOverlayTest, UnflipsLowerLeftOriginPresentRect)
+	TEST(PresentedDisplayTest, UnflipsLowerLeftOriginPresentRect)
 	{
 		const DisplayRect presented{0.0f, 100.0f, 640.0f, 580.0f};
 
-		const DisplayRect top = NativePromptOverlay::TopOriginDisplay(presented, true, 720.0f);
+		const DisplayRect top = AVPE::PresentedDisplay::TopOrigin(presented, true, 720.0f);
 
 		EXPECT_FLOAT_EQ(top.top, 140.0f);
 		EXPECT_FLOAT_EQ(top.bottom, 620.0f);
 		EXPECT_FLOAT_EQ(top.left, 0.0f);
 	}
 
-	TEST(NativePromptOverlayTest, KeepsUpperLeftOriginPresentRect)
+	TEST(PresentedDisplayTest, KeepsUpperLeftOriginPresentRect)
 	{
 		const DisplayRect presented{0.0f, 100.0f, 640.0f, 580.0f};
 
-		const DisplayRect top = NativePromptOverlay::TopOriginDisplay(presented, false, 720.0f);
+		const DisplayRect top = AVPE::PresentedDisplay::TopOrigin(presented, false, 720.0f);
 
 		EXPECT_FLOAT_EQ(top.top, 100.0f);
 		EXPECT_FLOAT_EQ(top.bottom, 580.0f);
+	}
+
+	TEST(PresentedDisplayTest, NormalizesAPointerInsidePillarboxedImage)
+	{
+		// A 4:3 image centred in a 1920x1080 window spans x 240..1680.
+		const DisplayRect display{240.0f, 0.0f, 1680.0f, 1080.0f};
+
+		const AVPE::NormalizedPoint centre = AVPE::PresentedDisplay::Normalize(display, 960.0f, 540.0f);
+		const AVPE::NormalizedPoint left_edge = AVPE::PresentedDisplay::Normalize(display, 240.0f, 0.0f);
+
+		EXPECT_FLOAT_EQ(centre.x, 0.5f);
+		EXPECT_FLOAT_EQ(centre.y, 0.5f);
+		EXPECT_FLOAT_EQ(left_edge.x, 0.0f);
+	}
+
+	TEST(PresentedDisplayTest, ClampsAPointerInTheBarsToTheImageEdge)
+	{
+		const DisplayRect display{240.0f, 0.0f, 1680.0f, 1080.0f};
+
+		const AVPE::NormalizedPoint left_bar = AVPE::PresentedDisplay::Normalize(display, 100.0f, 540.0f);
+		const AVPE::NormalizedPoint right_bar = AVPE::PresentedDisplay::Normalize(display, 1900.0f, 540.0f);
+
+		EXPECT_FLOAT_EQ(left_bar.x, 0.0f);
+		EXPECT_FLOAT_EQ(right_bar.x, 1.0f);
 	}
 } // namespace

@@ -111,6 +111,7 @@ set(pcsx2Sources
 	AVPE/NativePromptOverlay.cpp
 	AVPE/NativePromptPlacement.cpp
 	AVPE/NativePromptTrace.cpp
+	AVPE/PresentedDisplay.cpp
 	AVPE/NativePromptRoute.cpp
 	AVPE/NativeMeshBoundsTrace.cpp
 	AVPE/NativeMeshBoundsRoute.cpp

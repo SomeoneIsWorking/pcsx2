@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "AVPE/NativePromptOverlay.h"
+#include "AVPE/PresentedDisplay.h"
 #include "ImGui/FullscreenUI.h"
 #include "ImGui/ImGuiManager.h"
 #include "GS/Renderers/Common/GSRenderer.h"
@@ -573,10 +574,10 @@ void GSRenderer::EndPresentFrame()
 		GSDumpReplayer::RenderUI();
 
 	FullscreenUI::Render();
-	AVPE::NativePromptOverlay::Process().Render(
-		AVPE::NativePromptOverlay::TopOriginDisplay({s_last_draw_rect.x, s_last_draw_rect.y, s_last_draw_rect.z,
-														s_last_draw_rect.w},
-			g_gs_device->UsesLowerLeftOrigin(), static_cast<float>(g_gs_device->GetWindowHeight())));
+	if (const std::optional<AVPE::DisplayRect> display = AVPE::PresentedDisplay::Process().Load())
+	{
+		AVPE::NativePromptOverlay::Process().Render(*display);
+	}
 	ImGuiManager::RenderOSD();
 	g_gs_device->EndPresent();
 	ImGuiManager::NewFrame();
@@ -670,6 +671,8 @@ void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
 				src_rect, current->GetSize(), s_display_alignment, g_gs_device->UsesLowerLeftOrigin(),
 				GetVideoMode() == GSVideoMode::SDTV_480P);
 			s_last_draw_rect = draw_rect;
+			AVPE::PresentedDisplay::Process().Store(AVPE::PresentedDisplay::TopOrigin({draw_rect.x, draw_rect.y, draw_rect.z, draw_rect.w},
+				g_gs_device->UsesLowerLeftOrigin(), static_cast<float>(g_gs_device->GetWindowHeight())));
 
 			if (GSConfig.CASMode != GSCASMode::Disabled)
 			{
@@ -973,6 +976,8 @@ void GSRenderer::PresentCurrentFrame()
 				src_rect, current->GetSize(), s_display_alignment, g_gs_device->UsesLowerLeftOrigin(),
 				GetVideoMode() == GSVideoMode::SDTV_480P));
 			s_last_draw_rect = draw_rect;
+			AVPE::PresentedDisplay::Process().Store(AVPE::PresentedDisplay::TopOrigin({draw_rect.x, draw_rect.y, draw_rect.z, draw_rect.w},
+				g_gs_device->UsesLowerLeftOrigin(), static_cast<float>(g_gs_device->GetWindowHeight())));
 
 			const u64 current_time = Common::Timer::GetCurrentValue();
 			const float shader_time = static_cast<float>(Common::Timer::ConvertValueToSeconds(current_time - m_shader_time_start));
