@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "AVPE/NativeMenuInput.h"
+#include "common/Pcsx2Types.h"
 
 #include <array>
 #include <optional>
@@ -54,10 +54,6 @@ namespace AVPE
 		// CRendPS2Mesh resolves to nothing.
 		void Resolve(GuestReader read);
 		std::optional<PromptButton> ButtonFor(u32 resource) const;
-
-		// The menu action an item showing this glyph is authored to trigger: Cross is
-		// bound to FrontEndSelect and Triangle to the menus' back hotkeys.
-		static std::optional<NativeMenuInput::Action> ActionFor(PromptButton button);
 
 	private:
 		std::array<u32, Glyphs.size()> m_resources{};

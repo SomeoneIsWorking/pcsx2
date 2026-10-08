@@ -97,20 +97,4 @@ namespace AVPE
 		}
 		return std::nullopt;
 	}
-
-	std::optional<NativeMenuInput::Action> NativePromptGlyphs::ActionFor(const PromptButton button)
-	{
-		switch (button)
-		{
-			case PromptButton::Cross:
-				return NativeMenuInput::Action::Activate;
-			case PromptButton::Triangle:
-				return NativeMenuInput::Action::Cancel;
-			case PromptButton::Circle:
-			case PromptButton::Square:
-			case PromptButton::R1:
-				return std::nullopt;
-		}
-		return std::nullopt;
-	}
 } // namespace AVPE

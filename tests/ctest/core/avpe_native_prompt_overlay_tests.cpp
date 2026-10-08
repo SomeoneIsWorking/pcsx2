@@ -7,8 +7,8 @@ namespace
 	using AVPE::DisplayRect;
 	using AVPE::NativePromptOverlay;
 	using AVPE::PromptFrame;
+	using AVPE::PromptKey;
 	using AVPE::PromptRect;
-	using AVPE::NativeMenuInput::Action;
 
 	PromptFrame PauseFrame()
 	{
@@ -21,7 +21,7 @@ namespace
 	TEST(NativePromptOverlayTest, MapsFramebufferRectIntoPresentedRect)
 	{
 		// The Back glyph's drawn quad, presented letterboxed at 2x into a 1280x960 rect.
-		const PromptRect back{Action::Cancel, 158.0f, 383.0f, 182.0f, 407.0f};
+		const PromptRect back{{PromptKey::Kind::Back, 0}, 0, 158.0f, 383.0f, 182.0f, 407.0f};
 		const DisplayRect display{100.0f, 20.0f, 1380.0f, 916.0f};
 
 		const DisplayRect cover = NativePromptOverlay::MapToDisplay(back, PauseFrame(), display);
@@ -36,7 +36,7 @@ namespace
 	TEST(NativePromptOverlayTest, StretchesRowsByTheFramebufferHeightNotTheDisplayHeight)
 	{
 		// /snap and a 4:3 present both stretch the 448-row framebuffer to 480 rows.
-		const PromptRect select{Action::Activate, 98.0f, 383.0f, 122.0f, 407.0f};
+		const PromptRect select{{PromptKey::Kind::Confirm, 0}, 0, 98.0f, 383.0f, 122.0f, 407.0f};
 		const DisplayRect display{0.0f, 0.0f, 640.0f, 480.0f};
 
 		const DisplayRect cover = NativePromptOverlay::MapToDisplay(select, PauseFrame(), display);

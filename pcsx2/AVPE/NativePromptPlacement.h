@@ -8,6 +8,7 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace AVPE
@@ -19,10 +20,17 @@ namespace AVPE
 	{
 	public:
 		// CMeshWorkspace::GetMatrix's return from GetScreenBoundingBox: $s3 is the
-		// workspace, workspace+8 the drawn resource, [sp+0x60] minX, minY, maxX, maxY.
+		// workspace, workspace+4 the CRender node, workspace+8 the drawn resource,
+		// [sp+0x60] minX, minY, maxX, maxY.
 		static inline constexpr u32 GetMatrixRectReturnPc = 0x00136320;
 		static inline constexpr u32 RectStackOffset = 0x60;
+		static inline constexpr u32 WorkspaceRenderOffset = 0x04;
 		static inline constexpr u32 WorkspaceResourceOffset = 0x08;
+		// A glyph's CRender node is embedded in its GMenuItem.
+		static inline constexpr u32 ItemRenderOffset = 0x70;
+		static inline constexpr u32 ItemHotKeyOffset = 0x118;
+		static inline constexpr u32 ItemTextOffset = 0x148;
+		static inline constexpr size_t MaxLabelLength = 48;
 		// EndFrame's VIF1 kick, after it has written every ViewportData slot.
 		static inline constexpr u32 FrameKickPc = 0x001791AC;
 
@@ -73,7 +81,10 @@ namespace AVPE
 	private:
 		struct Pending
 		{
-			NativeMenuInput::Action action;
+			PromptButton button;
+			u32 item;
+			u32 hotkey;
+			std::string label;
 			u32 window;
 			s32 xmin;
 			s32 ymin;
@@ -81,6 +92,7 @@ namespace AVPE
 			s32 ymax;
 		};
 
+		static std::string ReadLabel(u32 text, GuestReader read);
 		std::optional<DrawOffset> ReadDrawOffset(u32 window, float framebuffer_width, float framebuffer_height,
 			GuestReader read) const;
 

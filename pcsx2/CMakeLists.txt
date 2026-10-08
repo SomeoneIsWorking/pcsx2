@@ -108,6 +108,7 @@ set(pcsx2Sources
 	AVPE/NativeTitleTransition.cpp
 	AVPE/NativeTitleTransitionRoute.cpp
 	AVPE/NativePromptGlyphs.cpp
+	AVPE/NativePromptKeys.cpp
 	AVPE/NativePromptOverlay.cpp
 	AVPE/NativePromptPlacement.cpp
 	AVPE/NativePromptTrace.cpp

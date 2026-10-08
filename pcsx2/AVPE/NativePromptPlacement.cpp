@@ -69,13 +69,16 @@ namespace AVPE
 		{
 			return;
 		}
-		const std::optional<NativeMenuInput::Action> action = NativePromptGlyphs::ActionFor(*button);
-		if (!action)
+		u32 render = 0;
+		if (!ReadValue(read, workspace + WorkspaceRenderOffset, &render) || render < ItemRenderOffset)
 		{
 			return;
 		}
-		Pending pending{*action, 0, 0, 0, 0, 0};
-		if (!ReadValue(read, CurrentWindowAddress, &pending.window) ||
+		Pending pending{*button, render - ItemRenderOffset, 0, {}, 0, 0, 0, 0, 0};
+		u32 text = 0;
+		if (!ReadValue(read, pending.item + ItemHotKeyOffset, &pending.hotkey) ||
+			!ReadValue(read, pending.item + ItemTextOffset, &text) ||
+			!ReadValue(read, CurrentWindowAddress, &pending.window) ||
 			!ReadValue(read, sp + RectStackOffset + 0x00, &pending.xmin) ||
 			!ReadValue(read, sp + RectStackOffset + 0x04, &pending.ymin) ||
 			!ReadValue(read, sp + RectStackOffset + 0x08, &pending.xmax) ||
@@ -83,7 +86,27 @@ namespace AVPE
 		{
 			return;
 		}
-		m_pending.push_back(pending);
+		pending.label = ReadLabel(text, read);
+		m_pending.push_back(std::move(pending));
+	}
+
+	std::string NativePromptPlacement::ReadLabel(const u32 text, const GuestReader read)
+	{
+		std::string label;
+		if (!GuestObjects::IsPlausibleAddress(text))
+		{
+			return label;
+		}
+		for (u32 index = 0; index < MaxLabelLength; index++)
+		{
+			char character = 0;
+			if (!ReadValue(read, text + index, &character) || character == 0)
+			{
+				break;
+			}
+			label.push_back(character);
+		}
+		return label;
 	}
 
 	std::optional<NativePromptPlacement::DrawOffset> NativePromptPlacement::ReadDrawOffset(const u32 window,
@@ -118,6 +141,7 @@ namespace AVPE
 		{
 			frame.framebuffer_width = static_cast<float>(width);
 			frame.framebuffer_height = static_cast<float>(height);
+			NativePromptKeys keys;
 			for (const Pending& pending : m_pending)
 			{
 				const std::optional<DrawOffset> offset =
@@ -126,7 +150,8 @@ namespace AVPE
 				{
 					continue;
 				}
-				frame.prompts.push_back({pending.action, static_cast<float>(pending.xmin) + offset->x,
+				frame.prompts.push_back({keys.Next(pending.hotkey, pending.button, pending.label), pending.item,
+					static_cast<float>(pending.xmin) + offset->x,
 					static_cast<float>(pending.ymin) + offset->y, static_cast<float>(pending.xmax) + offset->x,
 					static_cast<float>(pending.ymax) + offset->y});
 			}

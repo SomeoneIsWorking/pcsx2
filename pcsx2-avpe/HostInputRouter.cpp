@@ -7,6 +7,7 @@
 #include "AVPE/NativeInput.h"
 #include "AVPE/NativeCameraInput.h"
 #include "AVPE/NativeMenuInput.h"
+#include "AVPE/NativePromptPlacement.h"
 
 #include <lucent/log.h>
 
@@ -28,16 +29,12 @@ namespace AVPE
 		switch (key)
 		{
 			case Qt::Key_Left:
-			case Qt::Key_A:
 				return CameraVector{-1.0f, 0.0f};
 			case Qt::Key_Right:
-			case Qt::Key_D:
 				return CameraVector{1.0f, 0.0f};
 			case Qt::Key_Up:
-			case Qt::Key_W:
 				return CameraVector{0.0f, -1.0f};
 			case Qt::Key_Down:
-			case Qt::Key_S:
 				return CameraVector{0.0f, 1.0f};
 			default:
 				return std::nullopt;
@@ -48,7 +45,7 @@ namespace AVPE
 	{
 		const std::optional<NativeMenuInput::Action> action = HostMenuBindings::ActionForKey(event.key());
 		if (!action.has_value())
-			return false;
+			return HandleCommandKey(event);
 		if (m_camera_keys.contains(event.key()))
 			return true;
 		if (event.isAutoRepeat() &&
@@ -72,6 +69,26 @@ namespace AVPE
 
 		lucent::warn("avpe-host-input", "native menu key {} refused: {}", event.key(), result.error);
 		m_consumed_keys.insert(event.key());
+		return true;
+	}
+
+	bool HostInputRouter::HandleCommandKey(const QKeyEvent& event)
+	{
+		const int key = event.key();
+		if (key < Qt::Key_A || key > Qt::Key_Z)
+			return false;
+		if (event.isAutoRepeat())
+			return m_consumed_keys.contains(key);
+		// Qt::Key_A..Key_Z are the ASCII capitals.
+		const std::optional<u32> item =
+			NativePromptPlacement::Process().Capture().ItemForLetter(static_cast<char>(key));
+		if (!item.has_value())
+			return false;
+		m_consumed_keys.insert(key);
+		const NativeMenuInput::Result result = NativeMenuInput::ActivateItem(*item);
+		if (result.Succeeded())
+			return true;
+		lucent::warn("avpe-host-input", "prompted item {:08x} refused key {}: {}", *item, key, result.error);
 		return true;
 	}
 

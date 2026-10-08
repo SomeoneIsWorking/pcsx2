@@ -3,20 +3,23 @@
 #pragma once
 
 #include "AVPE/NativeMenuInput.h"
+#include "AVPE/NativePromptKeys.h"
 #include "AVPE/PresentedDisplay.h"
 
 #include <array>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace AVPE
 {
-	// One drawn prompt glyph and the menu action its button triggers, in guest
-	// framebuffer pixels (top-left origin).
+	// One drawn prompt glyph, the menu item it belongs to and that item's PC key, in
+	// guest framebuffer pixels (top-left origin).
 	struct PromptRect
 	{
-		NativeMenuInput::Action action = NativeMenuInput::Action::Activate;
+		PromptKey key;
+		u32 item = 0;
 		float left = 0.0f;
 		float top = 0.0f;
 		float right = 0.0f;
@@ -29,11 +32,14 @@ namespace AVPE
 		float framebuffer_width = 0.0f;
 		float framebuffer_height = 0.0f;
 		std::vector<PromptRect> prompts;
+
+		// The item whose command key is `letter`.
+		std::optional<u32> ItemForLetter(char letter) const;
 	};
 
-	// Covers each guest prompt glyph with an opaque key cap naming the bound PC key.
-	// Frames arrive on the GS thread in guest order; labels come from the host's
-	// binding owner.
+	// Covers each guest prompt glyph with an opaque key cap naming its PC key.
+	// Frames arrive on the GS thread in guest order; the confirm and back labels come
+	// from the host's binding owner.
 	class NativePromptOverlay final
 	{
 	public:
@@ -50,6 +56,9 @@ namespace AVPE
 		static NativePromptOverlay& Process();
 
 	private:
+		// Caller holds m_label_mutex.
+		std::string LabelFor(const PromptKey& key) const;
+
 		mutable std::mutex m_label_mutex;
 		std::array<std::string, NativeMenuInput::ActionCount> m_labels;
 		PromptFrame m_frame;

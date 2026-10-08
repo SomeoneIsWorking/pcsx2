@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <utility>
 #include <map>
 
 namespace
@@ -10,7 +11,7 @@ namespace
 	using AVPE::NativePromptGlyphs;
 	using AVPE::NativePromptPlacement;
 	using AVPE::PromptFrame;
-	using AVPE::NativeMenuInput::Action;
+	using AVPE::PromptKey;
 
 	std::map<u32, u8> g_memory;
 
@@ -48,6 +49,24 @@ namespace
 	constexpr u32 Workspace = 0x01200000;
 	constexpr u32 Stack = 0x01FF0000;
 	constexpr u32 PauseWindow = 7;
+	constexpr u32 BackItem = 0x012E9540;
+	constexpr u32 SelectItem = 0x012E8A60;
+	constexpr u32 PatrolItem = 0x01300000;
+	constexpr u32 GatherItem = 0x01301000;
+	constexpr u32 Labels = 0x01360000;
+
+	// A GMenuItem with its embedded CRender node, hotkey and label.
+	void AddItem(const u32 item, const u32 hotkey, const char* const label)
+	{
+		const u32 text = Labels + (item & 0xFFFFF);
+		Write<u32>(item + NativePromptPlacement::ItemHotKeyOffset, hotkey);
+		Write<u32>(item + NativePromptPlacement::ItemTextOffset, text);
+		for (u32 index = 0; label[index] != 0; index++)
+		{
+			Write<char>(text + index, label[index]);
+		}
+		Write<char>(text + static_cast<u32>(std::strlen(label)), 0);
+	}
 
 	// Lays out MASTER.TBD's Top/BottomButton symbols and the live pause-menu frame state.
 	void BuildPauseMenu()
@@ -87,10 +106,16 @@ namespace
 		                 NativePromptPlacement::SlotDrawOriginOffset;
 		Write<float>(slot, 320.0f + 1728.0f);
 		Write<float>(slot + 4, 240.0f + 1824.0f - 8.0f);
+
+		AddItem(BackItem, AVPE::NativePromptKeys::FrontEndBack, "Back");
+		AddItem(SelectItem, AVPE::NativePromptKeys::FrontEndSelect, "Select");
+		AddItem(PatrolItem, 0xC134080A, "Patrol");
+		AddItem(GatherItem, 0xB8697E8E, "Gather");
 	}
 
-	void DrawMesh(NativePromptPlacement& placement, const u32 mesh, const s32 xmin, const s32 xmax)
+	void DrawMesh(NativePromptPlacement& placement, const u32 mesh, const u32 item, const s32 xmin, const s32 xmax)
 	{
+		Write<u32>(Workspace + NativePromptPlacement::WorkspaceRenderOffset, item + NativePromptPlacement::ItemRenderOffset);
 		Write<u32>(Workspace + NativePromptPlacement::WorkspaceResourceOffset, mesh);
 		const u32 rect = Stack + NativePromptPlacement::RectStackOffset;
 		Write<s32>(rect + 0x0, xmin);
@@ -126,9 +151,9 @@ namespace
 
 		// The first kick resolves the glyph meshes; the second frame's draws are matched.
 		placement.ObserveFrameKick(ReadFake);
-		DrawMesh(placement, SelectMesh, 98, 122);
-		DrawMesh(placement, BackMesh, 158, 182);
-		DrawMesh(placement, 0x01400000, 0, 10);
+		DrawMesh(placement, SelectMesh, SelectItem, 98, 122);
+		DrawMesh(placement, BackMesh, BackItem, 158, 182);
+		DrawMesh(placement, 0x01400000, SelectItem, 0, 10);
 		placement.ObserveFrameKick(ReadFake);
 
 		ASSERT_EQ(published.size(), 2u);
@@ -136,11 +161,34 @@ namespace
 		const PromptFrame& frame = published[1];
 		EXPECT_FLOAT_EQ(frame.framebuffer_height, 448.0f);
 		ASSERT_EQ(frame.prompts.size(), 2u);
-		EXPECT_EQ(frame.prompts[0].action, Action::Activate);
-		EXPECT_EQ(frame.prompts[1].action, Action::Cancel);
+		EXPECT_EQ(frame.prompts[0].key.kind, PromptKey::Kind::Confirm);
+		EXPECT_EQ(frame.prompts[0].item, SelectItem);
+		EXPECT_EQ(frame.prompts[1].key.kind, PromptKey::Kind::Back);
+		EXPECT_EQ(frame.prompts[1].item, BackItem);
 		EXPECT_FLOAT_EQ(frame.prompts[1].left, 158.0f);
 		EXPECT_FLOAT_EQ(frame.prompts[1].top, 383.0f);
 		EXPECT_FLOAT_EQ(frame.prompts[1].bottom, 407.0f);
+	}
+
+	TEST(NativePromptPlacementTest, KeysEachPromptByItsItemNotItsGlyph)
+	{
+		BuildPauseMenu();
+		std::vector<PromptFrame> published;
+		NativePromptPlacement placement([&published](PromptFrame frame) { published.push_back(std::move(frame)); });
+
+		// A command panel draws the Select and Back glyphs for Patrol and Gather.
+		placement.ObserveFrameKick(ReadFake);
+		DrawMesh(placement, SelectMesh, PatrolItem, 98, 122);
+		DrawMesh(placement, BackMesh, GatherItem, 158, 182);
+		placement.ObserveFrameKick(ReadFake);
+
+		const PromptFrame& frame = published[1];
+		ASSERT_EQ(frame.prompts.size(), 2u);
+		EXPECT_EQ(frame.prompts[0].key.kind, PromptKey::Kind::Command);
+		EXPECT_EQ(frame.prompts[0].key.letter, 'P');
+		EXPECT_EQ(frame.prompts[1].key.letter, 'G');
+		EXPECT_EQ(frame.ItemForLetter('G'), GatherItem);
+		EXPECT_FALSE(frame.ItemForLetter('S').has_value());
 	}
 
 	TEST(NativePromptPlacementTest, AFrameWithoutGlyphsClearsThePrompts)
@@ -150,7 +198,7 @@ namespace
 		NativePromptPlacement placement([&published](PromptFrame frame) { published.push_back(std::move(frame)); });
 
 		placement.ObserveFrameKick(ReadFake);
-		DrawMesh(placement, SelectMesh, 98, 122);
+		DrawMesh(placement, SelectMesh, SelectItem, 98, 122);
 		placement.ObserveFrameKick(ReadFake);
 		placement.ObserveFrameKick(ReadFake);
 
@@ -167,7 +215,7 @@ namespace
 		NativePromptPlacement placement([&published](PromptFrame frame) { published.push_back(std::move(frame)); });
 
 		placement.ObserveFrameKick(ReadFake);
-		DrawMesh(placement, SelectMesh, 98, 122);
+		DrawMesh(placement, SelectMesh, SelectItem, 98, 122);
 		placement.ObserveFrameKick(ReadFake);
 
 		EXPECT_TRUE(published[1].prompts.empty());

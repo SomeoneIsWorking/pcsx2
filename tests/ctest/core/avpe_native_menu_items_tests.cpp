@@ -169,6 +169,23 @@ namespace
 		EXPECT_EQ(target.object, 0u);
 	}
 
+	TEST_F(NativeMenuItemsTest, ActivatesANamedItemWhateverHasFocus)
+	{
+		const auto find = [&](const u32 item) {
+			return AVPE::NativeMenuItems::FindItemCallback(callbacks, 2, menu, item, &target, &error, access);
+		};
+		EXPECT_EQ(find(second), Status::Success);
+		EXPECT_EQ(target.object, second);
+		EXPECT_EQ(target.callback, callbacks + 0x18);
+		// An ActivateFocused sibling does not take over a named activation.
+		words[first + 0x110] = 0x21383159;
+		EXPECT_EQ(find(second), Status::Success);
+		EXPECT_EQ(target.object, second);
+		EXPECT_EQ(find(0), Status::FocusUnavailable);
+		EXPECT_EQ(find(0x01800000), Status::FocusUnavailable);
+		EXPECT_EQ(target.object, 0u);
+	}
+
 	TEST_F(NativeMenuItemsTest, CoalescesEquivalentPhysicalBindingsForTheSameItem)
 	{
 		AddCallback(1, first, 1);
