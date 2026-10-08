@@ -168,10 +168,21 @@ namespace
 		EXPECT_EQ(target.object, 0u);
 	}
 
-	TEST_F(NativeMenuItemsTest, ActivatesANamedItemWhateverHasFocus)
+	TEST_F(NativeMenuItemsTest, ActivatesANamedItemThroughItsOwnParent)
 	{
+		// GCommandListMenu: no navigation callbacks, so the item names its menu.
+		words[menu] = 0x00342BA0;
+		words[first + 0xC] = menu;
+		words[second + 0xC] = menu;
+		// The panel's GScrollingTextDisplay has no handle and owns no callback.
+		constexpr u32 text = 0x01004000;
+		words[text] = 0x0035A450;
+		words[text + 8] = 0;
+		words[text + 0x10] = first;
+		words[text + 0x18] = 0;
+		words[menu + 8] = text;
 		const auto find = [&](const u32 item) {
-			return AVPE::NativeMenuItems::FindItemCallback(callbacks, 2, menu, item, &target, &error, access);
+			return AVPE::NativeMenuItems::FindItemCallback(callbacks, 2, item, &target, &error, access);
 		};
 		EXPECT_EQ(find(second), Status::Success);
 		EXPECT_EQ(target.object, second);
@@ -181,7 +192,16 @@ namespace
 		EXPECT_EQ(find(second), Status::Success);
 		EXPECT_EQ(target.object, second);
 		EXPECT_EQ(find(0), Status::FocusUnavailable);
-		EXPECT_EQ(find(0x01800000), Status::FocusUnavailable);
+		EXPECT_EQ(find(0x01800000), Status::GuestMemoryError);
+		// A greyed item has no registered hotkey, as GMenuItem::AttachHotkeys skips it.
+		words[callbacks + 0x18 + 8] = 7;
+		EXPECT_EQ(find(second), Status::FocusUnavailable);
+		words[callbacks + 0x18 + 8] = 2;
+		// A parent that does not hold the item refuses it.
+		words[second + 0xC] = first;
+		EXPECT_EQ(find(second), Status::FocusUnavailable);
+		words[second + 0xC] = 0x01900000;
+		EXPECT_EQ(find(second), Status::GuestMemoryError);
 		EXPECT_EQ(target.object, 0u);
 	}
 

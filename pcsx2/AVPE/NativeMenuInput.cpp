@@ -710,22 +710,23 @@ namespace AVPE::NativeMenuInput
 	{
 		Result result{.action = Action::Activate};
 		EECallShuttle::RunTransaction([&result, item](EECallShuttle::Transaction&) {
+			// The order panel registers item hotkeys but no navigation callbacks, so
+			// no active menu is required; the synchronous mission-goals modal is excluded.
 			InspectOnCPUThread(&result);
-			if (result.status != Status::Success)
-				return;
-			if (result.source != Source::CallbackRegistry)
+			if (result.source == Source::MissionGoalsLoad)
 			{
 				result.status = Status::FocusUnavailable;
-				result.error = "item activation requires a callback-registry menu";
+				result.error = "item activation does not run inside the mission-goals modal";
 				return;
 			}
+			result.source = Source::CallbackRegistry;
 			CallbackRegistry registry;
 			result.status = ReadCallbackRegistry(&registry, &result.error);
 			if (result.status != Status::Success)
 				return;
 			NativeInputCallbacks::Target target;
 			result.status = NativeMenuItems::FindItemCallback(
-				registry.entries, registry.count, result.menu, item, &target, &result.error);
+				registry.entries, registry.count, item, &target, &result.error);
 			if (result.status != Status::Success)
 				return;
 			result.handler = target.function;

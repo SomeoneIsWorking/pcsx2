@@ -14,6 +14,7 @@ namespace AVPE::NativeMenuItems
 	static constexpr u32 MENU_ITEM_ACTION_OFFSET = 0x110;
 	static constexpr u32 OBJECT_HANDLE_OFFSET = 0x18;
 	static constexpr u32 FIRST_CHILD_OFFSET = 0x08;
+	static constexpr u32 PARENT_OFFSET = 0x0C;
 	static constexpr u32 NEXT_SIBLING_OFFSET = 0x10;
 	static constexpr u32 MAX_MENU_OBJECTS = 256;
 	static constexpr u32 SLIDER_CONTROL_VTABLE = 0x00341E20;
@@ -91,9 +92,17 @@ namespace AVPE::NativeMenuItems
 		for (u32 index = 0; index < descendant_count; ++index)
 		{
 			u32 resolved = 0;
-			if (!read.word(descendants[index] + OBJECT_HANDLE_OFFSET, &(*handles)[index]) ||
-				(*handles)[index] == 0 || !read.handle((*handles)[index], &resolved) ||
-				resolved != descendants[index])
+			if (!read.word(descendants[index] + OBJECT_HANDLE_OFFSET, &(*handles)[index]))
+			{
+				return false;
+			}
+			// GInputDevice::Register takes an HGOBJECT, so a handle-less object such as
+			// the order panel's GScrollingTextDisplay owns no callback.
+			if ((*handles)[index] == 0)
+			{
+				continue;
+			}
+			if (!read.handle((*handles)[index], &resolved) || resolved != descendants[index])
 			{
 				return false;
 			}
@@ -153,7 +162,7 @@ namespace AVPE::NativeMenuItems
 				*error = "menu hotkey callback owner handle is unreadable";
 				return Status::GuestMemoryError;
 			}
-			if (!ContainsValue(descendant_handles, descendant_count, owner_handle))
+			if (owner_handle == 0 || !ContainsValue(descendant_handles, descendant_count, owner_handle))
 				continue;
 			if (!read.handle(owner_handle, &owner) ||
 				!ContainsValue(descendants, descendant_count, owner))
@@ -223,16 +232,24 @@ namespace AVPE::NativeMenuItems
 		return FindHotkeyCallback(entries, count, menu, focused, {}, target, error, read);
 	}
 
-	Status FindItemCallback(const u32 entries, const u32 count, const u32 menu, const u32 item,
+	Status FindItemCallback(const u32 entries, const u32 count, const u32 item,
 		NativeInputCallbacks::Target* target, const char** error, const NativeInputCallbacks::Access& read)
 	{
+		*target = {};
 		if (item == 0)
 		{
-			*target = {};
 			*error = "no menu item was named";
 			return Status::FocusUnavailable;
 		}
-		return FindHotkeyCallback(entries, count, menu, 0, {.object = item}, target, error, read);
+		// GMenuItem::Activate (001210C0) reports to this parent; the order panel
+		// owns no navigation callbacks, so the item names its menu.
+		u32 parent = 0;
+		if (!read.is_object(item) || !read.word(item + PARENT_OFFSET, &parent) || !read.is_object(parent))
+		{
+			*error = "menu item or its parent is invalid or unreadable";
+			return Status::GuestMemoryError;
+		}
+		return FindHotkeyCallback(entries, count, parent, 0, {.object = item}, target, error, read);
 	}
 
 	Status FindCancellationCallback(const u32 entries, const u32 count, const u32 menu,
