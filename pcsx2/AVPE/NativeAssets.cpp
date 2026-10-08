@@ -67,7 +67,7 @@ namespace AVPE::NativeAssets
 
 		void ObserveOpen(const std::string_view path, const u32 flags)
 		{
-			if (!IsSurfacelessControlTest() || !IsTargetRecognized())
+			if (!IsControlTest() || !IsTargetRecognized())
 				return;
 			std::lock_guard lock(s_observation_mutex);
 			++s_total_open_calls;
@@ -458,7 +458,7 @@ namespace AVPE::NativeAssets
 
 	void NoteOriginalFallback(const std::string_view path)
 	{
-		if (!IsSurfacelessControlTest() || !IsTargetRecognized())
+		if (!IsControlTest() || !IsTargetRecognized())
 			return;
 		std::lock_guard lock(s_observation_mutex);
 		if (OpenObservation* observation = FindObservation(path))
@@ -521,7 +521,7 @@ namespace AVPE::NativeAssets
 	ObservationSnapshot GetObservationSnapshot()
 	{
 		ObservationSnapshot snapshot;
-		snapshot.enabled = IsSurfacelessControlTest();
+		snapshot.enabled = IsControlTest();
 		snapshot.target_recognized = IsTargetRecognized();
 		std::lock_guard lock(s_observation_mutex);
 		snapshot.total_open_calls = s_total_open_calls;

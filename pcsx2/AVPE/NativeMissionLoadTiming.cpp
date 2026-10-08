@@ -67,7 +67,7 @@ namespace AVPE::NativeMissionLoadTiming
 
 		bool IsEnabled()
 		{
-			return IsSurfacelessControlTest() && IsTargetRecognized() && HasMissionTarget() && Mode().has_value();
+			return IsControlTest() && IsTargetRecognized() && HasMissionTarget() && Mode().has_value();
 		}
 
 		bool IsObservedPc(const u32 pc)

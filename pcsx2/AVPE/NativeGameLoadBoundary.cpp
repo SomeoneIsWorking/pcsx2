@@ -40,7 +40,7 @@ namespace AVPE::NativeGameLoadBoundary
 
 		bool IsSupportedTarget()
 		{
-			return IsSurfacelessControlTest() && VMManager::GetDiscSerial() == TargetSerial &&
+			return IsControlTest() && VMManager::GetDiscSerial() == TargetSerial &&
 			       VMManager::GetDiscCRC() == TargetCrc;
 		}
 

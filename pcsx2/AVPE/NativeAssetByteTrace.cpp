@@ -185,7 +185,7 @@ namespace AVPE::NativeAssetByteTrace
 
 	bool IsEnabled()
 	{
-		return IsSurfacelessControlTest() && VMManager::GetDiscSerial() == kTargetSerial && Mode().has_value();
+		return IsControlTest() && VMManager::GetDiscSerial() == kTargetSerial && Mode().has_value();
 	}
 
 	void RegisterOpticalFile(const std::string_view guest_path)

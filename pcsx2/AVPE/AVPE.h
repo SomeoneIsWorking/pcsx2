@@ -13,9 +13,18 @@ namespace AVPE
 		u32 wire_mask;
 	};
 
-	// Selected only by the recognized -avpe-control-test application mode.
-	void SetSurfacelessControlTest(bool enabled);
-	bool IsSurfacelessControlTest();
+	// What a control test presents to: nothing, or a real window for captures of the
+	// presented frame.
+	enum class ControlTestSurface : u8
+	{
+		Surfaceless,
+		Window,
+	};
+
+	// Selected only by the recognized -avpe-control-test[-window] application modes.
+	void SetControlTest(ControlTestSurface surface);
+	bool IsControlTest();
+	bool ControlTestWantsSurface();
 	void NoteControlTestRenderWindow(bool surfaceless);
 
 	// Idempotent. Starts the loopback HTTP control server (port: env

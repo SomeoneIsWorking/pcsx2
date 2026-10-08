@@ -105,7 +105,7 @@ namespace AVPE::NativeInputDispatch
 
 		bool IsEnabled()
 		{
-			return IsSurfacelessControlTest() && IsTargetRecognized();
+			return IsControlTest() && IsTargetRecognized();
 		}
 
 		bool IsPointerCallbackValid(const u32 pointer, const u32 callback)

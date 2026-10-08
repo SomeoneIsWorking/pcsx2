@@ -55,13 +55,15 @@ namespace AVPE
 	static std::optional<lucent::http::Server> s_server;
 	static std::once_flag s_start_once;
 	static std::atomic_bool s_control_test_mode{false};
+	static std::atomic_bool s_control_test_window{false};
 	static std::atomic_bool s_control_test_surface_verified{false};
 	static std::string s_control_nonce;
 
-	void SetSurfacelessControlTest(bool enabled)
+	void SetControlTest(const ControlTestSurface surface)
 	{
 		NativeConfig::Initialize();
-		s_control_test_mode.store(enabled, std::memory_order_release);
+		s_control_test_window.store(surface == ControlTestSurface::Window, std::memory_order_release);
+		s_control_test_mode.store(true, std::memory_order_release);
 		s_control_test_surface_verified.store(false, std::memory_order_release);
 		NativeAssets::ResetObservation();
 		NativeAssetByteTrace::Reset();
@@ -73,18 +75,23 @@ namespace AVPE
 		NativeTitleTransition::Reset();
 		NativePromptTrace::Process().Reset();
 		NativeMeshBoundsTrace::Process().Reset();
-		NativeBiosTrace::SetEnabled(enabled && NativeConfig::BiosTraceEnabled());
+		NativeBiosTrace::SetEnabled(NativeConfig::BiosTraceEnabled());
 	}
 
-	bool IsSurfacelessControlTest()
+	bool IsControlTest()
 	{
 		return s_control_test_mode.load(std::memory_order_acquire);
 	}
 
+	bool ControlTestWantsSurface()
+	{
+		return IsControlTest() && s_control_test_window.load(std::memory_order_acquire);
+	}
+
 	void NoteControlTestRenderWindow(bool surfaceless)
 	{
-		if (IsSurfacelessControlTest())
-			s_control_test_surface_verified.store(surfaceless, std::memory_order_release);
+		if (IsControlTest())
+			s_control_test_surface_verified.store(surfaceless != ControlTestWantsSurface(), std::memory_order_release);
 	}
 
 	// ---------------------------------------------------------------- utils
@@ -247,15 +254,17 @@ namespace AVPE
 			default:
 				break;
 		}
-		const bool control_test = IsSurfacelessControlTest();
-		const bool surfaceless = s_control_test_surface_verified.load(std::memory_order_acquire);
+		const bool control_test = IsControlTest();
+		const bool surface_verified = s_control_test_surface_verified.load(std::memory_order_acquire);
+		const char* const surface = !surface_verified ? "unverified" : ControlTestWantsSurface() ? "window" :
+		                                                                                           "surfaceless";
 		const bool null_audio = EmuConfig.SPU2.Backend == AudioBackend::Null && EmuConfig.SPU2.OutputMuted;
 		char buf[512];
 		std::snprintf(buf, sizeof(buf),
 			R"({"vm":"%s","serial":"%s","crc":"%08X","host_mode":"%s","surface":"%s","audio":"%s","nonce":"%s"})",
 			state.c_str(), VMManager::GetDiscSerial().c_str(), VMManager::GetDiscCRC(),
 			control_test ? "control-test" : "pcsx2",
-			surfaceless ? "surfaceless" : "unverified",
+			surface,
 			null_audio ? "null-muted" : "other", s_control_nonce.c_str());
 		return lucent::http::Response::json(200, "OK", buf);
 	}

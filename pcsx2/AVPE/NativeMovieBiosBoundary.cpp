@@ -30,7 +30,7 @@ namespace AVPE::NativeMovieBiosBoundary
 
 		bool IsRequested()
 		{
-			return IsSurfacelessControlTest() && NativeConfig::BiosMovieTraceRequested();
+			return IsControlTest() && NativeConfig::BiosMovieTraceRequested();
 		}
 
 		std::string AppendBoundary(std::string snapshot, const bool complete)

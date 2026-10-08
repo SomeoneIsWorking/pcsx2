@@ -34,7 +34,7 @@ namespace AVPE::NativeLoadTiming
 
 		bool IsEnabled()
 		{
-			return IsSurfacelessControlTest() && VMManager::GetDiscSerial() == kTargetSerial && Mode().has_value();
+			return IsControlTest() && VMManager::GetDiscSerial() == kTargetSerial && Mode().has_value();
 		}
 
 		std::string_view BackendName(const Backend backend)
