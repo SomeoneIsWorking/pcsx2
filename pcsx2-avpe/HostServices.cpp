@@ -87,7 +87,7 @@ void Host::OpenURL(const std::string_view url)
 
 bool Host::InBatchMode()
 {
-	return AVPE::IsSurfacelessControlTest();
+	return AVPE::IsControlTest();
 }
 
 bool Host::InNoGUIMode()
