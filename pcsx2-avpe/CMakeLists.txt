@@ -2,6 +2,15 @@ set(CMAKE_AUTOMOC ON)
 
 include(GNUInstallDirs)
 
+# The one menu key table; the control-test frontend links it to draw the same labels.
+add_library(avpe-menu-bindings STATIC
+	HostMenuBindings.cpp
+	HostMenuBindings.h
+)
+target_include_directories(avpe-menu-bindings PUBLIC "${CMAKE_SOURCE_DIR}")
+target_link_libraries(avpe-menu-bindings PRIVATE PCSX2_FLAGS PCSX2 Qt6::Core)
+target_compile_definitions(avpe-menu-bindings PRIVATE QT_NO_EXCEPTIONS)
+
 add_executable(avpe
 	EmulationThread.cpp
 	EmulationThread.h
@@ -9,8 +18,6 @@ add_executable(avpe
 	HostServices.cpp
 	HostInputRouter.cpp
 	HostInputRouter.h
-	HostMenuBindings.cpp
-	HostMenuBindings.h
 	HostWindow.cpp
 	HostWindow.h
 	Main.cpp
@@ -32,6 +39,7 @@ target_include_directories(avpe PRIVATE
 target_link_libraries(avpe PRIVATE
 	PCSX2_FLAGS
 	PCSX2
+	avpe-menu-bindings
 	lucent::lucent
 	Qt6::Core
 	Qt6::Gui

@@ -295,6 +295,7 @@ target_include_directories(pcsx2-qt PRIVATE
 target_link_libraries(pcsx2-qt PRIVATE
 	PCSX2_FLAGS
 	PCSX2
+	avpe-menu-bindings
 	lucent::lucent
 	Qt6::Core
 	Qt6::Gui

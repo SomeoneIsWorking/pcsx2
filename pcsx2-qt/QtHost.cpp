@@ -10,6 +10,7 @@
 #include "QtHost.h"
 
 #include "pcsx2/AVPE/AVPE.h"
+#include "pcsx2-avpe/HostMenuBindings.h"
 #include "QtProgressCallback.h"
 #include "QtUtils.h"
 #include "SetupWizardDialog.h"
@@ -2535,6 +2536,7 @@ int main(int argc, char* argv[])
 
 	// AVPE: loopback control channel (fork-local; port from AVPE_HTTP_PORT).
 	AVPE::Start();
+	AVPE::HostMenuBindings::PublishPromptLabels();
 
 	// Optionally run setup wizard.
 	int result;
