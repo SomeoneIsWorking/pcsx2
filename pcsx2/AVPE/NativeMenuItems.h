@@ -24,7 +24,7 @@ namespace AVPE::NativeMenuItems
 	Status FindAdjustmentCallback(u32 entries, u32 count, u32 menu, u32 focused,
 		NativeMenuInput::Action action, NativeInputCallbacks::Target* target,
 		const char** error, const NativeInputCallbacks::Access& read = {});
-	// Audio preview cancellation must pass through its authored Back item.
+	// Cancellation is the registered HotKeyActivate of the menu's Back item.
 	// FocusUnavailable means this menu keeps its existing virtual cancellation.
 	Status FindCancellationCallback(u32 entries, u32 count, u32 menu,
 		NativeInputCallbacks::Target* target, const char** error,
