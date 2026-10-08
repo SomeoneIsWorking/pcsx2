@@ -144,27 +144,26 @@ namespace
 		EXPECT_EQ(target.object, 0u);
 	}
 
-	TEST_F(NativeMenuItemsTest, AudioCancelRequiresUniqueRegisteredBackItem)
+	TEST_F(NativeMenuItemsTest, CancelFiresTheMenusRegisteredBackItem)
 	{
-		words[menu] = 0x00341D20;
-		words[first + 0x1C] = 0x0797F09F;
-		words[second + 0x1C] = 0;
+		// GLoadProfileMenu: generic Cancel hides it without showing Load/New again.
+		words[menu] = 0x00343350;
+		words[first + 0x118] = 0x39504A77;
+		words[second + 0x118] = 0xC5AA0E7F;
 		const auto find = [&]() {
 			return AVPE::NativeMenuItems::FindCancellationCallback(
 				callbacks, 2, menu, &target, &error, access);
 		};
 		EXPECT_EQ(find(), Status::Success);
-		EXPECT_EQ(target.object, first);
+		EXPECT_EQ(target.object, second);
+		EXPECT_EQ(target.callback, callbacks + 0x18);
 		EXPECT_EQ(target.function, hotkey);
-		words[second + 0x1C] = 0x0797F09F;
+		words[first + 0x118] = 0x2E16A928;
 		EXPECT_EQ(find(), Status::AmbiguousMenu);
-		words[first + 0x1C] = 0;
-		words[second + 0x1C] = 0;
-		EXPECT_EQ(find(), Status::GuestMemoryError);
-		words[first + 0x1C] = 0x0797F09F;
-		members[{first, callbacks + 0xC}] = 0x001FD400;
-		EXPECT_EQ(find(), Status::GuestMemoryError);
-		words[menu] = 0x00342120;
+		words[first + 0x118] = 0;
+		members[{second, callbacks + 0x18 + 0xC}] = 0x00120F90;
+		EXPECT_EQ(find(), Status::FocusUnavailable);
+		words[second + 0x118] = 0;
 		EXPECT_EQ(find(), Status::FocusUnavailable);
 		EXPECT_EQ(target.object, 0u);
 	}

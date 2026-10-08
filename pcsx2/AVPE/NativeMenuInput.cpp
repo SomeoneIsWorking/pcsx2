@@ -601,27 +601,20 @@ namespace AVPE::NativeMenuInput
 		QueueRegisteredAction(result, {.object = target, .callback = callback, .function = result->handler});
 	}
 
-	static bool TryRegisteredCancellation(Result* result)
+	static void QueueRegisteredCancellation(Result* result)
 	{
 		CallbackRegistry registry;
 		result->status = ReadCallbackRegistry(&registry, &result->error);
 		if (result->status != Status::Success)
-			return true;
+			return;
 		NativeInputCallbacks::Target target;
 		result->status = NativeMenuItems::FindCancellationCallback(
 			registry.entries, registry.count, result->menu, &target, &result->error);
-		if (result->status == Status::FocusUnavailable)
-		{
-			result->status = Status::Success;
-			return false;
-		}
-		if (result->status == Status::Success)
-		{
-			result->handler = target.function;
-			result->action_target = target.object;
-			QueueRegisteredAction(result, target);
-		}
-		return true;
+		if (result->status != Status::Success)
+			return;
+		result->handler = target.function;
+		result->action_target = target.object;
+		QueueRegisteredAction(result, target);
 	}
 
 	Result Inspect()
@@ -647,9 +640,11 @@ namespace AVPE::NativeMenuInput
 				return;
 			if (!PrepareMissionGoalsActivation(&result, transaction, action))
 				return;
-			if (result.source == Source::CallbackRegistry && action == Action::Cancel &&
-				TryRegisteredCancellation(&result))
+			if (result.source == Source::CallbackRegistry && action == Action::Cancel)
+			{
+				QueueRegisteredCancellation(&result);
 				return;
+			}
 			if (result.source == Source::CallbackRegistry && action != Action::Cancel)
 			{
 				QueueCallbackRegistryAction(&result, active, action);

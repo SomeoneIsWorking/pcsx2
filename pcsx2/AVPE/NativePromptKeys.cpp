@@ -18,11 +18,16 @@ namespace AVPE
 		{
 			return PromptKey::Kind::Confirm;
 		}
-		if (hotkey == FrontEndBack || hotkey == MenuTriangleRelease)
+		if (IsBackHotkey(hotkey))
 		{
 			return PromptKey::Kind::Back;
 		}
 		return PromptKey::Kind::Command;
+	}
+
+	bool NativePromptKeys::IsBackHotkey(const u32 hotkey)
+	{
+		return hotkey == FrontEndBack || hotkey == MenuTriangleRelease;
 	}
 
 	PromptKey NativePromptKeys::Next(const u32 hotkey, const PromptButton button, const std::string_view label)

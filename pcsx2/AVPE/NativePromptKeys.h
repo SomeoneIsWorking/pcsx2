@@ -38,6 +38,9 @@ namespace AVPE
 		// menu, which reacts to the drawn button, Cross confirming and Triangle backing out.
 		static PromptKey::Kind KindFor(u32 hotkey, PromptButton button);
 
+		// The hotkeys whose item backs out of its menu, as the pad's Back does.
+		static bool IsBackHotkey(u32 hotkey);
+
 		// A command takes the first letter of its label that no earlier prompt in the
 		// frame holds, else the first free letter of the alphabet.
 		PromptKey Next(u32 hotkey, PromptButton button, std::string_view label);

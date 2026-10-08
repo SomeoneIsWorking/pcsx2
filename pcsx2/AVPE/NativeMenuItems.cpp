@@ -2,6 +2,7 @@
 
 #include "AVPE/NativeMenuItems.h"
 #include "AVPE/NativeAttractInput.h"
+#include "AVPE/NativePromptKeys.h"
 
 #include <array>
 
@@ -18,9 +19,8 @@ namespace AVPE::NativeMenuItems
 	static constexpr u32 SLIDER_CONTROL_VTABLE = 0x00341E20;
 	static constexpr u32 SLIDER_INPUT_DOWN = 0x001FD400;
 	static constexpr u32 SLIDER_INPUT_UP = 0x001FD420;
-	static constexpr u32 AUDIO_OPTIONS_VTABLE = 0x00341D20;
-	static constexpr u32 AUDIO_BACK_BUTTON_ID = 0x0797F09F;
 	static constexpr u32 OBJECT_NAME_OFFSET = 0x1C;
+	static constexpr u32 MENU_ITEM_HOTKEY_OFFSET = 0x118;
 
 	static Status ReadMenuDescendants(const u32 menu,
 		std::array<u32, MAX_MENU_OBJECTS>* descendants, u32* descendant_count, const char** error, const NativeInputCallbacks::Access& read)
@@ -101,14 +101,14 @@ namespace AVPE::NativeMenuItems
 		return true;
 	}
 
-	// A required item, by name hash or object, selects that item's registration
-	// instead of the focused one.
+	// A required item, by object or by a Back hotkey, selects that item's
+	// registration instead of the focused one.
 	struct RequiredItem
 	{
-		u32 name = 0;
 		u32 object = 0;
+		bool back = false;
 
-		bool Any() const { return name != 0 || object != 0; }
+		bool Any() const { return object != 0 || back; }
 	};
 
 	static Status FindHotkeyCallback(const u32 entries, const u32 count, const u32 menu, const u32 focused,
@@ -170,15 +170,15 @@ namespace AVPE::NativeMenuItems
 			}
 			if (required.object != 0 && owner != required.object)
 				continue;
-			if (required.name != 0)
+			if (required.back)
 			{
-				u32 name = 0;
-				if (!read.word(owner + OBJECT_NAME_OFFSET, &name))
+				u32 item_hotkey = 0;
+				if (!read.word(owner + MENU_ITEM_HOTKEY_OFFSET, &item_hotkey))
 				{
-					*error = "menu hotkey item name is unreadable";
+					*error = "menu hotkey item hotkey is unreadable";
 					return Status::GuestMemoryError;
 				}
-				if (name != required.name)
+				if (!NativePromptKeys::IsBackHotkey(item_hotkey))
 					continue;
 			}
 			else if (!required.Any() && item_action != ACTIVATE_FOCUSED_ACTION && owner != focused)
@@ -238,23 +238,11 @@ namespace AVPE::NativeMenuItems
 	Status FindCancellationCallback(const u32 entries, const u32 count, const u32 menu,
 		NativeInputCallbacks::Target* target, const char** error, const NativeInputCallbacks::Access& read)
 	{
-		*target = {};
-		u32 vtable = 0;
-		if (!read.word(menu, &vtable))
-		{
-			*error = "cancel menu identity is unreadable";
-			return Status::GuestMemoryError;
-		}
-		if (vtable != AUDIO_OPTIONS_VTABLE)
-			return Status::FocusUnavailable;
-		// GAudioOptionsMenu::ItemActivated (001FD640) restores preview audio
-		// only for AudioBackButton. Generic GMenu::Cancel skips that lifecycle.
-		const Status status = FindHotkeyCallback(entries, count, menu, 0, {.name = AUDIO_BACK_BUTTON_ID}, target, error, read);
+		// The pad's Back fires this item's HotKeyActivate; its menu's ItemActivated
+		// owns closing, rollback and showing the parent again.
+		const Status status = FindHotkeyCallback(entries, count, menu, 0, {.back = true}, target, error, read);
 		if (status == Status::FocusUnavailable)
-		{
-			*error = "Audio options has no registered Back action";
-			return Status::GuestMemoryError;
-		}
+			*error = "active menu has no registered Back item";
 		return status;
 	}
 
