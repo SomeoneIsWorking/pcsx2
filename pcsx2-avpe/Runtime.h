@@ -16,6 +16,7 @@ class QWindow;
 namespace AVPE
 {
 	class EmulationThread;
+	class HostTermination;
 	class HostWindow;
 	class RenderSurface;
 
@@ -53,5 +54,6 @@ namespace AVPE
 	private:
 		std::unique_ptr<EmulationThread> m_emulation_thread;
 		std::unique_ptr<HostWindow> m_window;
+		std::unique_ptr<HostTermination> m_termination;
 	};
 } // namespace AVPE
