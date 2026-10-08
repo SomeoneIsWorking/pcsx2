@@ -28,6 +28,20 @@ namespace AVPE::NativePromptRoute
 				output.push_back(HexDigits[byte & 15]);
 			}
 		}
+
+		std::string KeyName(const PromptKey& key)
+		{
+			switch (key.kind)
+			{
+				case PromptKey::Kind::Confirm:
+					return "confirm";
+				case PromptKey::Kind::Back:
+					return "back";
+				case PromptKey::Kind::Command:
+					return std::string(1, key.letter);
+			}
+			return {};
+		}
 	} // namespace
 
 	std::string SnapshotJson()
@@ -73,7 +87,7 @@ namespace AVPE::NativePromptRoute
 	{
 		const PromptFrame frame = NativePromptPlacement::Process().Capture();
 		std::string output =
-			fmt::format(R"({{"schema":"avpe-prompt-placement-v1","framebuffer":[{},{}],"prompts":[)",
+			fmt::format(R"({{"schema":"avpe-prompt-placement-v2","framebuffer":[{},{}],"prompts":[)",
 				frame.framebuffer_width, frame.framebuffer_height);
 		for (size_t index = 0; index < frame.prompts.size(); ++index)
 		{
@@ -82,8 +96,9 @@ namespace AVPE::NativePromptRoute
 			{
 				output.push_back(',');
 			}
-			output += fmt::format(R"({{"action":{},"left":{},"top":{},"right":{},"bottom":{}}})",
-				static_cast<int>(prompt.action), prompt.left, prompt.top, prompt.right, prompt.bottom);
+			output += fmt::format(
+				R"({{"key":"{}","item":"0x{:08X}","left":{},"top":{},"right":{},"bottom":{}}})",
+				KeyName(prompt.key), prompt.item, prompt.left, prompt.top, prompt.right, prompt.bottom);
 		}
 		output += "]}";
 		return output;

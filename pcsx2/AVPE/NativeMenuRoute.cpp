@@ -44,6 +44,8 @@ namespace AVPE::NativeMenuRoute
 			return HandleMovieState();
 		if (request.method == "POST" && path == "/input/menu-action")
 			return HandleAction(request.body);
+		if (request.method == "POST" && path == "/input/menu-item")
+			return HandleItem(request.body);
 		return std::nullopt;
 	}
 
@@ -67,6 +69,23 @@ namespace AVPE::NativeMenuRoute
 			static_cast<unsigned long long>(result.movie_action_id),
 			result.awaiting_readiness ? "true" : "false");
 		return response;
+	}
+
+	lucent::http::Response HandleItem(const std::string& body)
+	{
+		const auto item = HttpJson::HexU32Field(body, "item");
+		if (!item)
+			return lucent::http::Response::text(400, "Bad Request", "item must be a lowercase 0x-prefixed eight-digit word\n");
+		if (!VMManager::HasValidVM())
+			return lucent::http::Response::json(
+				409, "Conflict", R"({"error":"native menu input requires a valid VM"})");
+		const NativeMenuInput::Result result = NativeMenuInput::ActivateItem(*item);
+		if (!result.Succeeded())
+		{
+			lucent::error("avpe-input", "menu item {:08x} failed: {}", *item, result.error);
+			return lucent::http::Response::text(FailureStatus(result), "Native Menu Input Failed", std::string(result.error) + "\n");
+		}
+		return lucent::http::Response::json(202, "Accepted", FormatActionResponse("item", result));
 	}
 
 	lucent::http::Response HandleAction(const std::string& body)

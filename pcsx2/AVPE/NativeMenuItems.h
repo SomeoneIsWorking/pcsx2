@@ -15,6 +15,10 @@ namespace AVPE::NativeMenuItems
 	Status FindActivationCallback(u32 entries, u32 count, u32 menu, u32 focused,
 		NativeInputCallbacks::Target* target, const char** error,
 		const NativeInputCallbacks::Access& read = {});
+	// The given descendant item's registered GMenuItem::HotKeyActivate, focused or not.
+	Status FindItemCallback(u32 entries, u32 count, u32 menu, u32 item,
+		NativeInputCallbacks::Target* target, const char** error,
+		const NativeInputCallbacks::Access& read = {});
 	// A focused GSliderControl owns horizontal adjustment; ordinary menu
 	// navigation remains with the menu. Dispatch uses its registered guest member.
 	Status FindAdjustmentCallback(u32 entries, u32 count, u32 menu, u32 focused,

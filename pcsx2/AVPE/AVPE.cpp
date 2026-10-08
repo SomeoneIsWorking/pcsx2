@@ -1043,7 +1043,7 @@ namespace AVPE
 			"\"POST /guest/reset\","
 			"\"POST /state/save\",\"POST /state/load\","
 			"\"POST /input/press\",\"POST /input/move-absolute\",\"POST /input/mouse-button\",\"POST /input/camera\","
-			"\"POST /input/menu-action\",\"POST /input/menu-pointer-move\",\"POST /input/menu-pointer-dispatch\","
+			"\"POST /input/menu-action\",\"POST /input/menu-item\",\"POST /input/menu-pointer-move\",\"POST /input/menu-pointer-dispatch\","
 			"\"POST /input/menu-pointer-activate\","
 			"\"POST /ee/call\",\"POST /shutdown\"]}");
 	}

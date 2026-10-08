@@ -711,6 +711,35 @@ namespace AVPE::NativeMenuInput
 		return result;
 	}
 
+	Result ActivateItem(const u32 item)
+	{
+		Result result{.action = Action::Activate};
+		EECallShuttle::RunTransaction([&result, item](EECallShuttle::Transaction&) {
+			InspectOnCPUThread(&result);
+			if (result.status != Status::Success)
+				return;
+			if (result.source != Source::CallbackRegistry)
+			{
+				result.status = Status::FocusUnavailable;
+				result.error = "item activation requires a callback-registry menu";
+				return;
+			}
+			CallbackRegistry registry;
+			result.status = ReadCallbackRegistry(&registry, &result.error);
+			if (result.status != Status::Success)
+				return;
+			NativeInputCallbacks::Target target;
+			result.status = NativeMenuItems::FindItemCallback(
+				registry.entries, registry.count, result.menu, item, &target, &result.error);
+			if (result.status != Status::Success)
+				return;
+			result.handler = target.function;
+			result.action_target = target.object;
+			QueueRegisteredAction(&result, target);
+		});
+		return result;
+	}
+
 	Result ApplyWhenReady(const Action action, const u32 menu_vtable, const u32 focused_item_action)
 	{
 		Result result{.action = action};

@@ -26,6 +26,8 @@ namespace AVPE
 		void Tick();
 
 	private:
+		// A letter triggers the prompted item it names this frame.
+		bool HandleCommandKey(const QKeyEvent& event);
 		bool ApplyCameraMove(float x, float y);
 		bool ApplyCameraZoom(float steps);
 

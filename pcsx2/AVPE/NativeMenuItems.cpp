@@ -101,8 +101,18 @@ namespace AVPE::NativeMenuItems
 		return true;
 	}
 
+	// A required item, by name hash or object, selects that item's registration
+	// instead of the focused one.
+	struct RequiredItem
+	{
+		u32 name = 0;
+		u32 object = 0;
+
+		bool Any() const { return name != 0 || object != 0; }
+	};
+
 	static Status FindHotkeyCallback(const u32 entries, const u32 count, const u32 menu, const u32 focused,
-		const u32 required_name,
+		const RequiredItem required,
 		NativeInputCallbacks::Target* target, const char** error, const NativeInputCallbacks::Access& read)
 	{
 		*target = {};
@@ -158,7 +168,9 @@ namespace AVPE::NativeMenuItems
 				*error = "menu hotkey item action is unreadable";
 				return Status::GuestMemoryError;
 			}
-			if (required_name != 0)
+			if (required.object != 0 && owner != required.object)
+				continue;
+			if (required.name != 0)
 			{
 				u32 name = 0;
 				if (!read.word(owner + OBJECT_NAME_OFFSET, &name))
@@ -166,10 +178,10 @@ namespace AVPE::NativeMenuItems
 					*error = "menu hotkey item name is unreadable";
 					return Status::GuestMemoryError;
 				}
-				if (name != required_name)
+				if (name != required.name)
 					continue;
 			}
-			else if (item_action != ACTIVATE_FOCUSED_ACTION && owner != focused)
+			else if (!required.Any() && item_action != ACTIVATE_FOCUSED_ACTION && owner != focused)
 				continue;
 
 			u32 function = 0;
@@ -180,7 +192,7 @@ namespace AVPE::NativeMenuItems
 			}
 			if (function != MENU_ITEM_HOTKEY_ACTIVATE)
 				continue;
-			if (required_name == 0 && item_action != ACTIVATE_FOCUSED_ACTION)
+			if (!required.Any() && item_action != ACTIVATE_FOCUSED_ACTION)
 			{
 				if (focused_target.object == 0)
 					focused_target = {.object = owner, .callback = callback, .function = function};
@@ -208,7 +220,19 @@ namespace AVPE::NativeMenuItems
 	Status FindActivationCallback(const u32 entries, const u32 count, const u32 menu, const u32 focused,
 		NativeInputCallbacks::Target* target, const char** error, const NativeInputCallbacks::Access& read)
 	{
-		return FindHotkeyCallback(entries, count, menu, focused, 0, target, error, read);
+		return FindHotkeyCallback(entries, count, menu, focused, {}, target, error, read);
+	}
+
+	Status FindItemCallback(const u32 entries, const u32 count, const u32 menu, const u32 item,
+		NativeInputCallbacks::Target* target, const char** error, const NativeInputCallbacks::Access& read)
+	{
+		if (item == 0)
+		{
+			*target = {};
+			*error = "no menu item was named";
+			return Status::FocusUnavailable;
+		}
+		return FindHotkeyCallback(entries, count, menu, 0, {.object = item}, target, error, read);
 	}
 
 	Status FindCancellationCallback(const u32 entries, const u32 count, const u32 menu,
@@ -225,7 +249,7 @@ namespace AVPE::NativeMenuItems
 			return Status::FocusUnavailable;
 		// GAudioOptionsMenu::ItemActivated (001FD640) restores preview audio
 		// only for AudioBackButton. Generic GMenu::Cancel skips that lifecycle.
-		const Status status = FindHotkeyCallback(entries, count, menu, 0, AUDIO_BACK_BUTTON_ID, target, error, read);
+		const Status status = FindHotkeyCallback(entries, count, menu, 0, {.name = AUDIO_BACK_BUTTON_ID}, target, error, read);
 		if (status == Status::FocusUnavailable)
 		{
 			*error = "Audio options has no registered Back action";

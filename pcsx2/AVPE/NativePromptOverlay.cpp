@@ -24,6 +24,18 @@ namespace AVPE
 		inline constexpr float LabelPadding = 0.3f;
 	} // namespace
 
+	std::optional<u32> PromptFrame::ItemForLetter(const char letter) const
+	{
+		for (const PromptRect& prompt : prompts)
+		{
+			if (prompt.key.kind == PromptKey::Kind::Command && prompt.key.letter == letter)
+			{
+				return prompt.item;
+			}
+		}
+		return std::nullopt;
+	}
+
 	void NativePromptOverlay::SetLabel(const NativeMenuInput::Action action, std::string label)
 	{
 		std::scoped_lock lock(m_label_mutex);
@@ -53,6 +65,20 @@ namespace AVPE
 		};
 	}
 
+	std::string NativePromptOverlay::LabelFor(const PromptKey& key) const
+	{
+		switch (key.kind)
+		{
+			case PromptKey::Kind::Confirm:
+				return m_labels[static_cast<size_t>(NativeMenuInput::Action::Activate)];
+			case PromptKey::Kind::Back:
+				return m_labels[static_cast<size_t>(NativeMenuInput::Action::Cancel)];
+			case PromptKey::Kind::Command:
+				return std::string(1, key.letter);
+		}
+		return {};
+	}
+
 	void NativePromptOverlay::Render(const DisplayRect& display) const
 	{
 		if (m_frame.prompts.empty() || m_frame.framebuffer_width <= 0.0f || m_frame.framebuffer_height <= 0.0f)
@@ -66,7 +92,7 @@ namespace AVPE
 		{
 			const DisplayRect cover = MapToDisplay(prompt, m_frame, display);
 			const float height = cover.bottom - cover.top;
-			const std::string& label = m_labels[static_cast<size_t>(prompt.action)];
+			const std::string label = LabelFor(prompt.key);
 			const float text_size = height * LabelHeight;
 			const ImVec2 text = font->CalcTextSizeA(text_size, FLT_MAX, 0.0f, label.c_str());
 			const float centre_x = (cover.left + cover.right) * 0.5f;
