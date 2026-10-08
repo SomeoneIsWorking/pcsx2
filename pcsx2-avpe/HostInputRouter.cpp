@@ -2,6 +2,8 @@
 
 #include "pcsx2-avpe/HostInputRouter.h"
 
+#include "pcsx2-avpe/HostMenuBindings.h"
+
 #include "AVPE/NativeInput.h"
 #include "AVPE/NativeCameraInput.h"
 #include "AVPE/NativeMenuInput.h"
@@ -15,42 +17,6 @@
 
 namespace AVPE
 {
-	static constexpr std::optional<NativeMenuInput::Action> MenuActionForKey(const int key)
-	{
-		switch (key)
-		{
-			case Qt::Key_Up:
-			case Qt::Key_W:
-				return NativeMenuInput::Action::Up;
-			case Qt::Key_Down:
-			case Qt::Key_S:
-				return NativeMenuInput::Action::Down;
-			case Qt::Key_Left:
-			case Qt::Key_A:
-				return NativeMenuInput::Action::Left;
-			case Qt::Key_Right:
-			case Qt::Key_D:
-				return NativeMenuInput::Action::Right;
-			case Qt::Key_Return:
-			case Qt::Key_Enter:
-			case Qt::Key_Space:
-				return NativeMenuInput::Action::Activate;
-			case Qt::Key_Escape:
-			case Qt::Key_Backspace:
-				return NativeMenuInput::Action::Cancel;
-			default:
-				return std::nullopt;
-		}
-	}
-
-	static_assert(MenuActionForKey(Qt::Key_W) == NativeMenuInput::Action::Up);
-	static_assert(MenuActionForKey(Qt::Key_Down) == NativeMenuInput::Action::Down);
-	static_assert(MenuActionForKey(Qt::Key_A) == NativeMenuInput::Action::Left);
-	static_assert(MenuActionForKey(Qt::Key_Right) == NativeMenuInput::Action::Right);
-	static_assert(MenuActionForKey(Qt::Key_Return) == NativeMenuInput::Action::Activate);
-	static_assert(MenuActionForKey(Qt::Key_Escape) == NativeMenuInput::Action::Cancel);
-	static_assert(!MenuActionForKey(Qt::Key_F12).has_value());
-
 	struct CameraVector
 	{
 		float x;
@@ -80,7 +46,7 @@ namespace AVPE
 
 	bool HostInputRouter::HandleKeyPress(const QKeyEvent& event)
 	{
-		const std::optional<NativeMenuInput::Action> action = MenuActionForKey(event.key());
+		const std::optional<NativeMenuInput::Action> action = HostMenuBindings::ActionForKey(event.key());
 		if (!action.has_value())
 			return false;
 		if (m_camera_keys.contains(event.key()))

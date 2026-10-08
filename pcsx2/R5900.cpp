@@ -15,6 +15,7 @@
 #include "VMManager.h"
 #include "AVPE/NativeExceptionObservation.h"
 #include "AVPE/NativeMeshBoundsTrace.h"
+#include "AVPE/NativePromptPlacement.h"
 #include "AVPE/NativeMovieInput.h"
 #include "AVPE/NativePromptTrace.h"
 #include "AVPE/EECallShuttle.h"
@@ -67,6 +68,7 @@ void cpuReset()
 	AVPE::NativeMovieInput::Reset();
 	AVPE::NativePromptTrace::Process().Reset();
 	AVPE::NativeMeshBoundsTrace::Process().Reset();
+	AVPE::NativePromptPlacement::Process().Reset();
 	AVPE::EECallShuttle::ResetAfterStateLoad();
 	std::memset(&cpuRegs, 0, sizeof(cpuRegs));
 	std::memset(&fpuRegs, 0, sizeof(fpuRegs));

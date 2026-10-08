@@ -26,6 +26,7 @@ namespace AVPE::NativeMenuInput
 		Activate,
 		Cancel,
 	};
+	inline constexpr size_t ActionCount = static_cast<size_t>(Action::Cancel) + 1;
 
 	enum class Status : u8
 	{

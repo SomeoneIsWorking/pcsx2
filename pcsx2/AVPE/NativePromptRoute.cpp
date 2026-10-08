@@ -1,8 +1,9 @@
-// Diagnostic HTTP presentation for live AVP:E font-render observations. Fork-local.
+// Diagnostic HTTP presentation for live AVP:E font-render and prompt-placement observations. Fork-local.
 
 #include "AVPE/NativePromptRoute.h"
 
 #include "AVPE/AVPE.h"
+#include "AVPE/NativePromptPlacement.h"
 #include "AVPE/NativePromptTrace.h"
 #include "VMManager.h"
 
@@ -68,9 +69,33 @@ namespace AVPE::NativePromptRoute
 		return output;
 	}
 
+	std::string PlacementJson()
+	{
+		const PromptFrame frame = NativePromptPlacement::Process().Capture();
+		std::string output =
+			fmt::format(R"({{"schema":"avpe-prompt-placement-v1","framebuffer":[{},{}],"prompts":[)",
+				frame.framebuffer_width, frame.framebuffer_height);
+		for (size_t index = 0; index < frame.prompts.size(); ++index)
+		{
+			const PromptRect& prompt = frame.prompts[index];
+			if (index != 0)
+			{
+				output.push_back(',');
+			}
+			output += fmt::format(R"({{"action":{},"left":{},"top":{},"right":{},"bottom":{}}})",
+				static_cast<int>(prompt.action), prompt.left, prompt.top, prompt.right, prompt.bottom);
+		}
+		output += "]}";
+		return output;
+	}
+
 	std::optional<lucent::http::Response> Handle(const lucent::http::Request& request)
 	{
 		const auto path = request.path();
+		if (path == "/prompt/placement" && request.method == "GET")
+		{
+			return lucent::http::Response::json(200, "OK", PlacementJson());
+		}
 		if (path == "/prompt/font-trace/stop" && request.method == "POST")
 		{
 			NativePromptTrace::Process().Stop();

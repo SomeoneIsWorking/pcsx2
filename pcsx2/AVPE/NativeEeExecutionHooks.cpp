@@ -11,6 +11,7 @@
 #include "AVPE/NativeMenuInput.h"
 #include "AVPE/NativeMeshBoundsTrace.h"
 #include "AVPE/NativeMovieInput.h"
+#include "AVPE/NativePromptPlacement.h"
 #include "AVPE/NativeMissionLoadTiming.h"
 #include "AVPE/NativeShellShutdownBoundary.h"
 #include "AVPE/NativeProfileContract.h"
@@ -57,7 +58,7 @@ namespace AVPE::NativeEeExecutionHooks
 		       NativeMissionLoadTiming::ShouldInstrumentEePc(pc) || NativeHostYield::ShouldInstrumentEePc(pc) ||
 		       NativeInputDispatch::ShouldInstrumentEePc(pc) || NativeMenuInput::ShouldObserveEePc(pc) ||
 		       NativeMovieInput::ShouldInstrumentEePc(pc) || NativePromptTrace::ShouldInstrumentEePc(pc) ||
-		       NativeMeshBoundsTrace::ShouldInstrumentEePc(pc);
+		       NativeMeshBoundsTrace::ShouldInstrumentEePc(pc) || NativePromptPlacement::ShouldInstrumentEePc(pc);
 	}
 
 	void ObserveEeExecution(const u32 pc)
@@ -113,6 +114,15 @@ namespace AVPE::NativeEeExecutionHooks
 				mesh_bounds.ObserveGetMatrixRect(cpuRegs.GPR.n.s3.UL[0], cpuRegs.GPR.n.sp.UL[0],
 					GuestObjects::ReadBytes);
 			}
+		}
+		if (pc == NativePromptPlacement::GetMatrixRectReturnPc)
+		{
+			NativePromptPlacement::Process().ObserveGetMatrixRect(cpuRegs.GPR.n.s3.UL[0], cpuRegs.GPR.n.sp.UL[0],
+				GuestObjects::ReadBytes);
+		}
+		else if (pc == NativePromptPlacement::FrameKickPc)
+		{
+			NativePromptPlacement::Process().ObserveFrameKick(GuestObjects::ReadBytes);
 		}
 	}
 } // namespace AVPE::NativeEeExecutionHooks
