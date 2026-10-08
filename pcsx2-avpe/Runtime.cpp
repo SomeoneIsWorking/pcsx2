@@ -3,6 +3,7 @@
 
 #include "pcsx2-avpe/EmulationThread.h"
 #include "pcsx2-avpe/HostMenuBindings.h"
+#include "pcsx2-avpe/HostTermination.h"
 #include "pcsx2-avpe/HostWindow.h"
 #include "pcsx2-avpe/NativeWindow.h"
 #include "pcsx2-avpe/RenderSurface.h"
@@ -24,6 +25,7 @@ namespace AVPE
 	Runtime::Runtime(QApplication& application)
 		: m_emulation_thread(std::make_unique<EmulationThread>(application.thread()))
 		, m_window(std::make_unique<HostWindow>(*this))
+		, m_termination(std::make_unique<HostTermination>([this]() { m_window->close(); }))
 	{
 		pxAssert(!s_runtime);
 		s_runtime = this;

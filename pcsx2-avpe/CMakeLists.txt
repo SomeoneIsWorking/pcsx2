@@ -18,6 +18,8 @@ add_executable(avpe
 	HostServices.cpp
 	HostInputRouter.cpp
 	HostInputRouter.h
+	HostTermination.cpp
+	HostTermination.h
 	HostWindow.cpp
 	HostWindow.h
 	Main.cpp
