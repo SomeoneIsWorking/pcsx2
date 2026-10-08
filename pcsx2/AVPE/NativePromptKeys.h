@@ -44,6 +44,8 @@ namespace AVPE
 		// A command takes the first letter of its label that no earlier prompt in the
 		// frame holds, else the first free letter of the alphabet.
 		PromptKey Next(u32 hotkey, PromptButton button, std::string_view label);
+		// The command letter rule alone, for items that are not drawn.
+		char NextLetter(std::string_view label);
 
 	private:
 		std::bitset<26> m_taken;

@@ -4,6 +4,7 @@
 
 #include "AVPE/GuestObjects.h"
 #include "AVPE/NativeBiosTrace.h"
+#include "AVPE/NativeCommandCard.h"
 #include "AVPE/NativeGameLoadBoundary.h"
 #include "AVPE/NativeGameSaveBoundary.h"
 #include "AVPE/NativeHostYield.h"
@@ -60,7 +61,7 @@ namespace AVPE::NativeEeExecutionHooks
 		       NativeInputDispatch::ShouldInstrumentEePc(pc) || NativeMenuInput::ShouldObserveEePc(pc) ||
 		       NativeMovieInput::ShouldInstrumentEePc(pc) || NativePromptTrace::ShouldInstrumentEePc(pc) ||
 		       NativeMeshBoundsTrace::ShouldInstrumentEePc(pc) || NativePromptPlacement::ShouldInstrumentEePc(pc) ||
-		       pc == NativeTbdText::SetupPublicsExit;
+		       pc == NativeTbdText::SetupPublicsExit || pc == NativeCommandCard::InputProcessPc;
 	}
 
 	void ObserveEeExecution(const u32 pc)
@@ -88,6 +89,8 @@ namespace AVPE::NativeEeExecutionHooks
 			NativeHostYield::ObserveEeExecution(pc);
 		if (NativeInputDispatch::ShouldInstrumentEePc(pc))
 			NativeInputDispatch::ObserveEeExecution(pc);
+		if (pc == NativeCommandCard::InputProcessPc)
+			NativeCommandCard::Process().Step(cpuRegs.GPR.n.a0.UL[0], NativeCommandCard::LiveGuest());
 		if (NativeMenuInput::ShouldObserveEePc(pc))
 			NativeMenuInput::ObserveInputProcess();
 		if (NativeMovieInput::ShouldInstrumentEePc(pc))

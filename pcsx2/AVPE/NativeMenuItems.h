@@ -29,6 +29,11 @@ namespace AVPE::NativeMenuItems
 	Status FindCancellationCallback(u32 entries, u32 count, u32 menu,
 		NativeInputCallbacks::Target* target, const char** error,
 		const NativeInputCallbacks::Access& read = {});
+	// The registered HotKeyActivate of the menu's item whose PC letter is letter, the
+	// letters taken by label in registry order as NativePromptKeys assigns them.
+	Status FindCommandItem(u32 entries, u32 count, u32 menu, char letter,
+		NativeInputCallbacks::Target* target, const char** error,
+		const NativeInputCallbacks::Access& read = {});
 	Status FindMissionGoalsExitItem(u32 menu, u32* exit_item, const char** error,
 		const NativeInputCallbacks::Access& read = {});
 	// The guest's own 32-bit name hash carried by every menu item. Sibling items

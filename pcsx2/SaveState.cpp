@@ -3,6 +3,7 @@
 
 #include "Achievements.h"
 #include "AVPE/NativeMeshBoundsTrace.h"
+#include "AVPE/NativeCommandCard.h"
 #include "AVPE/NativePromptPlacement.h"
 #include "AVPE/NativeMovieInput.h"
 #include "AVPE/NativePromptTrace.h"
@@ -59,6 +60,7 @@ static void PreLoadPrep()
 	AVPE::NativePromptTrace::Process().Reset();
 	AVPE::NativeMeshBoundsTrace::Process().Reset();
 	AVPE::NativePromptPlacement::Process().Reset();
+	AVPE::NativeCommandCard::Process().Reset();
 	AVPE::EECallShuttle::ResetAfterStateLoad();
 	// ensure everything is in sync before we start overwriting stuff.
 	if (THREAD_VU1)
