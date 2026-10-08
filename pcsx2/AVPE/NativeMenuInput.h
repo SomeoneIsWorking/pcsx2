@@ -123,7 +123,8 @@ namespace AVPE::NativeMenuInput
 
 	Result Inspect();
 	Result Apply(Action action);
-	// Activates one live menu item through its own registered hotkey callback, focused or not.
+	// Activates one live menu item through its own registered hotkey callback, focused or
+	// not, whether or not a navigation menu is active.
 	Result ActivateItem(u32 item);
 	// Arms one exact-vtable/focus physical-pad action for the next matching
 	// normal input dispatch. It never retries after admission or a failed validation.
