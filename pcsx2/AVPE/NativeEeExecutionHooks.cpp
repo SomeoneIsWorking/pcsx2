@@ -17,6 +17,7 @@
 #include "AVPE/NativeProfileContract.h"
 #include "AVPE/NativePromptTrace.h"
 #include "AVPE/NativeSaveBackend.h"
+#include "AVPE/NativeTbdText.h"
 #include "AVPE/NativeTitleTransition.h"
 #include "R5900.h"
 
@@ -58,7 +59,8 @@ namespace AVPE::NativeEeExecutionHooks
 		       NativeMissionLoadTiming::ShouldInstrumentEePc(pc) || NativeHostYield::ShouldInstrumentEePc(pc) ||
 		       NativeInputDispatch::ShouldInstrumentEePc(pc) || NativeMenuInput::ShouldObserveEePc(pc) ||
 		       NativeMovieInput::ShouldInstrumentEePc(pc) || NativePromptTrace::ShouldInstrumentEePc(pc) ||
-		       NativeMeshBoundsTrace::ShouldInstrumentEePc(pc) || NativePromptPlacement::ShouldInstrumentEePc(pc);
+		       NativeMeshBoundsTrace::ShouldInstrumentEePc(pc) || NativePromptPlacement::ShouldInstrumentEePc(pc) ||
+		       pc == NativeTbdText::SetupPublicsExit;
 	}
 
 	void ObserveEeExecution(const u32 pc)
@@ -114,6 +116,10 @@ namespace AVPE::NativeEeExecutionHooks
 				mesh_bounds.ObserveGetMatrixRect(cpuRegs.GPR.n.s3.UL[0], cpuRegs.GPR.n.sp.UL[0],
 					GuestObjects::ReadBytes);
 			}
+		}
+		if (pc == NativeTbdText::SetupPublicsExit)
+		{
+			NativeTbdText::ObserveSetupPublicsExit();
 		}
 		if (pc == NativePromptPlacement::GetMatrixRectReturnPc)
 		{
