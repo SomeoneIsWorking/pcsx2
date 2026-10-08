@@ -6,8 +6,6 @@
 #include "AVPE/NativePromptKeys.h"
 #include "AVPE/PresentedDisplay.h"
 
-#include <array>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -39,14 +37,13 @@ namespace AVPE
 
 	// Covers each guest prompt glyph with an opaque key cap naming its PC key.
 	// Frames arrive on the GS thread in guest order; the confirm and back labels come
-	// from the host's binding owner.
+	// from NativeKeyLabels.
 	class NativePromptOverlay final
 	{
 	public:
 		// The guest glyph disc has a dark rim one framebuffer pixel outside its quad.
 		static inline constexpr float CoverMargin = 2.0f;
 
-		void SetLabel(NativeMenuInput::Action action, std::string label);
 		void Publish(PromptFrame frame);
 		void Clear();
 		// Draws into the current ImGui frame; GS thread only.
@@ -56,11 +53,8 @@ namespace AVPE
 		static NativePromptOverlay& Process();
 
 	private:
-		// Caller holds m_label_mutex.
-		std::string LabelFor(const PromptKey& key) const;
+		static std::string LabelFor(const PromptKey& key);
 
-		mutable std::mutex m_label_mutex;
-		std::array<std::string, NativeMenuInput::ActionCount> m_labels;
 		PromptFrame m_frame;
 	};
 } // namespace AVPE

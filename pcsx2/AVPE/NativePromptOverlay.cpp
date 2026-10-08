@@ -2,6 +2,8 @@
 
 #include "AVPE/NativePromptOverlay.h"
 
+#include "AVPE/NativeKeyLabels.h"
+
 #include "ImGui/ImGuiManager.h"
 
 #include "imgui.h"
@@ -36,12 +38,6 @@ namespace AVPE
 		return std::nullopt;
 	}
 
-	void NativePromptOverlay::SetLabel(const NativeMenuInput::Action action, std::string label)
-	{
-		std::scoped_lock lock(m_label_mutex);
-		m_labels[static_cast<size_t>(action)] = std::move(label);
-	}
-
 	void NativePromptOverlay::Publish(PromptFrame frame)
 	{
 		m_frame = std::move(frame);
@@ -65,14 +61,14 @@ namespace AVPE
 		};
 	}
 
-	std::string NativePromptOverlay::LabelFor(const PromptKey& key) const
+	std::string NativePromptOverlay::LabelFor(const PromptKey& key)
 	{
 		switch (key.kind)
 		{
 			case PromptKey::Kind::Confirm:
-				return m_labels[static_cast<size_t>(NativeMenuInput::Action::Activate)];
+				return NativeKeyLabels::Process().Get(NativeMenuInput::Action::Activate);
 			case PromptKey::Kind::Back:
-				return m_labels[static_cast<size_t>(NativeMenuInput::Action::Cancel)];
+				return NativeKeyLabels::Process().Get(NativeMenuInput::Action::Cancel);
 			case PromptKey::Kind::Command:
 				return std::string(1, key.letter);
 		}
@@ -87,7 +83,6 @@ namespace AVPE
 		}
 		ImDrawList* const draw = ImGui::GetBackgroundDrawList();
 		ImFont* const font = ImGuiManager::GetStandardFont();
-		std::scoped_lock lock(m_label_mutex);
 		for (const PromptRect& prompt : m_frame.prompts)
 		{
 			const DisplayRect cover = MapToDisplay(prompt, m_frame, display);
