@@ -49,6 +49,9 @@ namespace AVPE::NativeInputDispatch
 	// meaning and ownership; this owner only preserves the guest dispatch ABI.
 	Result QueueMenuAction(const MenuActionRequest& request);
 
+	// No callback is queued or still running, so the guest has seen the last one's effects.
+	bool IsIdle();
+
 	// The recompiler uses this to make the member-callback dispatch an exact
 	// block entry. The observer performs the live title/control-test gate.
 	bool ShouldInstrumentEePc(u32 pc);

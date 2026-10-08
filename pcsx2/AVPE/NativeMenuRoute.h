@@ -19,6 +19,7 @@ namespace AVPE::NativeMenuRoute
 	std::string FormatActionResponse(const std::string& action_name, const NativeMenuInput::Result& result);
 	lucent::http::Response HandleAction(const std::string& body);
 	lucent::http::Response HandleItem(const std::string& body);
+	lucent::http::Response HandleCommandCard(const std::string& body);
 	lucent::http::Response HandleState();
 	lucent::http::Response HandleReadiness();
 	lucent::http::Response HandleMovieState();

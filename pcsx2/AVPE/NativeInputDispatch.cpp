@@ -408,6 +408,13 @@ namespace AVPE::NativeInputDispatch
 		return {.status = Status::Success, .id = id};
 	}
 
+	bool IsIdle()
+	{
+		return !s_pending.pending.load(std::memory_order_acquire) &&
+		       !s_pending_menu_action.pending.load(std::memory_order_acquire) &&
+		       !s_pending_menu_action.return_pending.load(std::memory_order_acquire);
+	}
+
 	void ObserveEeExecution(const u32 pc)
 	{
 		if (pc == kInputProcessPc)

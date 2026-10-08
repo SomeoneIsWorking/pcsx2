@@ -15,6 +15,7 @@
 #include "VMManager.h"
 #include "AVPE/NativeExceptionObservation.h"
 #include "AVPE/NativeMeshBoundsTrace.h"
+#include "AVPE/NativeCommandCard.h"
 #include "AVPE/NativePromptPlacement.h"
 #include "AVPE/NativeMovieInput.h"
 #include "AVPE/NativePromptTrace.h"
@@ -69,6 +70,7 @@ void cpuReset()
 	AVPE::NativePromptTrace::Process().Reset();
 	AVPE::NativeMeshBoundsTrace::Process().Reset();
 	AVPE::NativePromptPlacement::Process().Reset();
+	AVPE::NativeCommandCard::Process().Reset();
 	AVPE::EECallShuttle::ResetAfterStateLoad();
 	std::memset(&cpuRegs, 0, sizeof(cpuRegs));
 	std::memset(&fpuRegs, 0, sizeof(fpuRegs));
@@ -366,7 +368,7 @@ static bool cpuIntsEnabled(int Interrupt)
 	bool IntType = !!(cpuRegs.CP0.n.Status.val & Interrupt); //Choose either INTC or DMAC, depending on what called it
 
 	return IntType && cpuRegs.CP0.n.Status.b.EIE && cpuRegs.CP0.n.Status.b.IE &&
-		!cpuRegs.CP0.n.Status.b.EXL && (cpuRegs.CP0.n.Status.b.ERL == 0);
+	       !cpuRegs.CP0.n.Status.b.EXL && (cpuRegs.CP0.n.Status.b.ERL == 0);
 }
 
 // Shared portion of the branch test, called from both the Interpreter

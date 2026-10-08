@@ -4,6 +4,7 @@
 
 #include "pcsx2-avpe/HostMenuBindings.h"
 
+#include "AVPE/NativeCommandCard.h"
 #include "AVPE/NativeInput.h"
 #include "AVPE/NativeCameraInput.h"
 #include "AVPE/NativeMenuInput.h"
@@ -18,6 +19,9 @@
 
 namespace AVPE
 {
+	// Held, it shows the order card as the pad's R2 does; command letters work without it.
+	static constexpr int CommandCardKey = Qt::Key_Tab;
+
 	struct CameraVector
 	{
 		float x;
@@ -43,6 +47,12 @@ namespace AVPE
 
 	bool HostInputRouter::HandleKeyPress(const QKeyEvent& event)
 	{
+		if (event.key() == CommandCardKey)
+		{
+			if (!event.isAutoRepeat() && !NativeCommandCard::Process().Show(true))
+				lucent::info("avpe-host-input", "order card is busy; Tab ignored");
+			return true;
+		}
 		const std::optional<NativeMenuInput::Action> action = HostMenuBindings::ActionForKey(event.key());
 		if (!action.has_value())
 			return HandleCommandKey(event);
@@ -83,7 +93,12 @@ namespace AVPE
 		const std::optional<u32> item =
 			NativePromptPlacement::Process().Capture().ItemForLetter(static_cast<char>(key));
 		if (!item.has_value())
-			return false;
+		{
+			if (!NativeCommandCard::Process().Command(static_cast<char>(key)))
+				return false;
+			m_consumed_keys.insert(key);
+			return true;
+		}
 		m_consumed_keys.insert(key);
 		const NativeMenuInput::Result result = NativeMenuInput::ActivateItem(*item);
 		if (result.Succeeded())
@@ -94,6 +109,12 @@ namespace AVPE
 
 	bool HostInputRouter::HandleKeyRelease(const QKeyEvent& event)
 	{
+		if (event.key() == CommandCardKey)
+		{
+			if (!event.isAutoRepeat())
+				NativeCommandCard::Process().Show(false);
+			return true;
+		}
 		if (event.isAutoRepeat())
 			return m_consumed_keys.contains(event.key()) || m_camera_keys.contains(event.key());
 		if (m_camera_keys.erase(event.key()) != 0)

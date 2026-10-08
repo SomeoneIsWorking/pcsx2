@@ -5,6 +5,7 @@
 #include "AVPE/NativePromptKeys.h"
 
 #include <array>
+#include <string>
 
 namespace AVPE::NativeMenuItems
 {
@@ -22,6 +23,8 @@ namespace AVPE::NativeMenuItems
 	static constexpr u32 SLIDER_INPUT_UP = 0x001FD420;
 	static constexpr u32 OBJECT_NAME_OFFSET = 0x1C;
 	static constexpr u32 MENU_ITEM_HOTKEY_OFFSET = 0x118;
+	static constexpr u32 MENU_ITEM_TEXT_OFFSET = 0x148;
+	static constexpr u32 MAX_LABEL_WORDS = 12;
 
 	static Status ReadMenuDescendants(const u32 menu,
 		std::array<u32, MAX_MENU_OBJECTS>* descendants, u32* descendant_count, const char** error, const NativeInputCallbacks::Access& read)
@@ -328,6 +331,89 @@ namespace AVPE::NativeMenuItems
 		}
 		*error = "focused slider has no registered adjustment callback";
 		return Status::GuestMemoryError;
+	}
+
+	static bool ReadLabel(const u32 item, std::string* label, const NativeInputCallbacks::Access& read)
+	{
+		label->clear();
+		u32 text = 0;
+		if (!read.word(item + MENU_ITEM_TEXT_OFFSET, &text))
+			return false;
+		if (text == 0)
+			return true;
+		for (u32 index = 0; index < MAX_LABEL_WORDS; ++index)
+		{
+			u32 word = 0;
+			if (!read.word(text + index * sizeof(u32), &word))
+				return false;
+			for (u32 shift = 0; shift < 32; shift += 8)
+			{
+				const char character = static_cast<char>((word >> shift) & 0xFF);
+				if (character == 0)
+					return true;
+				label->push_back(character);
+			}
+		}
+		return true;
+	}
+
+	Status FindCommandItem(const u32 entries, const u32 count, const u32 menu, const char letter,
+		NativeInputCallbacks::Target* target, const char** error, const NativeInputCallbacks::Access& read)
+	{
+		*target = {};
+		if (count > NativeInputCallbacks::MaxCount)
+		{
+			*error = "menu callback registry exceeds its bound";
+			return Status::GuestMemoryError;
+		}
+		std::array<u32, MAX_MENU_OBJECTS> descendants{};
+		u32 descendant_count = 0;
+		const Status tree_status = ReadMenuDescendants(menu, &descendants, &descendant_count, error, read);
+		if (tree_status != Status::Success)
+			return tree_status;
+		std::array<u32, MAX_MENU_OBJECTS> handles{};
+		if (!ReadDescendantHandles(descendants, descendant_count, &handles, read))
+		{
+			*error = "menu descendant handle is invalid or unreadable";
+			return Status::GuestMemoryError;
+		}
+
+		NativePromptKeys keys;
+		for (u32 index = 0; index < count; ++index)
+		{
+			const u32 callback = entries + index * NativeInputCallbacks::Stride;
+			u32 owner_handle = 0;
+			u32 owner = 0;
+			u32 function = 0;
+			if (!read.word(callback + NativeInputCallbacks::OwnerOffset, &owner_handle))
+			{
+				*error = "command callback owner handle is unreadable";
+				return Status::GuestMemoryError;
+			}
+			if (owner_handle == 0 || !ContainsValue(handles, descendant_count, owner_handle))
+				continue;
+			if (!read.handle(owner_handle, &owner) || !ContainsValue(descendants, descendant_count, owner) ||
+				!read.member(owner, callback + NativeInputCallbacks::MemberOffset, &function))
+			{
+				*error = "command callback does not resolve to its descendant";
+				return Status::GuestMemoryError;
+			}
+			if (function != MENU_ITEM_HOTKEY_ACTIVATE)
+				continue;
+			std::string label;
+			if (!ReadLabel(owner, &label, read))
+			{
+				*error = "command item label is unreadable";
+				return Status::GuestMemoryError;
+			}
+			if (keys.NextLetter(label) == letter)
+			{
+				*target = {.object = owner, .callback = callback, .function = function};
+				return Status::Success;
+			}
+		}
+		*error = "the menu has no command for this letter";
+		return Status::FocusUnavailable;
 	}
 
 	Status FindMissionGoalsExitItem(const u32 menu, u32* exit_item, const char** error, const NativeInputCallbacks::Access& read)

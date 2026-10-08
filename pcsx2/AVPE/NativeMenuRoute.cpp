@@ -4,6 +4,7 @@
 
 #include "AVPE/EECallShuttle.h"
 #include "AVPE/HttpJson.h"
+#include "AVPE/NativeCommandCard.h"
 #include "AVPE/NativeMenuInput.h"
 #include "AVPE/NativeMovieInput.h"
 #include "VMManager.h"
@@ -46,6 +47,8 @@ namespace AVPE::NativeMenuRoute
 			return HandleAction(request.body);
 		if (request.method == "POST" && path == "/input/menu-item")
 			return HandleItem(request.body);
+		if (request.method == "POST" && path == "/input/command-card")
+			return HandleCommandCard(request.body);
 		return std::nullopt;
 	}
 
@@ -69,6 +72,22 @@ namespace AVPE::NativeMenuRoute
 			static_cast<unsigned long long>(result.movie_action_id),
 			result.awaiting_readiness ? "true" : "false");
 		return response;
+	}
+
+	lucent::http::Response HandleCommandCard(const std::string& body)
+	{
+		const auto key = HttpJson::StringField(body, "key");
+		const auto show = HttpJson::StringField(body, "show");
+		bool accepted = false;
+		if (key && key->size() == 1)
+			accepted = NativeCommandCard::Process().Command((*key)[0]);
+		else if (show == "true" || show == "false")
+			accepted = NativeCommandCard::Process().Show(*show == "true");
+		else
+			return lucent::http::Response::text(400, "Bad Request", "need key (one capital letter) or show (\"true\" or \"false\")\n");
+		if (!accepted)
+			return lucent::http::Response::json(409, "Conflict", R"({"error":"an order card request is still running"})");
+		return lucent::http::Response::json(202, "Accepted", R"({"accepted":true})");
 	}
 
 	lucent::http::Response HandleItem(const std::string& body)
