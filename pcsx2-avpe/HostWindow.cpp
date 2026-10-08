@@ -1,6 +1,8 @@
 // AVPE-owned product window. Fork-local; independent of the PCSX2 GUI.
 #include "pcsx2-avpe/HostWindow.h"
 
+#include "AVPE/PresentedDisplay.h"
+
 #include "pcsx2-avpe/HostBackend.h"
 #include "pcsx2-avpe/RenderSurface.h"
 
@@ -16,8 +18,6 @@
 #include <QtGui/QMouseEvent>
 #include <QtGui/QWheelEvent>
 #include <QtWidgets/QWidget>
-
-#include <algorithm>
 
 namespace AVPE
 {
@@ -146,14 +146,19 @@ namespace AVPE
 			if (watched == m_surface && event->type() == QEvent::MouseMove)
 			{
 				const QMouseEvent* const mouse_event = static_cast<QMouseEvent*>(event);
-				const float width = static_cast<float>(std::max(m_surface->width() - 1, 1));
-				const float height = static_cast<float>(std::max(m_surface->height() - 1, 1));
-				const float normalized_x =
-					std::clamp(static_cast<float>(mouse_event->position().x()) / width, 0.0f, 1.0f);
-				const float normalized_y =
-					std::clamp(static_cast<float>(mouse_event->position().y()) / height, 0.0f, 1.0f);
-				if (m_input_router.HandlePointerMove(normalized_x, normalized_y))
-					return true;
+				// The guest image is letterboxed inside the surface, in device pixels.
+				const std::optional<DisplayRect> display = PresentedDisplay::Process().Load();
+				const float scale = static_cast<float>(m_surface->devicePixelRatio());
+				if (display.has_value())
+				{
+					const NormalizedPoint point = PresentedDisplay::Normalize(*display,
+						static_cast<float>(mouse_event->position().x()) * scale,
+						static_cast<float>(mouse_event->position().y()) * scale);
+					if (m_input_router.HandlePointerMove(point.x, point.y))
+					{
+						return true;
+					}
+				}
 			}
 			if (watched == m_surface &&
 				(event->type() == QEvent::MouseButtonPress ||

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "AVPE/NativeMenuInput.h"
+#include "AVPE/PresentedDisplay.h"
 
 #include <array>
 #include <mutex>
@@ -30,15 +31,6 @@ namespace AVPE
 		std::vector<PromptRect> prompts;
 	};
 
-	// Presented-window rectangle, top-left origin.
-	struct DisplayRect
-	{
-		float left = 0.0f;
-		float top = 0.0f;
-		float right = 0.0f;
-		float bottom = 0.0f;
-	};
-
 	// Covers each guest prompt glyph with an opaque key cap naming the bound PC key.
 	// Frames arrive on the GS thread in guest order; labels come from the host's
 	// binding owner.
@@ -54,8 +46,6 @@ namespace AVPE
 		// Draws into the current ImGui frame; GS thread only.
 		void Render(const DisplayRect& display) const;
 
-		// The present rect is flipped on lower-left-origin devices; the overlay draws top-down.
-		static DisplayRect TopOriginDisplay(const DisplayRect& presented, bool lower_left_origin, float window_height);
 		static DisplayRect MapToDisplay(const PromptRect& prompt, const PromptFrame& frame, const DisplayRect& display);
 		static NativePromptOverlay& Process();
 
