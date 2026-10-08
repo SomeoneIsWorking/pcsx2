@@ -126,7 +126,7 @@ namespace AVPE::NativePromptRoute
 		}
 		if (request.method == "POST")
 		{
-			if (!IsSurfacelessControlTest() || !VMManager::HasValidVM() ||
+			if (!IsControlTest() || !VMManager::HasValidVM() ||
 				VMManager::GetDiscSerial() != TargetSerial || VMManager::GetDiscCRC() != TargetCrc)
 			{
 				return lucent::http::Response::json(409, "Conflict",
