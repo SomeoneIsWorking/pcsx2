@@ -9,6 +9,8 @@ add_executable(avpe
 	HostServices.cpp
 	HostInputRouter.cpp
 	HostInputRouter.h
+	HostMenuBindings.cpp
+	HostMenuBindings.h
 	HostWindow.cpp
 	HostWindow.h
 	Main.cpp

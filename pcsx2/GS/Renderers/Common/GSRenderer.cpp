@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
+#include "AVPE/NativePromptOverlay.h"
 #include "ImGui/FullscreenUI.h"
 #include "ImGui/ImGuiManager.h"
 #include "GS/Renderers/Common/GSRenderer.h"
@@ -572,6 +573,10 @@ void GSRenderer::EndPresentFrame()
 		GSDumpReplayer::RenderUI();
 
 	FullscreenUI::Render();
+	AVPE::NativePromptOverlay::Process().Render(
+		AVPE::NativePromptOverlay::TopOriginDisplay({s_last_draw_rect.x, s_last_draw_rect.y, s_last_draw_rect.z,
+														s_last_draw_rect.w},
+			g_gs_device->UsesLowerLeftOrigin(), static_cast<float>(g_gs_device->GetWindowHeight())));
 	ImGuiManager::RenderOSD();
 	g_gs_device->EndPresent();
 	ImGuiManager::NewFrame();

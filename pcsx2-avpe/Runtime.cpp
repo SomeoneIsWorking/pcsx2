@@ -2,6 +2,7 @@
 #include "pcsx2-avpe/Runtime.h"
 
 #include "pcsx2-avpe/EmulationThread.h"
+#include "pcsx2-avpe/HostMenuBindings.h"
 #include "pcsx2-avpe/HostWindow.h"
 #include "pcsx2-avpe/NativeWindow.h"
 #include "pcsx2-avpe/RenderSurface.h"
@@ -26,6 +27,7 @@ namespace AVPE
 	{
 		pxAssert(!s_runtime);
 		s_runtime = this;
+		HostMenuBindings::PublishPromptLabels();
 	}
 
 	Runtime::~Runtime()
