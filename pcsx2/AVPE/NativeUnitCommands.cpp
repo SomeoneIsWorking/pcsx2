@@ -11,36 +11,9 @@ namespace AVPE
 {
 	namespace
 	{
-		NativeUnitCommands s_process_commands;
+		using NativeInputCallbacks::FindRegistered;
 
-		// The one registered callback an owner of this class resolves to function.
-		bool FindRegistered(const u32 entries, const u32 count, const u32 vtable, const u32 function,
-			NativeInputCallbacks::Target* target, const NativeInputCallbacks::Access& read)
-		{
-			*target = {};
-			for (u32 index = 0; index < count; ++index)
-			{
-				const u32 callback = entries + index * NativeInputCallbacks::Stride;
-				u32 handle = 0;
-				u32 owner = 0;
-				u32 owner_vtable = 0;
-				if (!read.word(callback + NativeInputCallbacks::OwnerOffset, &handle))
-					return false;
-				// Owners of every class register here; only a resolvable owner of this class is wanted.
-				if (handle == 0 || !read.handle(handle, &owner) || !read.word(owner, &owner_vtable) ||
-					owner_vtable != vtable)
-					continue;
-				u32 resolved = 0;
-				if (!read.member(owner, callback + NativeInputCallbacks::MemberOffset, &resolved))
-					return false;
-				if (resolved != function)
-					continue;
-				if (target->object != 0)
-					return false;
-				*target = {.object = owner, .callback = callback, .function = resolved};
-			}
-			return target->object != 0;
-		}
+		NativeUnitCommands s_process_commands;
 
 		bool ReadSelectionCount(const NativeInputCallbacks::Access& read, u32* count)
 		{

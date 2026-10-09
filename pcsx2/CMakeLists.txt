@@ -134,6 +134,7 @@ set(pcsx2Sources
 	AVPE/NativeMissionLoadTiming.cpp
 	AVPE/NativeMemoryCardState.cpp
 	AVPE/NativePadReadiness.cpp
+	AVPE/NativeInputCallbacks.cpp
 	AVPE/NativeInputDispatch.cpp
 	AVPE/NativeInput.cpp
 	AVPE/NativeInputData.cpp
