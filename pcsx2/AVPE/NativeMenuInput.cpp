@@ -19,11 +19,8 @@
 
 namespace AVPE::NativeMenuInput
 {
-	static constexpr u32 INPUT_DEVICE_SINGLETON = 0x00366E68;
 	static constexpr u32 MISSION_GOALS_MENU_SINGLETON = 0x00367C04;
 	static constexpr u32 MISSION_GOALS_MENU_VTABLE = 0x00342570;
-	static constexpr u32 CALLBACK_ARRAY_OFFSET = 0x48;
-	static constexpr u32 CALLBACK_CAPACITY_OFFSET = CALLBACK_ARRAY_OFFSET + 0x08;
 	static constexpr u32 FOCUSED_ITEM_HANDLE_OFFSET = 0x26C;
 	static constexpr u32 CALLBACK_STRIDE = NativeInputCallbacks::Stride;
 	static constexpr u32 CALLBACK_OWNER_OFFSET = NativeInputCallbacks::OwnerOffset;
@@ -44,7 +41,6 @@ namespace AVPE::NativeMenuInput
 	static constexpr u32 POINTER_ACTION_VTABLE_OFFSET = 0xE0;
 	static constexpr u32 POINTER_CHECK_VTABLE_OFFSET = 0xCC;
 	static constexpr u32 POINTER_UPDATE_VTABLE_FUNCTION = 0x001B51A0;
-	static constexpr u32 MAX_CALLBACK_COUNT = NativeInputCallbacks::MaxCount;
 	static constexpr std::array<u32, 6> MENU_CALLBACKS = {
 		0x00124BD0,
 		0x00124BE0,
@@ -92,12 +88,7 @@ namespace AVPE::NativeMenuInput
 		return index < MENU_ACTION_CALLBACKS.size() ? MENU_ACTION_CALLBACKS[index] : 0;
 	}
 
-	struct CallbackRegistry
-	{
-		u32 entries = 0;
-		u32 count = 0;
-		u32 capacity = 0;
-	};
+	using CallbackRegistry = NativeInputCallbacks::Registry;
 
 	static std::string HexWord(const u32 value)
 	{
@@ -159,18 +150,14 @@ namespace AVPE::NativeMenuInput
 	{
 		*registry = {};
 		u32 input_device = 0;
-		if (!GuestObjects::ReadWord(INPUT_DEVICE_SINGLETON, &input_device) ||
+		if (!GuestObjects::ReadWord(NativeInputCallbacks::InputDeviceSingleton, &input_device) ||
 			!GuestObjects::IsPlausibleObject(input_device) ||
-			!GuestObjects::ReadWord(input_device + CALLBACK_ARRAY_OFFSET, &registry->entries) ||
-			!GuestObjects::ReadWord(input_device + CALLBACK_ARRAY_OFFSET + sizeof(u32),
-				&registry->count) ||
-			!GuestObjects::ReadWord(input_device + CALLBACK_CAPACITY_OFFSET, &registry->capacity) ||
-			registry->count > registry->capacity || registry->capacity > MAX_CALLBACK_COUNT)
+			!NativeInputCallbacks::ReadRegistry(input_device, {}, registry))
 		{
 			*error = "game input callback registry is invalid or unreadable";
 			return Status::GuestMemoryError;
 		}
-		if (registry->count == 0 || !GuestObjects::IsPlausibleAddress(registry->entries))
+		if (registry->count == 0)
 		{
 			*error = "no active game input callbacks are registered";
 			return Status::MenuUnavailable;

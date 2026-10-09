@@ -25,8 +25,6 @@ namespace AVPE::NativeInputDispatch
 		constexpr u32 kInputProcessPc = 0x00114490;
 		constexpr u32 kCallbackDispatchPc = 0x001147CC;
 		constexpr u32 kCallbackDispatchReturnPc = 0x001147D8;
-		constexpr u32 kCallbackArrayOffset = 0x48;
-		constexpr u32 kCallbackCapacityOffset = kCallbackArrayOffset + 8;
 		constexpr u32 kCallbackEntrySize = NativeInputCallbacks::Stride;
 		constexpr u32 kCallbackOwnerHandleOffset = NativeInputCallbacks::OwnerOffset;
 		constexpr u32 kMemberFunctionWords = 3;
@@ -230,13 +228,8 @@ namespace AVPE::NativeInputDispatch
 				return;
 
 			const u32 input_device = cpuRegs.GPR.n.a0.UL[0];
-			u32 callbacks = 0;
-			u32 count = 0;
-			u32 capacity = 0;
-			if (!GuestObjects::ReadWord(input_device + kCallbackArrayOffset, &callbacks) ||
-				!GuestObjects::ReadWord(input_device + kCallbackArrayOffset + sizeof(u32), &count) ||
-				!GuestObjects::ReadWord(input_device + kCallbackCapacityOffset, &capacity) ||
-				count > capacity || (count != 0 && !GuestObjects::IsPlausibleAddress(callbacks)))
+			NativeInputCallbacks::Registry registry;
+			if (!NativeInputCallbacks::ReadRegistry(input_device, {}, &registry))
 			{
 				s_registry.failures.fetch_add(1, std::memory_order_release);
 				s_registry.valid.store(false, std::memory_order_release);
@@ -245,12 +238,12 @@ namespace AVPE::NativeInputDispatch
 
 			bool attract_registered = false;
 			u32 attract_owner = 0;
-			for (u32 index = 0; index < count; ++index)
+			for (u32 index = 0; index < registry.count; ++index)
 			{
 				u32 handle = 0;
 				u32 owner = 0;
 				u32 vtable = 0;
-				const u32 callback = callbacks + index * kCallbackEntrySize;
+				const u32 callback = registry.entries + index * kCallbackEntrySize;
 				if (!GuestObjects::ReadWord(callback + kCallbackOwnerHandleOffset, &handle))
 				{
 					s_registry.failures.fetch_add(1, std::memory_order_release);
@@ -270,8 +263,8 @@ namespace AVPE::NativeInputDispatch
 
 			s_registry.attract_owner.store(attract_owner, std::memory_order_relaxed);
 			s_registry.attract_registered.store(attract_registered, std::memory_order_relaxed);
-			s_registry.callback_count.store(count, std::memory_order_relaxed);
-			s_registry.callback_capacity.store(capacity, std::memory_order_relaxed);
+			s_registry.callback_count.store(registry.count, std::memory_order_relaxed);
+			s_registry.callback_capacity.store(registry.capacity, std::memory_order_relaxed);
 			s_registry.scans.fetch_add(1, std::memory_order_release);
 			s_registry.valid.store(true, std::memory_order_release);
 		}
