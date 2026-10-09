@@ -4,6 +4,7 @@
 
 #include "AVPE/NativeMenuInput.h"
 
+#include <array>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -39,8 +40,23 @@ namespace AVPE
 			static Access Guest();
 		};
 
-		// The title's "Press START button" (public 0x9BD83674) names the confirm key.
-		static Status RewriteTitlePrompt(std::string_view confirm_label, const Access& access);
+		// A public whose PS2 text tells the player to press START to confirm.
+		struct ConfirmPrompt
+		{
+			u32 symbol = 0;
+			std::string_view original;
+		};
+		static inline constexpr std::string_view ConfirmButton = "START button";
+		static inline constexpr std::array<ConfirmPrompt, 3> ConfirmPrompts{{
+			{0x9BD83674, "Press START button"},
+			// GLevelLoadErrorMenu's text, and its text when CProfile has no save target.
+			{0x421389F5, "Error Loading Level\nPress START button to continue"},
+			{0x1CE48D9B, "Error Loading Level!\nA memory card (8MB) (for PlayStation\xac"
+						 "2)\nis not inserted into MEMORY CARD slot 1\nPress START button to continue"},
+		}};
+
+		// Names the confirm key in place of ConfirmButton.
+		static Status RewriteConfirmPrompt(const ConfirmPrompt& prompt, std::string_view confirm_label, const Access& access);
 		static void ObserveSetupPublicsExit();
 	};
 } // namespace AVPE
