@@ -15,7 +15,7 @@
 #include "VMManager.h"
 #include "AVPE/NativeExceptionObservation.h"
 #include "AVPE/NativeMeshBoundsTrace.h"
-#include "AVPE/NativeContextAction.h"
+#include "AVPE/NativeMouseButtons.h"
 #include "AVPE/NativeUnitCommands.h"
 #include "AVPE/NativeDragSelect.h"
 #include "AVPE/NativePromptPlacement.h"
@@ -73,7 +73,7 @@ void cpuReset()
 	AVPE::NativeMeshBoundsTrace::Process().Reset();
 	AVPE::NativePromptPlacement::Process().Reset();
 	AVPE::NativeUnitCommands::Process().Reset();
-	AVPE::NativeContextAction::Process().Reset();
+	AVPE::NativeMouseButtons::Process().Reset();
 	AVPE::NativeDragSelect::Process().Reset();
 	AVPE::EECallShuttle::ResetAfterStateLoad();
 	std::memset(&cpuRegs, 0, sizeof(cpuRegs));

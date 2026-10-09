@@ -7,6 +7,7 @@
 #include <array>
 #include <functional>
 #include <span>
+#include <vector>
 
 namespace AVPE::EECallShuttle
 {
@@ -88,7 +89,10 @@ namespace AVPE::EECallShuttle
 	public:
 		Result Call(const Request& request);
 		Result CallWithStackBuffer(const Request& request, u32 argument_index, std::span<const u8> bytes);
+		// Busy while any deferred call is pending, so a later request replaces nothing.
 		DeferredTicket QueueDeferred(const Request& request);
+		// The calls run in order after every ticket admitted before them.
+		DeferredTicket QueueDeferredInOrder(std::vector<Request> requests);
 
 	private:
 		Transaction() = default;

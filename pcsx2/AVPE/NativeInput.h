@@ -3,9 +3,6 @@
 #pragma once
 
 #include "AVPE/EECallShuttle.h"
-#include "AVPE/NativeInputCallbacks.h"
-
-#include <vector>
 
 namespace AVPE::NativeInput
 {
@@ -60,12 +57,6 @@ namespace AVPE::NativeInput
 		SameType,
 	};
 
-	inline constexpr u32 SelectChangingFunction = 0x001B26A0;
-	inline constexpr u32 DoubleClickSelectChangingFunction = 0x001B2790;
-	inline constexpr u32 InGameMenuRefreshFunction = 0x00279670;
-	inline constexpr u32 InGameMenuSingleton = 0x003687FC;
-	inline constexpr u32 ReleaseMousePrimaryFunction = 0x001B52D0;
-
 	struct SelectionState
 	{
 		u32 count = 0;
@@ -81,12 +72,10 @@ namespace AVPE::NativeInput
 		MouseButton button = MouseButton::Primary;
 		ButtonEdge edge = ButtonEdge::Press;
 		u32 pointer = 0;
-		u32 handler = 0;
+		// The selection when the edge was queued; its calls run at the next safe boundary.
 		SelectionState before;
-		SelectionState after;
-		// A secondary edge runs no handler now; the context button's callback runs at the next dispatch.
-		bool queued = false;
-		u64 elapsed_cycles = 0;
+		// The deferred ticket holding the edge's calls; 0 when the edge does nothing.
+		u64 deferred_call_id = 0;
 		const char* error = "";
 
 		bool Succeeded() const { return status == Status::Success; }
@@ -97,12 +86,8 @@ namespace AVPE::NativeInput
 	// update function; it does not emulate a pad or write pointer fields directly.
 	Result MoveAbsolute(float normalized_x, float normalized_y);
 
-	// Calls the game's original primary mouse handlers and queues secondary edges on
-	// NativeContextAction; rejects impossible duplicate edges. Selection and command
-	// observations are read from game-owned state. The mode applies to a primary release
-	// only; other edges take Replace.
+	// Queues the edge's NativeMouseButtons calls in order on the deferred shuttle and rejects impossible duplicate edges. The mode
+	// applies to a primary release only; other edges take Replace.
 	ButtonResult ApplyButtonEdge(MouseButton button, ButtonEdge edge, SelectionMode mode);
-	// The guest calls a primary release makes; each ends as Input_ReleaseMouse1 does.
-	std::vector<EECallShuttle::Request> PrimaryReleaseCalls(SelectionMode mode, u32 pointer, u32 in_game_menu);
 	void ResetAfterStateLoad();
 } // namespace AVPE::NativeInput

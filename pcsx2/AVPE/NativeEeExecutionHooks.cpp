@@ -4,7 +4,6 @@
 
 #include "AVPE/GuestObjects.h"
 #include "AVPE/NativeBiosTrace.h"
-#include "AVPE/NativeContextAction.h"
 #include "AVPE/NativeUnitCommands.h"
 #include "AVPE/NativeGameLoadBoundary.h"
 #include "AVPE/NativeGameSaveBoundary.h"
@@ -94,11 +93,7 @@ namespace AVPE::NativeEeExecutionHooks
 		if (NativeInputDispatch::ShouldInstrumentEePc(pc))
 			NativeInputDispatch::ObserveEeExecution(pc);
 		if (pc == NativeUnitCommands::InputProcessPc)
-		{
-			const NativeInputDispatch::CallbackQueue queue = NativeInputDispatch::LiveCallbackQueue();
-			NativeUnitCommands::Process().Step(cpuRegs.GPR.n.a0.UL[0], queue);
-			NativeContextAction::Process().Step(cpuRegs.GPR.n.a0.UL[0], queue);
-		}
+			NativeUnitCommands::Process().Step(cpuRegs.GPR.n.a0.UL[0], NativeInputDispatch::LiveCallbackQueue());
 		if (NativeMenuInput::ShouldObserveEePc(pc))
 			NativeMenuInput::ObserveInputProcess();
 		if (NativeMovieInput::ShouldInstrumentEePc(pc))

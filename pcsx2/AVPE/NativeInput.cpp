@@ -3,7 +3,7 @@
 #include "AVPE/NativeInput.h"
 
 #include "AVPE/GuestObjects.h"
-#include "AVPE/NativeContextAction.h"
+#include "AVPE/NativeMouseButtons.h"
 #include "AVPE/NativePointerMotion.h"
 
 #include <mutex>
@@ -11,7 +11,6 @@
 namespace AVPE::NativeInput
 {
 	static constexpr u32 SET_INPUT_TYPE = 0x001B18E0;
-	static constexpr u32 PRESS_MOUSE_PRIMARY = 0x001B52C0;
 	static constexpr u32 POINTER_SINGLETON = 0x00367720;
 	static constexpr u32 INPUT_TYPE_OFFSET = 0x224;
 	static constexpr u32 SELECTION_ARRAY_OFFSET = 0x1B0;
@@ -149,23 +148,6 @@ namespace AVPE::NativeInput
 		return {.status = status, .button = button, .edge = edge, .error = error};
 	}
 
-	std::vector<EECallShuttle::Request> PrimaryReleaseCalls(
-		const SelectionMode mode, const u32 pointer, const u32 in_game_menu)
-	{
-		const EECallShuttle::Request refresh{.function = InGameMenuRefreshFunction, .arguments = {in_game_menu, 0, 0, 0}};
-		switch (mode)
-		{
-			case SelectionMode::Toggle:
-				return {{.function = SelectChangingFunction, .arguments = {pointer, 0, 1, 0}}, refresh};
-			case SelectionMode::SameType:
-				return {{.function = SelectChangingFunction, .arguments = {pointer, 0, 0, 0}},
-					{.function = DoubleClickSelectChangingFunction, .arguments = {pointer, 0, 0, 0}}, refresh};
-			case SelectionMode::Replace:
-			default:
-				return {{.function = ReleaseMousePrimaryFunction, .arguments = {pointer, 0, 0, 0}}};
-		}
-	}
-
 	ButtonResult ApplyButtonEdge(const MouseButton button, const ButtonEdge edge, const SelectionMode mode)
 	{
 		std::lock_guard lock(s_button_mutex);
@@ -197,46 +179,30 @@ namespace AVPE::NativeInput
 				return;
 			}
 
-			u32 in_game_menu = 0;
-			if (mode != SelectionMode::Replace && !GuestObjects::ReadWord(InGameMenuSingleton, &in_game_menu))
+			NativeMouseButtons::Frame frame{.pointer = result.pointer};
+			u32 input_device = 0;
+			if (!GuestObjects::ReadWord(NativeMouseButtons::InGameMenuSingleton, &frame.in_game_menu) ||
+				!GuestObjects::ReadWord(NativeInputCallbacks::InputDeviceSingleton, &input_device) ||
+				!GuestObjects::IsPlausibleObject(input_device) ||
+				!NativeInputCallbacks::ReadRegistry(input_device, {}, &frame.registry))
 			{
 				result.status = Status::GuestMemoryError;
-				result.error = "in-game menu singleton is unreadable";
+				result.error = "in-game menu or input callback registry is unreadable";
 				return;
 			}
-			if (button == MouseButton::Secondary)
+			std::vector<EECallShuttle::Request> calls =
+				NativeMouseButtons::Process().Calls(button, edge, mode, frame, {});
+			if (!calls.empty())
 			{
-				NativeContextAction& context = NativeContextAction::Process();
-				result.after = result.before;
-				result.queued = edge == ButtonEdge::Press ? context.Press() : context.Release();
-				result.status = result.queued ? Status::Success : Status::InvalidButtonEdge;
-				result.error = result.queued ? "" : "too many context button edges are pending";
-				return;
-			}
-			const std::vector<EECallShuttle::Request> requests =
-				edge == ButtonEdge::Press ?
-					std::vector<EECallShuttle::Request>{{.function = PRESS_MOUSE_PRIMARY, .arguments = {result.pointer, 0, 0, 0}}} :
-					PrimaryReleaseCalls(mode, result.pointer, in_game_menu);
-			result.handler = requests.front().function;
-			for (const EECallShuttle::Request& request : requests)
-			{
-				const EECallShuttle::Result call = transaction.Call(request);
-				result.shuttle_status = call.status;
-				result.elapsed_cycles += call.elapsed_cycles;
-				if (!call.Succeeded())
+				const EECallShuttle::DeferredTicket ticket = transaction.QueueDeferredInOrder(std::move(calls));
+				result.shuttle_status = ticket.status;
+				if (!ticket.Accepted())
 				{
-					result.status = call.status == EECallShuttle::Status::GuestMemoryError ?
-					                    Status::GuestMemoryError :
-					                    Status::ShuttleFailure;
-					result.error = call.error;
+					result.status = Status::ShuttleFailure;
+					result.error = ticket.error;
 					return;
 				}
-			}
-			if (!ReadSelection(result.pointer, &result.after))
-			{
-				result.status = Status::GuestMemoryError;
-				result.error = "game selection container became invalid after mouse handler";
-				return;
+				result.deferred_call_id = ticket.id;
 			}
 			result.status = Status::Success;
 		});
