@@ -4,6 +4,12 @@
 
 #include "AVPE/GuestObjects.h"
 #include "AVPE/NativeInputData.h"
+#include "AVPE/NativeMinimap.h"
+#include "AVPE/NativePointerMotion.h"
+
+#include <array>
+#include <cstring>
+#include <optional>
 
 #include <bit>
 #include <cmath>
@@ -16,6 +22,9 @@ namespace AVPE::NativeCameraInput
 	static constexpr u32 CAMERA_MOVE = 0x001AF140;
 	static constexpr u32 CAMERA_ROTATE = 0x001AF240;
 	static constexpr u32 CAMERA_ZOOM = 0x001AF480;
+	// GAvPCamera::Move(CVector), as GMiniMap::GoToBattleEvent uses it.
+	static constexpr u32 CAMERA_JUMP = 0x001AF660;
+	static constexpr u32 CAMERA_TARGET_Z_OFFSET = 0x114;
 
 	static constexpr u32 CAMERA_DIRECTION_X_OFFSET = 0x13C;
 	static constexpr u32 CAMERA_DIRECTION_Y_OFFSET = 0x140;
@@ -99,6 +108,8 @@ namespace AVPE::NativeCameraInput
 				return CAMERA_ROTATE;
 			case Action::Zoom:
 				return CAMERA_ZOOM;
+			case Action::Jump:
+				return CAMERA_JUMP;
 		}
 		return 0;
 	}
@@ -124,10 +135,40 @@ namespace AVPE::NativeCameraInput
 		if (!ReadState(camera, minimap, &result.before))
 			return Fail(action, Status::GuestMemoryError, "camera or minimap state is unreadable");
 
-		const std::array<u8, 8> input_data = NativeInputData::EncodeFloatPair(x, y);
 		EECallShuttle::Request request{.function = FunctionFor(action)};
 		request.arguments[0] = camera;
-		const EECallShuttle::Result call = transaction.CallWithStackBuffer(request, 1, input_data);
+		std::array<u8, 12> world_point{};
+		std::span<const u8> stack_buffer;
+		const std::array<u8, 8> input_data = NativeInputData::EncodeFloatPair(x, y);
+		if (action == Action::Jump)
+		{
+			float pointer_x = 0.0f;
+			float pointer_y = 0.0f;
+			NativeMinimap::View view;
+			if (!NativePointerMotion::ReadPhysicalPosition(result.before.pointer, &pointer_x, &pointer_y) ||
+				!NativeMinimap::ReadView(GuestObjects::ReadWord, &view))
+			{
+				return Fail(action, Status::OffMinimap, "no minimap or pointer is live");
+			}
+			const std::optional<NativeMinimap::WorldPoint> target = NativeMinimap::WorldAt(view, pointer_x, pointer_y);
+			float z = 0.0f;
+			if (!target.has_value())
+			{
+				return Fail(action, Status::OffMinimap, "the pointer is not on the minimap");
+			}
+			if (!ReadFloat(camera + CAMERA_TARGET_Z_OFFSET, &z))
+			{
+				return Fail(action, Status::GuestMemoryError, "camera target is unreadable");
+			}
+			const std::array<float, 3> point{target->x, target->y, z};
+			std::memcpy(world_point.data(), point.data(), world_point.size());
+			stack_buffer = world_point;
+		}
+		else
+		{
+			stack_buffer = input_data;
+		}
+		const EECallShuttle::Result call = transaction.CallWithStackBuffer(request, 1, stack_buffer);
 		result.shuttle_status = call.status;
 		result.staging_address = call.staging_address;
 		result.elapsed_cycles = call.elapsed_cycles;

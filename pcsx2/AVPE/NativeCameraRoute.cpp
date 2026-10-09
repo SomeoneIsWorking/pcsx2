@@ -36,6 +36,8 @@ namespace AVPE::NativeCameraRoute
 			return NativeCameraInput::Action::Rotate;
 		if (name == "zoom")
 			return NativeCameraInput::Action::Zoom;
+		if (name == "jump")
+			return NativeCameraInput::Action::Jump;
 		return std::nullopt;
 	}
 
@@ -44,12 +46,12 @@ namespace AVPE::NativeCameraRoute
 		const auto action_name = HttpJson::StringField(body, "action");
 		const auto x = HttpJson::FloatField(body, "x");
 		const auto y = HttpJson::FloatField(body, "y");
-		if (!action_name || !x || (action_name != "zoom" && !y))
-			return lucent::http::Response::text(400, "Bad Request", "need action and finite x+y (zoom only needs x)\n");
+		if (!action_name || !x || (action_name != "zoom" && action_name != "jump" && !y))
+			return lucent::http::Response::text(400, "Bad Request", "need action and finite x+y (zoom and jump only need x)\n");
 
 		const std::optional<NativeCameraInput::Action> action = ParseAction(*action_name);
 		if (!action.has_value())
-			return lucent::http::Response::text(400, "Bad Request", "action must be move, rotate, or zoom\n");
+			return lucent::http::Response::text(400, "Bad Request", "action must be move, rotate, zoom or jump\n");
 
 		const NativeCameraInput::Result result = NativeCameraInput::Apply(*action, *x, y.value_or(0.0f));
 		if (!result.Succeeded())
@@ -57,7 +59,8 @@ namespace AVPE::NativeCameraRoute
 			int status = result.shuttle_status == EECallShuttle::Status::Busy ? 409 : 500;
 			if (result.status == NativeCameraInput::Status::InvalidInput)
 				status = 400;
-			else if (result.status == NativeCameraInput::Status::CameraUnavailable)
+			else if (result.status == NativeCameraInput::Status::CameraUnavailable ||
+					 result.status == NativeCameraInput::Status::OffMinimap)
 				status = 409;
 			lucent::error("avpe-input", "camera {} failed: {}", *action_name, result.error);
 			return lucent::http::Response::text(status, "Native Camera Input Failed",

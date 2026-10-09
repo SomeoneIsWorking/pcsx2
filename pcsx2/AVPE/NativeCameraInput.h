@@ -11,6 +11,8 @@ namespace AVPE::NativeCameraInput
 		Move,
 		Rotate,
 		Zoom,
+		// Centre the view on the world point under the pointer on the minimap.
+		Jump,
 	};
 
 	enum class Status : u8
@@ -18,6 +20,7 @@ namespace AVPE::NativeCameraInput
 		Success,
 		InvalidInput,
 		CameraUnavailable,
+		OffMinimap,
 		GuestMemoryError,
 		ShuttleFailure,
 	};
