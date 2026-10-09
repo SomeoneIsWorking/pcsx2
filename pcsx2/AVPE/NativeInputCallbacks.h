@@ -30,7 +30,7 @@ namespace AVPE::NativeInputCallbacks
 		std::function<bool(u32, u32, u32*)> member = GuestObjects::ResolveMemberFunction;
 	};
 
-	// The one registered callback an owner of this class resolves to function; false when
-	// there is none, more than one, or the registry is unreadable.
+	// The first registered callback an owner of this class resolves to function; false when
+	// there is none, owners of it are several, or the registry is unreadable.
 	bool FindRegistered(u32 entries, u32 count, u32 vtable, u32 function, Target* target, const Access& read);
 } // namespace AVPE::NativeInputCallbacks
