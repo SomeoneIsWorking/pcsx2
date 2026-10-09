@@ -16,8 +16,6 @@ namespace AVPE
 {
 	namespace
 	{
-		inline constexpr u32 TitlePromptSymbol = 0x9BD83674;
-		inline constexpr std::string_view TitlePromptOriginal = "Press START button";
 		inline constexpr u32 EntrySize = 12;
 		inline constexpr u32 MaxBucketEntries = 4096;
 
@@ -90,10 +88,11 @@ namespace AVPE
 		};
 	}
 
-	NativeTbdText::Status NativeTbdText::RewriteTitlePrompt(const std::string_view confirm_label, const Access& access)
+	NativeTbdText::Status NativeTbdText::RewriteConfirmPrompt(
+		const ConfirmPrompt& prompt, const std::string_view confirm_label, const Access& access)
 	{
 		u32 text = 0;
-		switch (FindSymbol(access, TitlePromptSymbol, &text))
+		switch (FindSymbol(access, prompt.symbol, &text))
 		{
 			case Lookup::Found:
 				break;
@@ -102,8 +101,10 @@ namespace AVPE
 			case Lookup::Unreadable:
 				return Status::Unreadable;
 		}
-		const std::string replacement = "Press " + std::string(confirm_label);
-		const u32 span = static_cast<u32>(TitlePromptOriginal.size()) + 1;
+		const size_t button = prompt.original.find(ConfirmButton);
+		const std::string replacement = std::string(prompt.original.substr(0, button)) + std::string(confirm_label) +
+		                                std::string(prompt.original.substr(button + ConfirmButton.size()));
+		const u32 span = static_cast<u32>(prompt.original.size()) + 1;
 		if (confirm_label.empty() || replacement.size() >= span)
 		{
 			return Status::Foreign;
@@ -118,7 +119,7 @@ namespace AVPE
 		{
 			return Status::AlreadyNative;
 		}
-		if (held != TitlePromptOriginal || current.back() != '\0')
+		if (held != prompt.original || current.back() != '\0')
 		{
 			return Status::Foreign;
 		}
@@ -128,12 +129,16 @@ namespace AVPE
 		{
 			return Status::Unreadable;
 		}
-		lucent::info("avpe-text", "title prompt at {:08x} now reads \"{}\"", text, replacement);
+		lucent::info("avpe-text", "prompt {:08x} at {:08x} now names {}", prompt.symbol, text, confirm_label);
 		return Status::Rewritten;
 	}
 
 	void NativeTbdText::ObserveSetupPublicsExit()
 	{
-		RewriteTitlePrompt(NativeKeyLabels::Process().Get(NativeMenuInput::Action::Activate), Access::Guest());
+		const std::string confirm = NativeKeyLabels::Process().Get(NativeMenuInput::Action::Activate);
+		for (const ConfirmPrompt& prompt : ConfirmPrompts)
+		{
+			RewriteConfirmPrompt(prompt, confirm, Access::Guest());
+		}
 	}
 } // namespace AVPE
