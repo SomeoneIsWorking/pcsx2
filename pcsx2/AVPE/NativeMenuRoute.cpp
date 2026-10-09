@@ -92,11 +92,13 @@ namespace AVPE::NativeMenuRoute
 			accepted = HttpJson::StringField(body, "assign") == "true" ? commands.AssignGroup(index) :
 			                                                             commands.RecallGroup(index);
 		}
+		else if (HttpJson::StringField(body, "special") == "true")
+			accepted = commands.UseSpecial();
 		else if (jump == "event" || jump == "base")
 			accepted = *jump == "event" ? commands.JumpToEvent() : commands.JumpToBase();
 		else
 			return lucent::http::Response::text(400, "Bad Request",
-				"need key (a capital letter), show, group (1-4, optional assign) or jump (event or base)\n");
+				"need key (a capital letter), show, group (1-4, optional assign) jump (event or base) or special\n");
 		if (!accepted)
 			return lucent::http::Response::json(409, "Conflict", R"({"error":"a unit command is still running"})");
 		return lucent::http::Response::json(202, "Accepted", R"({"accepted":true})");

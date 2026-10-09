@@ -21,6 +21,8 @@ namespace AVPE
 {
 	// Held, it shows the order card as the pad's R2 does; command letters work without it.
 	static constexpr int CommandCardKey = Qt::Key_Tab;
+	// The unit's special ability, the top-left ability slot of a grid-hotkey RTS.
+	static constexpr int SpecialKey = Qt::Key_Q;
 
 	struct CameraVector
 	{
@@ -97,6 +99,9 @@ namespace AVPE
 			NativePromptPlacement::Process().Capture().ItemForLetter(static_cast<char>(key));
 		if (!item.has_value())
 		{
+			if (key == SpecialKey)
+				return NativeMenuInput::Inspect().status == NativeMenuInput::Status::MenuUnavailable &&
+				       HandleUnitKey(event);
 			if (!NativeUnitCommands::Process().CardOrder(static_cast<char>(key)))
 				return false;
 			m_consumed_keys.insert(key);
@@ -129,6 +134,8 @@ namespace AVPE
 			accepted = commands.JumpToEvent();
 		else if (key == Qt::Key_Backspace)
 			accepted = commands.JumpToBase();
+		else if (key == SpecialKey)
+			accepted = commands.UseSpecial();
 		else
 			return false;
 		if (!accepted)
