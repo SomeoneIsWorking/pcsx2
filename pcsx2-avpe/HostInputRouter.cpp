@@ -4,7 +4,7 @@
 
 #include "pcsx2-avpe/HostMenuBindings.h"
 
-#include "AVPE/NativeCommandCard.h"
+#include "AVPE/NativeUnitCommands.h"
 #include "AVPE/NativeInput.h"
 #include "AVPE/NativeCameraInput.h"
 #include "AVPE/NativeMenuInput.h"
@@ -49,8 +49,8 @@ namespace AVPE
 	{
 		if (event.key() == CommandCardKey)
 		{
-			if (!event.isAutoRepeat() && !NativeCommandCard::Process().Show(true))
-				lucent::info("avpe-host-input", "order card is busy; Tab ignored");
+			if (!event.isAutoRepeat() && !NativeUnitCommands::Process().ShowCard(true))
+				lucent::info("avpe-host-input", "unit command is busy; Tab ignored");
 			return true;
 		}
 		const std::optional<NativeMenuInput::Action> action = HostMenuBindings::ActionForKey(event.key());
@@ -94,7 +94,7 @@ namespace AVPE
 			NativePromptPlacement::Process().Capture().ItemForLetter(static_cast<char>(key));
 		if (!item.has_value())
 		{
-			if (!NativeCommandCard::Process().Command(static_cast<char>(key)))
+			if (!NativeUnitCommands::Process().CardOrder(static_cast<char>(key)))
 				return false;
 			m_consumed_keys.insert(key);
 			return true;
@@ -112,7 +112,7 @@ namespace AVPE
 		if (event.key() == CommandCardKey)
 		{
 			if (!event.isAutoRepeat())
-				NativeCommandCard::Process().Show(false);
+				NativeUnitCommands::Process().ShowCard(false);
 			return true;
 		}
 		if (event.isAutoRepeat())

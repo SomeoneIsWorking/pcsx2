@@ -1,0 +1,219 @@
+// PC keys for in-mission unit commands. Fork-local.
+
+#include "AVPE/NativeUnitCommands.h"
+
+#include "AVPE/NativeInputDispatch.h"
+#include "AVPE/NativeMenuItems.h"
+
+#include <lucent/log.h>
+
+namespace AVPE
+{
+	namespace
+	{
+		NativeUnitCommands s_process_commands;
+
+		// The one registered callback an owner of this class resolves to function.
+		bool FindRegistered(const u32 entries, const u32 count, const u32 vtable, const u32 function,
+			NativeInputCallbacks::Target* target, const NativeInputCallbacks::Access& read)
+		{
+			*target = {};
+			for (u32 index = 0; index < count; ++index)
+			{
+				const u32 callback = entries + index * NativeInputCallbacks::Stride;
+				u32 handle = 0;
+				u32 owner = 0;
+				u32 owner_vtable = 0;
+				if (!read.word(callback + NativeInputCallbacks::OwnerOffset, &handle))
+					return false;
+				// Owners of every class register here; only a resolvable owner of this class is wanted.
+				if (handle == 0 || !read.handle(handle, &owner) || !read.word(owner, &owner_vtable) ||
+					owner_vtable != vtable)
+					continue;
+				u32 resolved = 0;
+				if (!read.member(owner, callback + NativeInputCallbacks::MemberOffset, &resolved))
+					return false;
+				if (resolved != function)
+					continue;
+				if (target->object != 0)
+					return false;
+				*target = {.object = owner, .callback = callback, .function = resolved};
+			}
+			return target->object != 0;
+		}
+
+		bool ReadSelectionCount(const NativeInputCallbacks::Access& read, u32* count)
+		{
+			u32 pointer = 0;
+			u32 selection = 0;
+			return read.word(NativeUnitCommands::PointerInstance, &pointer) && read.is_object(pointer) &&
+			       read.word(pointer + NativeUnitCommands::SelectionOffset, &selection) && selection != 0 &&
+			       read.word(selection + 4, count);
+		}
+	} // namespace
+
+	bool NativeUnitCommands::Begin(const std::initializer_list<Action> actions, const char letter)
+	{
+		if (m_next < m_count)
+			return false;
+		m_count = 0;
+		for (const Action action : actions)
+			m_actions[m_count++] = action;
+		m_next = 0;
+		m_letter = letter;
+		m_opened = false;
+		m_hide = false;
+		return true;
+	}
+
+	bool NativeUnitCommands::CardOrder(const char letter)
+	{
+		std::lock_guard lock(m_mutex);
+		if (letter < 'A' || letter > 'Z')
+			return false;
+		return Begin({Action::OpenCard, Action::FireCardOrder, Action::CloseCard}, letter);
+	}
+
+	bool NativeUnitCommands::ShowCard(const bool shown)
+	{
+		std::lock_guard lock(m_mutex);
+		if (shown)
+			return Begin({Action::OpenCard}, 0);
+		if (!Begin({Action::CloseCard}, 0) && m_actions[m_next] == Action::OpenCard && m_letter == 0)
+			m_actions[m_next] = Action::CloseCard;
+		m_hide = true;
+		return true;
+	}
+
+	void NativeUnitCommands::Step(const u32 input_device, const Guest& guest)
+	{
+		std::lock_guard lock(m_mutex);
+		if (m_next >= m_count || !guest.dispatch_idle())
+			return;
+
+		const NativeInputCallbacks::Access& read = guest.read;
+		Frame frame;
+		u32 flags = 0;
+		if (!read.word(InGameMenuPointer, &frame.in_game_menu) || !read.is_object(frame.in_game_menu))
+		{
+			m_next = m_count;
+			return;
+		}
+		if (!read.word(frame.in_game_menu + (CardShownOffset & ~3u), &flags) ||
+			!read.word(input_device + CallbackArrayOffset, &frame.entries) ||
+			!read.word(input_device + CallbackArrayOffset + 4, &frame.count) ||
+			frame.count > NativeInputCallbacks::MaxCount)
+		{
+			lucent::warn("avpe-unit-commands", "in-game menu or callback registry is unreadable");
+			m_next = m_count;
+			return;
+		}
+		frame.card_shown = ((flags >> ((CardShownOffset & 3u) * 8)) & 0xFF) != 0;
+
+		bool queued = false;
+		while (m_next < m_count && !queued)
+		{
+			if (!Run(m_actions[m_next++], frame, guest, &queued))
+				m_next = m_count;
+		}
+		if (m_next >= m_count && m_hide)
+		{
+			Begin({Action::CloseCard}, 0);
+			m_hide = true;
+		}
+	}
+
+	bool NativeUnitCommands::Run(const Action action, const Frame& frame, const Guest& guest, bool* queued)
+	{
+		NativeInputCallbacks::Target target;
+		switch (action)
+		{
+			case Action::OpenCard:
+			{
+				if (frame.card_shown)
+					return true;
+				u32 selected = 0;
+				if (m_letter != 0 && (!ReadSelectionCount(guest.read, &selected) || selected == 0))
+					return false;
+				if (!FindRegistered(frame.entries, frame.count, ToggleMenuButtonVtable, ToggleOpenFunction, &target,
+						guest.read) ||
+					!guest.queue(target))
+				{
+					lucent::warn("avpe-unit-commands", "the order card toggle is not registered once");
+					return false;
+				}
+				m_opened = true;
+				*queued = true;
+				return true;
+			}
+			case Action::FireCardOrder:
+			{
+				if (!frame.card_shown)
+				{
+					lucent::info("avpe-unit-commands", "the order card did not open for key {}", m_letter);
+					return false;
+				}
+				u32 card = 0;
+				const char* error = "";
+				if (!guest.read.word(frame.in_game_menu + CurrentMenuOffset, &card) ||
+					NativeMenuItems::FindCommandItem(frame.entries, frame.count, card, m_letter, &target, &error,
+						guest.read) != NativeMenuItems::Status::Success)
+				{
+					lucent::info("avpe-unit-commands", "no order for key {}: {}", m_letter, error);
+					return true;
+				}
+				*queued = guest.queue(target);
+				if (!*queued)
+					lucent::warn("avpe-unit-commands", "order {:08x} for key {} was not queued", target.object, m_letter);
+				return true;
+			}
+			case Action::CloseCard:
+			{
+				const bool close = m_opened || m_hide;
+				m_opened = false;
+				m_hide = false;
+				if (!close || !frame.card_shown)
+					return true;
+				if (!FindRegistered(frame.entries, frame.count, ToggleMenuButtonVtable, ToggleCloseFunction, &target,
+						guest.read) ||
+					!guest.queue(target))
+				{
+					lucent::warn("avpe-unit-commands", "the order card toggle is not registered once");
+					return false;
+				}
+				*queued = true;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	void NativeUnitCommands::Reset()
+	{
+		std::lock_guard lock(m_mutex);
+		m_count = 0;
+		m_next = 0;
+		m_letter = 0;
+		m_opened = false;
+		m_hide = false;
+	}
+
+	NativeUnitCommands& NativeUnitCommands::Process()
+	{
+		return s_process_commands;
+	}
+
+	NativeUnitCommands::Guest NativeUnitCommands::LiveGuest()
+	{
+		return {
+			.read = {},
+			.dispatch_idle = NativeInputDispatch::IsIdle,
+			.queue =
+				[](const NativeInputCallbacks::Target& target) {
+					return NativeInputDispatch::QueueMenuAction(
+						{.target = target.object, .callback = target.callback, .function = target.function})
+			            .Succeeded();
+				},
+		};
+	}
+} // namespace AVPE

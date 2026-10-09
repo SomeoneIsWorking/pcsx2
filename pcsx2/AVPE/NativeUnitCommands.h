@@ -1,20 +1,21 @@
-// The in-game order card as a PC command card. Fork-local.
+// PC keys for in-mission unit commands. Fork-local.
 
 #pragma once
 
 #include "AVPE/NativeInputCallbacks.h"
 
+#include <array>
 #include <functional>
 #include <mutex>
 
 namespace AVPE
 {
-	// The order card (Aggressive, Patrol, Waypoint, ...) is a menu the pad shows only
-	// while R2 is held, and it replaces the unit's menu while shown. A PC command key
-	// opens it through the R2 button's own callback, fires the order its label names
-	// and closes it again, so the unit's menu, control groups and abilities stay live.
-	// Each stage is one GInputDevice callback; the next waits until it has run.
-	class NativeCommandCard final
+	// Runs a PC key's unit command as a short sequence of the guest's own registered
+	// GInputDevice callbacks, one per frame, each after the previous one has run.
+	// The order card (Aggressive, Patrol, Waypoint, ...) shows only while the pad holds
+	// R2 and replaces the unit's menu while shown, so an order letter opens it through
+	// the R2 button's callback, fires the order and closes it again.
+	class NativeUnitCommands final
 	{
 	public:
 		// GInputDevice::Process entry; $a0 is the device, before this frame's dispatch.
@@ -39,34 +40,45 @@ namespace AVPE
 			std::function<bool(const NativeInputCallbacks::Target&)> queue;
 		};
 
-		// Host thread. Each returns false while an earlier request is still running.
-		bool Command(char letter);
-		bool Show(bool shown);
+		// Host thread. Each returns false while an earlier command is still running.
+		bool CardOrder(char letter);
+		bool ShowCard(bool shown);
 
 		// EE thread, at InputProcessPc.
 		void Step(u32 input_device, const Guest& guest);
 		void Reset();
 
-		static NativeCommandCard& Process();
+		static NativeUnitCommands& Process();
 		static Guest LiveGuest();
 
 	private:
-		enum class Stage : u8
+		enum class Action : u8
 		{
-			Idle,
-			Open,
-			Fire,
-			Close,
+			OpenCard,
+			FireCardOrder,
+			CloseCard,
 		};
 
-		Stage Advance(u32 input_device, const Guest& guest);
-		Stage Fire(u32 entries, u32 count, u32 in_game_menu, const Guest& guest);
-		Stage Finish() const;
+		struct Frame
+		{
+			u32 entries = 0;
+			u32 count = 0;
+			u32 in_game_menu = 0;
+			bool card_shown = false;
+		};
+
+		static constexpr size_t MaxActions = 3;
+
+		bool Begin(std::initializer_list<Action> actions, char letter);
+		// False when the rest of the sequence must not run.
+		bool Run(Action action, const Frame& frame, const Guest& guest, bool* queued);
 
 		std::mutex m_mutex;
-		Stage m_stage = Stage::Idle;
+		std::array<Action, MaxActions> m_actions{};
+		size_t m_count = 0;
+		size_t m_next = 0;
 		char m_letter = 0;
-		// The card closes after the order when this request opened it or Show(false) came meanwhile.
+		// The card closes after the order when this command opened it or ShowCard(false) came meanwhile.
 		bool m_opened = false;
 		bool m_hide = false;
 	};
