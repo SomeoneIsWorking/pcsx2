@@ -4,6 +4,19 @@
 
 namespace AVPE::NativeInputCallbacks
 {
+	bool ReadRegistry(const u32 input_device, const Access& read, Registry* registry)
+	{
+		*registry = {};
+		if (!read.word(input_device + RegistryOffset, &registry->entries) ||
+			!read.word(input_device + RegistryOffset + 4, &registry->count) ||
+			!read.word(input_device + RegistryOffset + 8, &registry->capacity))
+		{
+			return false;
+		}
+		return registry->count <= registry->capacity && registry->capacity <= MaxCount &&
+		       (registry->count == 0 || read.is_address(registry->entries));
+	}
+
 	bool FindRegistered(const u32 entries, const u32 count, const u32 vtable, const u32 function, Target* target,
 		const Access& read)
 	{

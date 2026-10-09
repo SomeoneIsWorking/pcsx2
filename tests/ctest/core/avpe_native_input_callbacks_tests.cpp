@@ -101,6 +101,25 @@ namespace
 		EXPECT_EQ(target.callback, exit);
 	}
 
+	TEST_F(NativeInputCallbacksTest, ReadsTheDeviceRegistryWithinItsBounds)
+	{
+		constexpr u32 device = 0x01500000;
+		read.is_address = [](const u32 address) { return address != 0; };
+		words[device + Callbacks::RegistryOffset] = callbacks;
+		words[device + Callbacks::RegistryOffset + 4] = 3;
+		words[device + Callbacks::RegistryOffset + 8] = 96;
+		Callbacks::Registry registry;
+		ASSERT_TRUE(Callbacks::ReadRegistry(device, read, &registry));
+		EXPECT_EQ(registry.entries, callbacks);
+		EXPECT_EQ(registry.count, 3u);
+
+		words[device + Callbacks::RegistryOffset + 4] = 97;
+		EXPECT_FALSE(Callbacks::ReadRegistry(device, read, &registry));
+		words[device + Callbacks::RegistryOffset + 4] = 1;
+		words[device + Callbacks::RegistryOffset] = 0;
+		EXPECT_FALSE(Callbacks::ReadRegistry(device, read, &registry));
+	}
+
 	TEST_F(NativeInputCallbacksTest, FindsTheIntroSkipHotKeyNotItsFocusKey)
 	{
 		// GSkipLevelIntro registers its hotkey and focus-key slots, each on two pad events.

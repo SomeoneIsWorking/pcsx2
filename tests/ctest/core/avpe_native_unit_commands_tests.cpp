@@ -1,3 +1,4 @@
+#include "AVPE/NativeInputCallbacks.h"
 #include "AVPE/NativeUnitCommands.h"
 
 #include <gtest/gtest.h>
@@ -51,7 +52,8 @@ namespace
 			words[pointer] = 0x00338420;
 			words[pointer + NativeUnitCommands::SelectionOffset] = selection;
 			words[selection + 4] = 1;
-			words[device + NativeUnitCommands::CallbackArrayOffset] = callbacks;
+			words[device + AVPE::NativeInputCallbacks::RegistryOffset] = callbacks;
+			words[device + AVPE::NativeInputCallbacks::RegistryOffset + 8] = AVPE::NativeInputCallbacks::MaxCount;
 			// The pointer and HUD also register; not every owner resolves as a plausible object.
 			Register(0x01FFF000, 0x70000, 0x00106DA0);
 			Register(toggle, 0x10000, NativeUnitCommands::ToggleOpenFunction);
@@ -91,7 +93,7 @@ namespace
 			words[callback + 8] = handle;
 			words[callback + 0x14] = 0;
 			members[{owner, callback + 0x0C}] = function;
-			words[device + NativeUnitCommands::CallbackArrayOffset + 4] = ++registered;
+			words[device + AVPE::NativeInputCallbacks::RegistryOffset + 4] = ++registered;
 		}
 
 		void AddItem(const u32 item, const u32 handle, const u32 sibling, const u32 text, const std::string_view label)

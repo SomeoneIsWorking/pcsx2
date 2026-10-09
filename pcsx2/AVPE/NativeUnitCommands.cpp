@@ -104,15 +104,16 @@ namespace AVPE
 			m_next = m_count;
 			return;
 		}
+		NativeInputCallbacks::Registry registry;
 		if (!read.word(frame.in_game_menu + (CardShownOffset & ~3u), &flags) ||
-			!read.word(input_device + CallbackArrayOffset, &frame.entries) ||
-			!read.word(input_device + CallbackArrayOffset + 4, &frame.count) ||
-			frame.count > NativeInputCallbacks::MaxCount)
+			!NativeInputCallbacks::ReadRegistry(input_device, read, &registry))
 		{
 			lucent::warn("avpe-unit-commands", "in-game menu or callback registry is unreadable");
 			m_next = m_count;
 			return;
 		}
+		frame.entries = registry.entries;
+		frame.count = registry.count;
 		frame.card_shown = ((flags >> ((CardShownOffset & 3u) * 8)) & 0xFF) != 0;
 
 		bool queued = false;

@@ -20,7 +20,6 @@ namespace AVPE
 	public:
 		// GInputDevice::Process entry; $a0 is the device, before this frame's dispatch.
 		static inline constexpr u32 InputProcessPc = 0x00114490;
-		static inline constexpr u32 CallbackArrayOffset = 0x48;
 		static inline constexpr u32 InGameMenuPointer = 0x003687FC;
 		static inline constexpr u32 CurrentMenuOffset = 0x27C;
 		// GToggleMenuButton sets this byte of GInGameMenu while its menu is shown.
