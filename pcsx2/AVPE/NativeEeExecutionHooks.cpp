@@ -16,6 +16,7 @@
 #include "AVPE/NativeMissionLoadTiming.h"
 #include "AVPE/NativeShellShutdownBoundary.h"
 #include "AVPE/NativeStatPanel.h"
+#include "AVPE/NativeDragSelect.h"
 #include "AVPE/NativeProfileContract.h"
 #include "AVPE/NativePromptTrace.h"
 #include "AVPE/NativeSaveBackend.h"
@@ -63,7 +64,7 @@ namespace AVPE::NativeEeExecutionHooks
 		       NativeMovieInput::ShouldInstrumentEePc(pc) || NativePromptTrace::ShouldInstrumentEePc(pc) ||
 		       NativeMeshBoundsTrace::ShouldInstrumentEePc(pc) || NativePromptPlacement::ShouldInstrumentEePc(pc) ||
 		       pc == NativeTbdText::SetupPublicsExit || pc == NativeUnitCommands::InputProcessPc ||
-		       pc == NativeStatPanel::HoverResultPc;
+		       pc == NativeStatPanel::HoverResultPc || pc == NativeDragSelect::GrowBoxReturnPc;
 	}
 
 	void ObserveEeExecution(const u32 pc)
@@ -121,6 +122,10 @@ namespace AVPE::NativeEeExecutionHooks
 				mesh_bounds.ObserveGetMatrixRect(cpuRegs.GPR.n.s3.UL[0], cpuRegs.GPR.n.sp.UL[0],
 					GuestObjects::ReadBytes);
 			}
+		}
+		if (pc == NativeDragSelect::GrowBoxReturnPc)
+		{
+			NativeDragSelect::Process().ObserveGrowBox(NativeDragSelect::Access::Guest());
 		}
 		if (pc == NativeStatPanel::HoverResultPc)
 		{
