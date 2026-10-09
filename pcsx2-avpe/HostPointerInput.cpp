@@ -58,6 +58,10 @@ namespace AVPE
 		if (result.Succeeded())
 		{
 			m_mission_position = Position{normalized_x, normalized_y};
+			if (m_minimap_buttons.contains(Button::Primary))
+			{
+				JumpToMinimapPointer();
+			}
 			return true;
 		}
 		if (result.status == NativeInput::Status::PointerUnavailable)
@@ -70,7 +74,7 @@ namespace AVPE
 
 	bool HostPointerInput::Press(const Button button)
 	{
-		if (m_menu_buttons.contains(button) || m_gameplay_buttons.contains(button))
+		if (m_menu_buttons.contains(button) || m_gameplay_buttons.contains(button) || m_minimap_buttons.contains(button))
 		{
 			return true;
 		}
@@ -97,6 +101,11 @@ namespace AVPE
 			return true;
 		}
 
+		if (button == Button::Primary && JumpToMinimapPointer())
+		{
+			m_minimap_buttons.insert(button);
+			return true;
+		}
 		const NativeInput::ButtonResult result = m_guest.button_edge(NativeButtonFor(button), NativeInput::ButtonEdge::Press);
 		if (result.Succeeded())
 		{
@@ -117,7 +126,7 @@ namespace AVPE
 		{
 			return true;
 		}
-		if (m_menu_buttons.erase(button) != 0)
+		if (m_menu_buttons.erase(button) != 0 || m_minimap_buttons.erase(button) != 0)
 		{
 			return true;
 		}
@@ -201,5 +210,20 @@ namespace AVPE
 		{
 			lucent::warn("avpe-host-input", "edge scroll refused: {}", result.error);
 		}
+	}
+
+	bool HostPointerInput::JumpToMinimapPointer()
+	{
+		const NativeCameraInput::Result result = m_guest.camera(NativeCameraInput::Action::Jump, 0.0f, 0.0f);
+		if (result.Succeeded())
+		{
+			return true;
+		}
+		if (result.status != NativeCameraInput::Status::OffMinimap &&
+			result.status != NativeCameraInput::Status::CameraUnavailable)
+		{
+			lucent::warn("avpe-host-input", "minimap jump refused: {}", result.error);
+		}
+		return false;
 	}
 } // namespace AVPE

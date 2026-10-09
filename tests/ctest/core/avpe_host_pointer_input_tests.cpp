@@ -24,6 +24,8 @@ namespace
 	{
 	protected:
 		bool menu_open = false;
+		bool on_minimap = false;
+		int jumps = 0;
 		int menu_activations = 0;
 		std::vector<Edge> edges;
 		std::vector<std::pair<float, float>> pointer_moves;
@@ -58,6 +60,11 @@ namespace
 					}
 					NativeCameraInput::Result result;
 					result.status = NativeCameraInput::Status::Success;
+					if (action == NativeCameraInput::Action::Jump)
+					{
+						jumps += on_minimap ? 1 : 0;
+						result.status = on_minimap ? NativeCameraInput::Status::Success : NativeCameraInput::Status::OffMinimap;
+					}
 					return result; },
 			};
 		}
@@ -123,6 +130,22 @@ namespace
 		menu_open = true;
 		input.Tick();
 		EXPECT_TRUE(camera_moves.empty());
+	}
+
+	TEST_F(HostPointerInputTest, MinimapClickAndDragMoveTheCameraNotTheSelection)
+	{
+		on_minimap = true;
+		input.Move(0.8f, 0.8f);
+		input.Press(HostPointerInput::Button::Primary);
+		input.Move(0.82f, 0.8f);
+		input.Release(HostPointerInput::Button::Primary);
+		EXPECT_EQ(jumps, 2);
+		EXPECT_TRUE(edges.empty());
+		on_minimap = false;
+		input.Move(0.5f, 0.5f);
+		input.Press(HostPointerInput::Button::Primary);
+		input.Release(HostPointerInput::Button::Primary);
+		EXPECT_EQ(edges.size(), 2u);
 	}
 
 	TEST_F(HostPointerInputTest, MenuDoubleClickActivatesOnce)

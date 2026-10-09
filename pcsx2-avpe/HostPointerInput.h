@@ -52,6 +52,9 @@ namespace AVPE
 		static inline constexpr float EdgeBand = 0.02f;
 
 	private:
+		// True when the pointer is on the minimap and the camera jumped there.
+		bool JumpToMinimapPointer();
+
 		struct Position
 		{
 			float x;
@@ -63,6 +66,8 @@ namespace AVPE
 		std::optional<Position> m_mission_position;
 		std::unordered_set<Button> m_menu_buttons;
 		std::unordered_set<Button> m_gameplay_buttons;
+		// Held on the minimap: the camera follows the pointer instead of selecting.
+		std::unordered_set<Button> m_minimap_buttons;
 		std::unordered_set<Button> m_suppressed_double_click_releases;
 	};
 } // namespace AVPE
