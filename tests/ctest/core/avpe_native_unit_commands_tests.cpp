@@ -1,4 +1,4 @@
-#include "AVPE/NativeCommandCard.h"
+#include "AVPE/NativeUnitCommands.h"
 
 #include <gtest/gtest.h>
 
@@ -10,9 +10,9 @@
 
 namespace
 {
-	using AVPE::NativeCommandCard;
+	using AVPE::NativeUnitCommands;
 
-	class NativeCommandCardTest : public testing::Test
+	class NativeUnitCommandsTest : public testing::Test
 	{
 	protected:
 		static constexpr u32 device = 0x00900000;
@@ -32,26 +32,26 @@ namespace
 		std::vector<AVPE::NativeInputCallbacks::Target> queued;
 		bool idle = true;
 		u32 registered = 0;
-		NativeCommandCard command_card;
-		NativeCommandCard::Guest guest;
+		NativeUnitCommands commands;
+		NativeUnitCommands::Guest guest;
 
 		void SetUp() override
 		{
-			words[NativeCommandCard::InGameMenuPointer] = in_game;
+			words[NativeUnitCommands::InGameMenuPointer] = in_game;
 			words[in_game] = 0x0035BDC0;
 			words[in_game + 0x290] = 0;
-			words[in_game + NativeCommandCard::CurrentMenuOffset] = 0x01007000;
-			words[toggle] = NativeCommandCard::ToggleMenuButtonVtable;
+			words[in_game + NativeUnitCommands::CurrentMenuOffset] = 0x01007000;
+			words[toggle] = NativeUnitCommands::ToggleMenuButtonVtable;
 			handles[0x10000] = toggle;
-			words[NativeCommandCard::PointerInstance] = pointer;
+			words[NativeUnitCommands::PointerInstance] = pointer;
 			words[pointer] = 0x00338420;
-			words[pointer + NativeCommandCard::SelectionOffset] = selection;
+			words[pointer + NativeUnitCommands::SelectionOffset] = selection;
 			words[selection + 4] = 1;
-			words[device + NativeCommandCard::CallbackArrayOffset] = callbacks;
+			words[device + NativeUnitCommands::CallbackArrayOffset] = callbacks;
 			// The pointer and HUD also register; not every owner resolves as a plausible object.
 			Register(0x01FFF000, 0x70000, 0x00106DA0);
-			Register(toggle, 0x10000, NativeCommandCard::ToggleOpenFunction);
-			Register(toggle, 0x10000, NativeCommandCard::ToggleCloseFunction);
+			Register(toggle, 0x10000, NativeUnitCommands::ToggleOpenFunction);
+			Register(toggle, 0x10000, NativeUnitCommands::ToggleCloseFunction);
 
 			words[card] = 0x0035BBA0;
 			words[card + 8] = aggressive;
@@ -86,7 +86,7 @@ namespace
 			const u32 callback = callbacks + registered * 0x18;
 			words[callback + 8] = handle;
 			members[{owner, callback + 0x0C}] = function;
-			words[device + NativeCommandCard::CallbackArrayOffset + 4] = ++registered;
+			words[device + NativeUnitCommands::CallbackArrayOffset + 4] = ++registered;
 		}
 
 		void AddItem(const u32 item, const u32 handle, const u32 sibling, const u32 text, const std::string_view label)
@@ -109,22 +109,22 @@ namespace
 		void GuestShowsCard()
 		{
 			words[in_game + 0x290] = 0x01000000;
-			words[in_game + NativeCommandCard::CurrentMenuOffset] = card;
+			words[in_game + NativeUnitCommands::CurrentMenuOffset] = card;
 			Register(aggressive, 0x20000, hotkey_activate);
 			Register(waypoint, 0x30000, hotkey_activate);
 		}
 
-		void Step() { command_card.Step(device, guest); }
+		void Step() { commands.Step(device, guest); }
 	};
 
-	TEST_F(NativeCommandCardTest, ALetterOpensTheCardFiresItsOrderAndClosesIt)
+	TEST_F(NativeUnitCommandsTest, ALetterOpensTheCardFiresItsOrderAndClosesIt)
 	{
-		ASSERT_TRUE(command_card.Command('W'));
-		EXPECT_FALSE(command_card.Command('A'));
+		ASSERT_TRUE(commands.CardOrder('W'));
+		EXPECT_FALSE(commands.CardOrder('A'));
 		Step();
 		ASSERT_EQ(queued.size(), 1u);
 		EXPECT_EQ(queued[0].object, toggle);
-		EXPECT_EQ(queued[0].function, NativeCommandCard::ToggleOpenFunction);
+		EXPECT_EQ(queued[0].function, NativeUnitCommands::ToggleOpenFunction);
 
 		idle = false;
 		Step();
@@ -139,63 +139,61 @@ namespace
 		Step();
 		ASSERT_EQ(queued.size(), 3u);
 		EXPECT_EQ(queued[2].object, toggle);
-		EXPECT_EQ(queued[2].function, NativeCommandCard::ToggleCloseFunction);
+		EXPECT_EQ(queued[2].function, NativeUnitCommands::ToggleCloseFunction);
 		Step();
 		EXPECT_EQ(queued.size(), 3u);
-		EXPECT_TRUE(command_card.Command('A'));
+		EXPECT_TRUE(commands.CardOrder('A'));
 	}
 
-	TEST_F(NativeCommandCardTest, AShownCardTakesTheOrderAndStaysShown)
+	TEST_F(NativeUnitCommandsTest, AShownCardTakesTheOrderAndStaysShown)
 	{
-		ASSERT_TRUE(command_card.Show(true));
+		ASSERT_TRUE(commands.ShowCard(true));
 		Step();
 		ASSERT_EQ(queued.size(), 1u);
 		GuestShowsCard();
-		ASSERT_TRUE(command_card.Command('A'));
+		ASSERT_TRUE(commands.CardOrder('A'));
 		Step();
 		ASSERT_EQ(queued.size(), 2u);
 		EXPECT_EQ(queued[1].object, aggressive);
 		Step();
 		EXPECT_EQ(queued.size(), 2u);
-		ASSERT_TRUE(command_card.Show(false));
+		ASSERT_TRUE(commands.ShowCard(false));
 		Step();
 		ASSERT_EQ(queued.size(), 3u);
-		EXPECT_EQ(queued[2].function, NativeCommandCard::ToggleCloseFunction);
+		EXPECT_EQ(queued[2].function, NativeUnitCommands::ToggleCloseFunction);
 	}
 
-	TEST_F(NativeCommandCardTest, NoSelectionOrNoOrderLeavesTheCardAsItWas)
+	TEST_F(NativeUnitCommandsTest, NoSelectionOrNoOrderLeavesTheCardAsItWas)
 	{
 		words[selection + 4] = 0;
-		ASSERT_TRUE(command_card.Command('W'));
+		ASSERT_TRUE(commands.CardOrder('W'));
 		Step();
 		EXPECT_TRUE(queued.empty());
 
 		words[selection + 4] = 1;
-		ASSERT_TRUE(command_card.Command('Q'));
+		ASSERT_TRUE(commands.CardOrder('Q'));
 		Step();
 		GuestShowsCard();
 		Step();
-		EXPECT_EQ(queued.size(), 1u);
-		Step();
 		ASSERT_EQ(queued.size(), 2u);
-		EXPECT_EQ(queued[1].function, NativeCommandCard::ToggleCloseFunction);
+		EXPECT_EQ(queued[1].function, NativeUnitCommands::ToggleCloseFunction);
 	}
 
-	TEST_F(NativeCommandCardTest, ARefusedOpenFiresNothing)
+	TEST_F(NativeUnitCommandsTest, ARefusedOpenFiresNothing)
 	{
-		ASSERT_TRUE(command_card.Command('W'));
+		ASSERT_TRUE(commands.CardOrder('W'));
 		Step();
 		Step();
 		EXPECT_EQ(queued.size(), 1u);
-		EXPECT_TRUE(command_card.Command('W'));
+		EXPECT_TRUE(commands.CardOrder('W'));
 	}
 
-	TEST_F(NativeCommandCardTest, OutsideAMissionNothingIsQueued)
+	TEST_F(NativeUnitCommandsTest, OutsideAMissionNothingIsQueued)
 	{
-		words.erase(NativeCommandCard::InGameMenuPointer);
-		ASSERT_TRUE(command_card.Command('W'));
+		words.erase(NativeUnitCommands::InGameMenuPointer);
+		ASSERT_TRUE(commands.CardOrder('W'));
 		Step();
 		EXPECT_TRUE(queued.empty());
-		EXPECT_TRUE(command_card.Command('W'));
+		EXPECT_TRUE(commands.CardOrder('W'));
 	}
 } // namespace

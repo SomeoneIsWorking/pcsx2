@@ -4,7 +4,7 @@
 
 #include "AVPE/EECallShuttle.h"
 #include "AVPE/HttpJson.h"
-#include "AVPE/NativeCommandCard.h"
+#include "AVPE/NativeUnitCommands.h"
 #include "AVPE/NativeMenuInput.h"
 #include "AVPE/NativeMovieInput.h"
 #include "VMManager.h"
@@ -80,9 +80,9 @@ namespace AVPE::NativeMenuRoute
 		const auto show = HttpJson::StringField(body, "show");
 		bool accepted = false;
 		if (key && key->size() == 1)
-			accepted = NativeCommandCard::Process().Command((*key)[0]);
+			accepted = NativeUnitCommands::Process().CardOrder((*key)[0]);
 		else if (show == "true" || show == "false")
-			accepted = NativeCommandCard::Process().Show(*show == "true");
+			accepted = NativeUnitCommands::Process().ShowCard(*show == "true");
 		else
 			return lucent::http::Response::text(400, "Bad Request", "need key (one capital letter) or show (\"true\" or \"false\")\n");
 		if (!accepted)
