@@ -538,12 +538,11 @@ namespace AVPE
 
 		char response[768];
 		std::snprintf(response, sizeof(response),
-			R"({"button":"%s","edge":"%s","pointer":"0x%08X","handler":"0x%08X","queued":%s,"before":{"count":%u,"selected_mark":"0x%08X","selected_object":"0x%08X","command_id":"0x%08X"},"after":{"count":%u,"selected_mark":"0x%08X","selected_object":"0x%08X","command_id":"0x%08X"},"elapsed_cycles":%llu})",
-			button_name->c_str(), edge_name->c_str(), result.pointer, result.handler, result.queued ? "true" : "false",
+			R"({"button":"%s","edge":"%s","pointer":"0x%08X","deferred_call_id":%llu,"before":{"count":%u,"selected_mark":"0x%08X","selected_object":"0x%08X","command_id":"0x%08X"}})",
+			button_name->c_str(), edge_name->c_str(), result.pointer,
+			static_cast<unsigned long long>(result.deferred_call_id),
 			result.before.count, result.before.selected_mark, result.before.selected_object,
-			result.before.command_id, result.after.count, result.after.selected_mark,
-			result.after.selected_object, result.after.command_id,
-			static_cast<unsigned long long>(result.elapsed_cycles));
+			result.before.command_id);
 		return lucent::http::Response::json(200, "OK", response);
 	}
 

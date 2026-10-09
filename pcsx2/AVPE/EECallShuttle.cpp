@@ -14,6 +14,7 @@
 #include <array>
 #include <atomic>
 #include <cstring>
+#include <deque>
 #include <iterator>
 #include <optional>
 
@@ -32,9 +33,13 @@ namespace AVPE::EECallShuttle
 	static bool s_vm_executing = false;
 	static u32 s_last_avpe_text_pc = 0;
 
+	static constexpr size_t MAX_WAITING_TICKETS = 8;
+
 	struct DeferredCall
 	{
+		// A ticket's calls run one after another; request is the current one.
 		Request request;
+		std::vector<Request> rest;
 		DeferredState state = DeferredState::Idle;
 		u64 id = 0;
 		u64 next_id = 1;
@@ -48,6 +53,15 @@ namespace AVPE::EECallShuttle
 	};
 
 	static DeferredCall s_deferred;
+
+	struct WaitingTicket
+	{
+		u64 id = 0;
+		std::vector<Request> requests;
+	};
+
+	// In-order tickets admitted while another ticket was pending.
+	static std::deque<WaitingTicket> s_waiting;
 
 	class ActiveCallGuard final
 	{
@@ -290,30 +304,71 @@ namespace AVPE::EECallShuttle
 		return Fail(Status::Interrupted, "unknown EE execution result");
 	}
 
-	static DeferredTicket QueueDeferredOnCPUThread(const Request& request)
+	static bool DeferredPending()
 	{
-		const Result validation = ValidateRequest(request);
-		if (!validation.Succeeded())
-			return {.status = validation.status, .error = validation.error};
+		return s_deferred.state == DeferredState::Running || s_deferred.state == DeferredState::Queued;
+	}
+
+	static u64 NextDeferredId()
+	{
+		const u64 id = s_deferred.next_id++;
+		if (s_deferred.next_id == 0)
+			s_deferred.next_id = 1;
+		return id;
+	}
+
+	static void StartTicket(const u64 id, std::vector<Request> requests)
+	{
+		s_deferred.request = requests.front();
+		requests.erase(requests.begin());
+		s_deferred.rest = std::move(requests);
+		s_deferred.result = {};
+		s_deferred.id = id;
+		s_deferred.state = DeferredState::Queued;
+	}
+
+	// The next waiting ticket starts once the current one has finished.
+	static void StartWaitingTicket()
+	{
+		if (DeferredPending() || s_waiting.empty())
+			return;
+		WaitingTicket ticket = std::move(s_waiting.front());
+		s_waiting.pop_front();
+		StartTicket(ticket.id, std::move(ticket.requests));
+	}
+
+	static DeferredTicket QueueDeferredOnCPUThread(std::vector<Request> requests, const bool in_order)
+	{
+		if (requests.empty())
+			return {.status = Status::InvalidRequest, .error = "a deferred ticket needs at least one call"};
+		for (const Request& request : requests)
+		{
+			const Result validation = ValidateRequest(request);
+			if (!validation.Succeeded())
+				return {.status = validation.status, .error = validation.error};
+		}
 		if (VMManager::GetState() != VMState::Running)
 			return {.status = Status::VMUnavailable, .error = "VM must be running for a deferred EE call"};
-		if (s_active.load(std::memory_order_acquire) || s_deferred.state == DeferredState::Running ||
-			s_deferred.state == DeferredState::Queued)
+		const bool pending = DeferredPending() || !s_waiting.empty();
+		if (s_active.load(std::memory_order_acquire) || (pending && !in_order))
 			return {.status = Status::Busy, .error = "another EE call is still running"};
+		if (pending && s_waiting.size() >= MAX_WAITING_TICKETS)
+			return {.status = Status::Busy, .error = "too many deferred EE calls are waiting"};
 		if (s_vm_executing && !eeEventTestIsActive)
 			return {.status = Status::InvalidRequest, .error = "deferred admission requires a host event or idle VM boundary"};
 
-		s_deferred.request = request;
-		s_deferred.result = {};
-		s_deferred.id = s_deferred.next_id++;
-		if (s_deferred.next_id == 0)
-			s_deferred.next_id = 1;
-		s_deferred.state = DeferredState::Queued;
+		const u64 id = NextDeferredId();
+		if (pending)
+		{
+			s_waiting.push_back({.id = id, .requests = std::move(requests)});
+			return {.status = Status::Success, .id = id};
+		}
+		StartTicket(id, std::move(requests));
 		// VSync input polling is inside counter processing. Its remaining
 		// interrupts must finish before we replace the EE architectural context.
 		if (s_vm_executing)
 			Cpu->ExitExecution();
-		return {.status = Status::Success, .id = s_deferred.id};
+		return {.status = Status::Success, .id = id};
 	}
 
 	static DeferredTicket PrepareQueuedCall()
@@ -385,12 +440,14 @@ namespace AVPE::EECallShuttle
 		if (s_deferred.state != DeferredState::Queued || id == 0 || id != s_deferred.id)
 			return false;
 		s_deferred.state = DeferredState::Failed;
+		s_deferred.rest.clear();
 		s_deferred.result = Fail(Status::Interrupted, "queued guest call invalidated by its owner");
 		return true;
 	}
 
 	bool YieldForQueuedCall()
 	{
+		StartWaitingTicket();
 		if (s_vm_executing && !eeEventTestIsActive &&
 			s_deferred.state == DeferredState::Queued && DeferredContextReady())
 		{
@@ -402,12 +459,14 @@ namespace AVPE::EECallShuttle
 
 	void BeginVmExecution()
 	{
+		StartWaitingTicket();
 		if (s_deferred.state == DeferredState::Queued && DeferredContextReady())
 		{
 			const auto prepared = PrepareQueuedCall();
 			if (!prepared.Accepted())
 			{
 				s_deferred.state = DeferredState::Failed;
+				s_deferred.rest.clear();
 				s_deferred.result = Fail(prepared.status, prepared.error);
 			}
 		}
@@ -451,7 +510,16 @@ namespace AVPE::EECallShuttle
 		};
 		s_deferred.state = stack_restored ? DeferredState::Completed : DeferredState::Failed;
 		if (!stack_restored)
+		{
 			s_faulted.store(true, std::memory_order_release);
+		}
+		else if (!s_deferred.rest.empty())
+		{
+			// The ticket's next call installs at the next safe boundary, as the first did.
+			s_deferred.request = s_deferred.rest.front();
+			s_deferred.rest.erase(s_deferred.rest.begin());
+			s_deferred.state = DeferredState::Queued;
+		}
 		return true;
 	}
 
@@ -474,7 +542,12 @@ namespace AVPE::EECallShuttle
 
 	DeferredTicket Transaction::QueueDeferred(const Request& request)
 	{
-		return QueueDeferredOnCPUThread(request);
+		return QueueDeferredOnCPUThread({request}, false);
+	}
+
+	DeferredTicket Transaction::QueueDeferredInOrder(std::vector<Request> requests)
+	{
+		return QueueDeferredOnCPUThread(std::move(requests), true);
 	}
 
 	void RunTransaction(const std::function<void(Transaction&)>& operation)
@@ -521,5 +594,7 @@ namespace AVPE::EECallShuttle
 		s_deferred.id = 0;
 		s_deferred.result = {};
 		s_deferred.request = {};
+		s_deferred.rest.clear();
+		s_waiting.clear();
 	}
 } // namespace AVPE::EECallShuttle
