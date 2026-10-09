@@ -2,6 +2,7 @@
 #pragma once
 
 #include "pcsx2-avpe/HostInputRouter.h"
+#include "pcsx2-avpe/HostPointerInput.h"
 
 #include "common/WindowInfo.h"
 
@@ -50,6 +51,7 @@ namespace AVPE
 		RenderSurface* m_surface = nullptr;
 		QWidget* m_surface_container = nullptr;
 		HostInputRouter m_input_router;
+		HostPointerInput m_pointer_input;
 		QTimer m_input_timer;
 		bool m_closing = false;
 	};

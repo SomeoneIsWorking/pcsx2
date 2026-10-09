@@ -38,6 +38,11 @@ target_link_libraries(core_test PUBLIC
 	common
 )
 
+if(TARGET avpe-host-pointer)
+	target_sources(core_test PRIVATE avpe_host_pointer_input_tests.cpp)
+	target_link_libraries(core_test PRIVATE avpe-host-pointer)
+endif()
+
 if(DISABLE_ADVANCE_SIMD AND ARCH_X86)
 	if(WIN32)
 		set(compile_options_avx2 /arch:AVX2)
