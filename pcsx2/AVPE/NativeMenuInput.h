@@ -37,7 +37,6 @@ namespace AVPE::NativeMenuInput
 	// GSkipLevelIntro, the mission intro's skip button: its registered hotkey,
 	// GMenuItem::HotKeyActivate, activates it and its Process stops the intro.
 	inline constexpr u32 IntroSkipButtonVtable = 0x00349B80;
-	inline constexpr u32 MenuItemHotKeyActivate = 0x00120F40;
 
 	enum class Status : u8
 	{

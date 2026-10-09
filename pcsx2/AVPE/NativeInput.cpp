@@ -3,6 +3,7 @@
 #include "AVPE/NativeInput.h"
 
 #include "AVPE/GuestObjects.h"
+#include "AVPE/NativeContextAction.h"
 #include "AVPE/NativePointerMotion.h"
 
 #include <mutex>
@@ -11,8 +12,6 @@ namespace AVPE::NativeInput
 {
 	static constexpr u32 SET_INPUT_TYPE = 0x001B18E0;
 	static constexpr u32 PRESS_MOUSE_PRIMARY = 0x001B52C0;
-	static constexpr u32 PRESS_MOUSE_SECONDARY = 0x001B5300;
-	static constexpr u32 RELEASE_MOUSE_SECONDARY = 0x001B5310;
 	static constexpr u32 POINTER_SINGLETON = 0x00367720;
 	static constexpr u32 INPUT_TYPE_OFFSET = 0x224;
 	static constexpr u32 SELECTION_ARRAY_OFFSET = 0x1B0;
@@ -150,13 +149,6 @@ namespace AVPE::NativeInput
 		return {.status = status, .button = button, .edge = edge, .error = error};
 	}
 
-	static u32 HandlerFor(const MouseButton button, const ButtonEdge edge)
-	{
-		if (button == MouseButton::Primary)
-			return edge == ButtonEdge::Press ? PRESS_MOUSE_PRIMARY : ReleaseMousePrimaryFunction;
-		return edge == ButtonEdge::Press ? PRESS_MOUSE_SECONDARY : RELEASE_MOUSE_SECONDARY;
-	}
-
 	std::vector<EECallShuttle::Request> PrimaryReleaseCalls(
 		const SelectionMode mode, const u32 pointer, const u32 in_game_menu)
 	{
@@ -192,7 +184,6 @@ namespace AVPE::NativeInput
 		EECallShuttle::RunTransaction([&result, button, edge, mode](EECallShuttle::Transaction& transaction) {
 			result.button = button;
 			result.edge = edge;
-			result.handler = HandlerFor(button, edge);
 			if (!ReadLivePointer(&result.pointer))
 			{
 				result.status = Status::PointerUnavailable;
@@ -213,15 +204,19 @@ namespace AVPE::NativeInput
 				result.error = "in-game menu singleton is unreadable";
 				return;
 			}
-			std::vector<EECallShuttle::Request> requests;
-			if (button == MouseButton::Primary && edge == ButtonEdge::Release)
+			if (button == MouseButton::Secondary)
 			{
-				requests = PrimaryReleaseCalls(mode, result.pointer, in_game_menu);
+				NativeContextAction& context = NativeContextAction::Process();
+				result.after = result.before;
+				result.queued = edge == ButtonEdge::Press ? context.Press() : context.Release();
+				result.status = result.queued ? Status::Success : Status::InvalidButtonEdge;
+				result.error = result.queued ? "" : "too many context button edges are pending";
+				return;
 			}
-			else
-			{
-				requests.push_back({.function = result.handler, .arguments = {result.pointer, 0, 0, 0}});
-			}
+			const std::vector<EECallShuttle::Request> requests =
+				edge == ButtonEdge::Press ?
+					std::vector<EECallShuttle::Request>{{.function = PRESS_MOUSE_PRIMARY, .arguments = {result.pointer, 0, 0, 0}}} :
+					PrimaryReleaseCalls(mode, result.pointer, in_game_menu);
 			result.handler = requests.front().function;
 			for (const EECallShuttle::Request& request : requests)
 			{

@@ -10,7 +10,6 @@
 namespace AVPE::NativeMenuItems
 {
 	static constexpr u32 MISSION_GOALS_EXIT_VTABLE = 0x00342370;
-	static constexpr u32 MENU_ITEM_HOTKEY_ACTIVATE = 0x00120F40;
 	static constexpr u32 ACTIVATE_FOCUSED_ACTION = 0x21383159;
 	static constexpr u32 MENU_ITEM_ACTION_OFFSET = 0x110;
 	static constexpr u32 OBJECT_HANDLE_OFFSET = 0x18;
@@ -214,7 +213,7 @@ namespace AVPE::NativeMenuItems
 				*error = "activation callback member is invalid or unreadable";
 				return Status::GuestMemoryError;
 			}
-			if (function != MENU_ITEM_HOTKEY_ACTIVATE)
+			if (function != NativeInputCallbacks::MenuItemHotKeyActivate)
 				continue;
 			if (!required.Any() && item_action != ACTIVATE_FOCUSED_ACTION)
 			{
@@ -419,7 +418,7 @@ namespace AVPE::NativeMenuItems
 				*error = "command callback does not resolve to its descendant";
 				return Status::GuestMemoryError;
 			}
-			if (function != MENU_ITEM_HOTKEY_ACTIVATE)
+			if (function != NativeInputCallbacks::MenuItemHotKeyActivate)
 				continue;
 			std::string label;
 			if (!ReadLabel(owner, &label, read))

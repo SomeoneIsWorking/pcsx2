@@ -538,8 +538,8 @@ namespace AVPE
 
 		char response[768];
 		std::snprintf(response, sizeof(response),
-			R"({"button":"%s","edge":"%s","pointer":"0x%08X","handler":"0x%08X","before":{"count":%u,"selected_mark":"0x%08X","selected_object":"0x%08X","command_id":"0x%08X"},"after":{"count":%u,"selected_mark":"0x%08X","selected_object":"0x%08X","command_id":"0x%08X"},"elapsed_cycles":%llu})",
-			button_name->c_str(), edge_name->c_str(), result.pointer, result.handler,
+			R"({"button":"%s","edge":"%s","pointer":"0x%08X","handler":"0x%08X","queued":%s,"before":{"count":%u,"selected_mark":"0x%08X","selected_object":"0x%08X","command_id":"0x%08X"},"after":{"count":%u,"selected_mark":"0x%08X","selected_object":"0x%08X","command_id":"0x%08X"},"elapsed_cycles":%llu})",
+			button_name->c_str(), edge_name->c_str(), result.pointer, result.handler, result.queued ? "true" : "false",
 			result.before.count, result.before.selected_mark, result.before.selected_object,
 			result.before.command_id, result.after.count, result.after.selected_mark,
 			result.after.selected_object, result.after.command_id,

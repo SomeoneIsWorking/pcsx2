@@ -8,10 +8,10 @@
 namespace
 {
 	namespace Callbacks = AVPE::NativeInputCallbacks;
+	using AVPE::NativeInputCallbacks::MenuItemHotKeyActivate;
 	using AVPE::NativeMenuInput::IntroSkipButtonVtable;
 	using AVPE::NativeMenuInput::LoadErrorExitFunction;
 	using AVPE::NativeMenuInput::LoadErrorMenuVtable;
-	using AVPE::NativeMenuInput::MenuItemHotKeyActivate;
 
 	class NativeInputCallbacksTest : public testing::Test
 	{
@@ -124,7 +124,7 @@ namespace
 	{
 		// GSkipLevelIntro registers its hotkey and focus-key slots, each on two pad events.
 		constexpr u32 skip_button = 0x016E6480;
-		constexpr u32 focus_key_activate = 0x00120F90;
+		constexpr u32 focus_key_activate = Callbacks::MenuItemFocusKeyActivate;
 		Register(skip_button, 0x03110000, IntroSkipButtonVtable, focus_key_activate);
 		const u32 hotkey = Register(skip_button, 0x03110000, IntroSkipButtonVtable, MenuItemHotKeyActivate);
 		Register(skip_button, 0x03110000, IntroSkipButtonVtable, focus_key_activate);

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "AVPE/EECallShuttle.h"
+#include "AVPE/NativeInputCallbacks.h"
 
 #include <vector>
 
@@ -83,6 +84,8 @@ namespace AVPE::NativeInput
 		u32 handler = 0;
 		SelectionState before;
 		SelectionState after;
+		// A secondary edge runs no handler now; the context button's callback runs at the next dispatch.
+		bool queued = false;
 		u64 elapsed_cycles = 0;
 		const char* error = "";
 
@@ -94,9 +97,10 @@ namespace AVPE::NativeInput
 	// update function; it does not emulate a pad or write pointer fields directly.
 	Result MoveAbsolute(float normalized_x, float normalized_y);
 
-	// Calls the game's original mouse handlers and rejects impossible duplicate
-	// edges. Selection and command observations are read from game-owned state.
-	// The mode applies to a primary release only; other edges take Replace.
+	// Calls the game's original primary mouse handlers and queues secondary edges on
+	// NativeContextAction; rejects impossible duplicate edges. Selection and command
+	// observations are read from game-owned state. The mode applies to a primary release
+	// only; other edges take Replace.
 	ButtonResult ApplyButtonEdge(MouseButton button, ButtonEdge edge, SelectionMode mode);
 	// The guest calls a primary release makes; each ends as Input_ReleaseMouse1 does.
 	std::vector<EECallShuttle::Request> PrimaryReleaseCalls(SelectionMode mode, u32 pointer, u32 in_game_menu);
