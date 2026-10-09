@@ -570,7 +570,7 @@ namespace AVPE::NativeMenuInput
 			return false;
 		NativeInputCallbacks::Target target;
 		if (!NativeInputCallbacks::FindRegistered(
-				registry.entries, registry.count, IntroSkipButtonVtable, MenuItemHotKeyActivate, &target, {}))
+				registry.entries, registry.count, IntroSkipButtonVtable, NativeInputCallbacks::MenuItemHotKeyActivate, &target, {}))
 			return false;
 		*result = Result{.action = result->action};
 		result->source = Source::IntroSkip;

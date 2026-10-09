@@ -4,6 +4,8 @@ add_pcsx2_test(core_test
 	avpe_native_menu_items_tests.cpp
 	avpe_native_input_callbacks_tests.cpp
 	avpe_native_unit_commands_tests.cpp
+	avpe_native_context_action_tests.cpp
+	avpe_native_context_action_tests.cpp
 	avpe_native_stat_panel_tests.cpp
 	avpe_native_drag_select_tests.cpp
 	avpe_native_minimap_tests.cpp

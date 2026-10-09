@@ -14,6 +14,9 @@ namespace AVPE::NativeInputCallbacks
 	inline constexpr u32 MemberOffset = 0x0C;
 	inline constexpr u32 DirectFunctionOffset = 0x14;
 	inline constexpr u32 InputDeviceSingleton = 0x00366E68;
+	// GMenuItem's pad callbacks: the hotkey activates an item, the focus key focuses it.
+	inline constexpr u32 MenuItemHotKeyActivate = 0x00120F40;
+	inline constexpr u32 MenuItemFocusKeyActivate = 0x00120F90;
 	// GInputDevice's callback ZArray: entries, count and capacity words.
 	inline constexpr u32 RegistryOffset = 0x48;
 
