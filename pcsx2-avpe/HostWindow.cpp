@@ -154,7 +154,7 @@ namespace AVPE
 					const NormalizedPoint point = PresentedDisplay::Normalize(*display,
 						static_cast<float>(mouse_event->position().x()) * scale,
 						static_cast<float>(mouse_event->position().y()) * scale);
-					if (m_input_router.HandlePointerMove(point.x, point.y))
+					if (m_pointer_input.Move(point.x, point.y))
 					{
 						return true;
 					}
@@ -166,24 +166,25 @@ namespace AVPE
 					event->type() == QEvent::MouseButtonDblClick))
 			{
 				const QMouseEvent* const mouse_event = static_cast<QMouseEvent*>(event);
-				std::optional<HostInputRouter::PointerButton> button;
+				std::optional<HostPointerInput::Button> button;
 				if (mouse_event->button() == Qt::LeftButton)
-					button = HostInputRouter::PointerButton::Primary;
+					button = HostPointerInput::Button::Primary;
 				else if (mouse_event->button() == Qt::RightButton)
-					button = HostInputRouter::PointerButton::Secondary;
+					button = HostPointerInput::Button::Secondary;
 				if (button.has_value())
 				{
 					if (event->type() == QEvent::MouseButtonDblClick)
-						return m_input_router.HandlePointerDoubleClick(*button);
-					return m_input_router.HandlePointerButton(
-						*button, event->type() == QEvent::MouseButtonPress);
+						return m_pointer_input.DoubleClick(*button);
+					if (event->type() == QEvent::MouseButtonPress)
+						return m_pointer_input.Press(*button);
+					return m_pointer_input.Release(*button);
 				}
 			}
 			if (watched == m_surface && event->type() == QEvent::Wheel)
 			{
 				const QWheelEvent* const wheel_event = static_cast<QWheelEvent*>(event);
 				const float steps = static_cast<float>(wheel_event->angleDelta().y()) / 120.0f;
-				if (m_input_router.HandleWheel(steps))
+				if (m_pointer_input.Wheel(steps))
 					return true;
 			}
 		}

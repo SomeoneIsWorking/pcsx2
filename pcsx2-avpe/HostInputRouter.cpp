@@ -5,7 +5,6 @@
 #include "pcsx2-avpe/HostMenuBindings.h"
 
 #include "AVPE/NativeUnitCommands.h"
-#include "AVPE/NativeInput.h"
 #include "AVPE/NativeCameraInput.h"
 #include "AVPE/NativeMenuInput.h"
 #include "AVPE/NativePromptPlacement.h"
@@ -169,28 +168,6 @@ namespace AVPE
 		return true;
 	}
 
-	bool HostInputRouter::ApplyCameraZoom(const float steps)
-	{
-		const NativeCameraInput::Result result = NativeCameraInput::Apply(
-			NativeCameraInput::Action::Zoom, steps);
-		if (result.Succeeded())
-			return true;
-		if (result.status == NativeCameraInput::Status::CameraUnavailable)
-			return false;
-		lucent::warn("avpe-host-input", "native camera zoom refused: {}", result.error);
-		return true;
-	}
-
-	bool HostInputRouter::HandleWheel(const float steps)
-	{
-		if (steps == 0.0f)
-			return false;
-		const NativeMenuInput::Result menu = NativeMenuInput::Inspect();
-		if (menu.status != NativeMenuInput::Status::MenuUnavailable)
-			return true;
-		return ApplyCameraZoom(steps);
-	}
-
 	void HostInputRouter::Tick()
 	{
 		float x = 0.0f;
@@ -210,102 +187,5 @@ namespace AVPE
 			if (menu.status == NativeMenuInput::Status::MenuUnavailable)
 				ApplyCameraMove(x, y);
 		}
-	}
-
-	static NativeInput::MouseButton NativeButtonFor(
-		const HostInputRouter::PointerButton button)
-	{
-		return button == HostInputRouter::PointerButton::Primary ? NativeInput::MouseButton::Primary :
-		                                                           NativeInput::MouseButton::Secondary;
-	}
-
-	bool HostInputRouter::HandlePointerMove(const float normalized_x, const float normalized_y)
-	{
-		const NativeMenuInput::Result menu = NativeMenuInput::Inspect();
-		if (menu.Succeeded())
-		{
-			const NativeMenuInput::PointerResult result =
-				NativeMenuInput::MovePointerThroughDispatch(normalized_x, normalized_y);
-			if (result.Succeeded() || result.shuttle_status == EECallShuttle::Status::Busy)
-				return true;
-			lucent::warn("avpe-host-input", "native menu pointer move refused: {}", result.error);
-			return true;
-		}
-		if (menu.status != NativeMenuInput::Status::MenuUnavailable)
-		{
-			lucent::warn("avpe-host-input", "native menu state refused pointer move: {}", menu.error);
-			return true;
-		}
-
-		const NativeInput::Result result = NativeInput::MoveAbsolute(normalized_x, normalized_y);
-		if (result.Succeeded())
-			return true;
-		if (result.status == NativeInput::Status::PointerUnavailable)
-			return false;
-		lucent::warn("avpe-host-input", "native gameplay pointer move refused: {}", result.error);
-		return true;
-	}
-
-	bool HostInputRouter::HandlePointerButton(const PointerButton button, const bool pressed)
-	{
-		if (!pressed)
-		{
-			if (m_suppressed_double_click_releases.erase(button) != 0)
-				return true;
-			if (m_menu_pointer_buttons.erase(button) != 0)
-				return true;
-			if (!m_gameplay_pointer_buttons.contains(button))
-				return false;
-
-			const NativeInput::ButtonResult result =
-				NativeInput::ApplyButtonEdge(NativeButtonFor(button), NativeInput::ButtonEdge::Release);
-			if (result.Succeeded())
-				m_gameplay_pointer_buttons.erase(button);
-			else
-				lucent::warn("avpe-host-input", "native gameplay pointer release refused: {}", result.error);
-			return true;
-		}
-
-		if (m_menu_pointer_buttons.contains(button) || m_gameplay_pointer_buttons.contains(button))
-			return true;
-		const NativeMenuInput::Result menu = NativeMenuInput::Inspect();
-		if (menu.Succeeded())
-		{
-			m_menu_pointer_buttons.insert(button);
-			if (button == PointerButton::Secondary)
-				return true;
-
-			const NativeMenuInput::PointerResult result = NativeMenuInput::ActivatePointer();
-			if (result.Succeeded() || result.status == NativeMenuInput::Status::FocusUnavailable ||
-				result.shuttle_status == EECallShuttle::Status::Busy)
-			{
-				return true;
-			}
-			lucent::warn("avpe-host-input", "native menu pointer activation refused: {}", result.error);
-			return true;
-		}
-		if (menu.status != NativeMenuInput::Status::MenuUnavailable)
-		{
-			lucent::warn("avpe-host-input", "native menu state refused pointer press: {}", menu.error);
-			return true;
-		}
-
-		const NativeInput::ButtonResult result =
-			NativeInput::ApplyButtonEdge(NativeButtonFor(button), NativeInput::ButtonEdge::Press);
-		if (result.Succeeded())
-		{
-			m_gameplay_pointer_buttons.insert(button);
-			return true;
-		}
-		if (result.status == NativeInput::Status::PointerUnavailable)
-			return false;
-		lucent::warn("avpe-host-input", "native gameplay pointer press refused: {}", result.error);
-		return true;
-	}
-
-	bool HostInputRouter::HandlePointerDoubleClick(const PointerButton button)
-	{
-		m_suppressed_double_click_releases.insert(button);
-		return true;
 	}
 } // namespace AVPE

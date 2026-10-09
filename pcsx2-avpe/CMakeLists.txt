@@ -11,6 +11,14 @@ target_include_directories(avpe-menu-bindings PUBLIC "${CMAKE_SOURCE_DIR}")
 target_link_libraries(avpe-menu-bindings PRIVATE PCSX2_FLAGS PCSX2 Qt6::Core)
 target_compile_definitions(avpe-menu-bindings PRIVATE QT_NO_EXCEPTIONS)
 
+# Mouse policy, Qt-free so core_test exercises it.
+add_library(avpe-host-pointer STATIC
+	HostPointerInput.cpp
+	HostPointerInput.h
+)
+target_include_directories(avpe-host-pointer PUBLIC "${CMAKE_SOURCE_DIR}")
+target_link_libraries(avpe-host-pointer PUBLIC PCSX2_FLAGS PCSX2 lucent::lucent)
+
 add_executable(avpe
 	EmulationThread.cpp
 	EmulationThread.h
@@ -42,6 +50,7 @@ target_link_libraries(avpe PRIVATE
 	PCSX2_FLAGS
 	PCSX2
 	avpe-menu-bindings
+	avpe-host-pointer
 	lucent::lucent
 	Qt6::Core
 	Qt6::Gui
