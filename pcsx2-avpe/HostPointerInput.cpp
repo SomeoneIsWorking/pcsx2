@@ -138,6 +138,12 @@ namespace AVPE
 
 	bool HostPointerInput::DoubleClick(const Button button)
 	{
+		// A menu item already activated on the first click; in a mission the guest times the
+		// second click itself.
+		if (m_guest.inspect_menu().status == NativeMenuInput::Status::MenuUnavailable)
+		{
+			return Press(button);
+		}
 		m_suppressed_double_click_releases.insert(button);
 		return true;
 	}
