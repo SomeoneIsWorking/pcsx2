@@ -119,8 +119,9 @@ namespace AVPE::NativeMenuItems
 	{
 		u32 object = 0;
 		bool back = false;
+		u32 hotkey = 0;
 
-		bool Any() const { return object != 0 || back; }
+		bool Any() const { return object != 0 || back || hotkey != 0; }
 	};
 
 	static Status FindHotkeyCallback(const u32 entries, const u32 count, const u32 menu, const u32 focused,
@@ -193,6 +194,17 @@ namespace AVPE::NativeMenuItems
 				if (!NativePromptKeys::IsBackHotkey(item_hotkey))
 					continue;
 			}
+			else if (required.hotkey != 0)
+			{
+				u32 item_hotkey = 0;
+				if (!read.word(owner + MENU_ITEM_HOTKEY_OFFSET, &item_hotkey))
+				{
+					*error = "menu hotkey item hotkey is unreadable";
+					return Status::GuestMemoryError;
+				}
+				if (item_hotkey != required.hotkey)
+					continue;
+			}
 			else if (!required.Any() && item_action != ACTIVATE_FOCUSED_ACTION && owner != focused)
 				continue;
 
@@ -253,6 +265,15 @@ namespace AVPE::NativeMenuItems
 			return Status::GuestMemoryError;
 		}
 		return FindHotkeyCallback(entries, count, parent, 0, {.object = item}, target, error, read);
+	}
+
+	Status FindHotkeyItem(const u32 entries, const u32 count, const u32 menu, const u32 hotkey,
+		NativeInputCallbacks::Target* target, const char** error, const NativeInputCallbacks::Access& read)
+	{
+		const Status status = FindHotkeyCallback(entries, count, menu, 0, {.hotkey = hotkey}, target, error, read);
+		if (status == Status::FocusUnavailable)
+			*error = "the menu has no registered item for this pad event";
+		return status;
 	}
 
 	Status FindCancellationCallback(const u32 entries, const u32 count, const u32 menu,

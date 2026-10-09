@@ -24,6 +24,10 @@ namespace
 		static constexpr u32 waypoint = 0x01004000;
 		static constexpr u32 pointer = 0x01005000;
 		static constexpr u32 selection = 0x01006000;
+		static constexpr u32 unit_menu = 0x01007000;
+		static constexpr u32 group_two = 0x0100A000;
+		static constexpr u32 grouping = 0x0100B000;
+		static constexpr u32 event = 0x0100C000;
 		static constexpr u32 hotkey_activate = 0x00120F40;
 
 		std::map<u32, u32> words;
@@ -40,7 +44,7 @@ namespace
 			words[NativeUnitCommands::InGameMenuPointer] = in_game;
 			words[in_game] = 0x0035BDC0;
 			words[in_game + 0x290] = 0;
-			words[in_game + NativeUnitCommands::CurrentMenuOffset] = 0x01007000;
+			words[in_game + NativeUnitCommands::CurrentMenuOffset] = unit_menu;
 			words[toggle] = NativeUnitCommands::ToggleMenuButtonVtable;
 			handles[0x10000] = toggle;
 			words[NativeUnitCommands::PointerInstance] = pointer;
@@ -85,6 +89,7 @@ namespace
 		{
 			const u32 callback = callbacks + registered * 0x18;
 			words[callback + 8] = handle;
+			words[callback + 0x14] = 0;
 			members[{owner, callback + 0x0C}] = function;
 			words[device + NativeUnitCommands::CallbackArrayOffset + 4] = ++registered;
 		}
@@ -95,6 +100,7 @@ namespace
 			words[item + 8] = 0;
 			words[item + 0x10] = sibling;
 			words[item + 0x18] = handle;
+			words[item + 0x110] = 0;
 			words[item + 0x148] = text;
 			handles[handle] = item;
 			for (u32 offset = 0; offset <= label.size(); offset += 4)
@@ -112,6 +118,23 @@ namespace
 			words[in_game + NativeUnitCommands::CurrentMenuOffset] = card;
 			Register(aggressive, 0x20000, hotkey_activate);
 			Register(waypoint, 0x30000, hotkey_activate);
+		}
+
+		// The unit's own menu: group 2 on d-pad right, the event jump, and L2 grouping.
+		void GuestShowsUnitMenu()
+		{
+			words[unit_menu] = 0x003456D0;
+			words[unit_menu + 8] = group_two;
+			AddItem(group_two, 0x40000, event, 0x0100D000, "");
+			words[group_two + 0x118] = NativeUnitCommands::GroupHotkeys[1];
+			AddItem(event, 0x60000, 0, 0x0100E000, "");
+			words[event + 0x118] = NativeUnitCommands::EventHotkey;
+			words[grouping] = NativeUnitCommands::GroupingButtonVtable;
+			handles[0x50000] = grouping;
+			Register(grouping, 0x50000, NativeUnitCommands::GroupingPressFunction);
+			Register(grouping, 0x50000, NativeUnitCommands::GroupingReleaseFunction);
+			Register(group_two, 0x40000, hotkey_activate);
+			Register(event, 0x60000, hotkey_activate);
 		}
 
 		void Step() { commands.Step(device, guest); }
@@ -195,5 +218,54 @@ namespace
 		Step();
 		EXPECT_TRUE(queued.empty());
 		EXPECT_TRUE(commands.CardOrder('W'));
+	}
+
+	TEST_F(NativeUnitCommandsTest, ANumberRecallsItsGroupThroughTheUnitMenu)
+	{
+		GuestShowsUnitMenu();
+		ASSERT_TRUE(commands.RecallGroup(1));
+		Step();
+		ASSERT_EQ(queued.size(), 1u);
+		EXPECT_EQ(queued[0].object, group_two);
+		EXPECT_EQ(queued[0].function, hotkey_activate);
+		Step();
+		EXPECT_EQ(queued.size(), 1u);
+		EXPECT_FALSE(commands.RecallGroup(4));
+	}
+
+	TEST_F(NativeUnitCommandsTest, AssigningHoldsGroupingAroundTheGroupItem)
+	{
+		GuestShowsUnitMenu();
+		ASSERT_TRUE(commands.AssignGroup(1));
+		for (int frame = 0; frame < 4; frame++)
+			Step();
+		ASSERT_EQ(queued.size(), 3u);
+		EXPECT_EQ(queued[0].function, NativeUnitCommands::GroupingPressFunction);
+		EXPECT_EQ(queued[1].object, group_two);
+		EXPECT_EQ(queued[2].function, NativeUnitCommands::GroupingReleaseFunction);
+	}
+
+	TEST_F(NativeUnitCommandsTest, UnitMenuKeysDoNothingWhileTheCardIsShown)
+	{
+		GuestShowsUnitMenu();
+		GuestShowsCard();
+		words[aggressive + 0x118] = NativeUnitCommands::GroupHotkeys[1];
+		ASSERT_TRUE(commands.RecallGroup(1));
+		Step();
+		ASSERT_TRUE(commands.AssignGroup(1));
+		Step();
+		EXPECT_TRUE(queued.empty());
+	}
+
+	TEST_F(NativeUnitCommandsTest, SpaceJumpsToTheEvent)
+	{
+		GuestShowsUnitMenu();
+		ASSERT_TRUE(commands.JumpToEvent());
+		Step();
+		ASSERT_EQ(queued.size(), 1u);
+		EXPECT_EQ(queued[0].object, event);
+		ASSERT_TRUE(commands.JumpToBase());
+		Step();
+		EXPECT_EQ(queued.size(), 1u);
 	}
 } // namespace

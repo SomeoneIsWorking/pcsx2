@@ -28,6 +28,8 @@ namespace AVPE
 	private:
 		// A letter triggers the prompted item it names this frame.
 		bool HandleCommandKey(const QKeyEvent& event);
+		// Control groups, the event and base jumps; only when no navigation menu is active.
+		bool HandleUnitKey(const QKeyEvent& event);
 		bool ApplyCameraMove(float x, float y);
 		bool ApplyCameraZoom(float steps);
 

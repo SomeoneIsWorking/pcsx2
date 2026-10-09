@@ -52,7 +52,7 @@ namespace AVPE
 		}
 	} // namespace
 
-	bool NativeUnitCommands::Begin(const std::initializer_list<Action> actions, const char letter)
+	bool NativeUnitCommands::Begin(const std::initializer_list<Action> actions, const char letter, const u32 hotkey)
 	{
 		if (m_next < m_count)
 			return false;
@@ -61,6 +61,7 @@ namespace AVPE
 			m_actions[m_count++] = action;
 		m_next = 0;
 		m_letter = letter;
+		m_hotkey = hotkey;
 		m_opened = false;
 		m_hide = false;
 		return true;
@@ -83,6 +84,31 @@ namespace AVPE
 			m_actions[m_next] = Action::CloseCard;
 		m_hide = true;
 		return true;
+	}
+
+	bool NativeUnitCommands::RecallGroup(const u32 group)
+	{
+		std::lock_guard lock(m_mutex);
+		return group < GroupHotkeys.size() && Begin({Action::FireMenuItem}, 0, GroupHotkeys[group]);
+	}
+
+	bool NativeUnitCommands::AssignGroup(const u32 group)
+	{
+		std::lock_guard lock(m_mutex);
+		return group < GroupHotkeys.size() &&
+		       Begin({Action::PressGrouping, Action::FireMenuItem, Action::ReleaseGrouping}, 0, GroupHotkeys[group]);
+	}
+
+	bool NativeUnitCommands::JumpToEvent()
+	{
+		std::lock_guard lock(m_mutex);
+		return Begin({Action::FireMenuItem}, 0, EventHotkey);
+	}
+
+	bool NativeUnitCommands::JumpToBase()
+	{
+		std::lock_guard lock(m_mutex);
+		return Begin({Action::FireMenuItem}, 0, BaseHotkey);
 	}
 
 	void NativeUnitCommands::Step(const u32 input_device, const Guest& guest)
@@ -184,6 +210,44 @@ namespace AVPE
 				*queued = true;
 				return true;
 			}
+			case Action::PressGrouping:
+			case Action::ReleaseGrouping:
+			{
+				// The order card replaces the unit menu, whose group items share the d-pad events.
+				if (action == Action::PressGrouping && frame.card_shown)
+					return false;
+				const u32 function =
+					action == Action::PressGrouping ? GroupingPressFunction : GroupingReleaseFunction;
+				if (!FindRegistered(frame.entries, frame.count, GroupingButtonVtable, function, &target, guest.read) ||
+					!guest.queue(target))
+				{
+					lucent::warn("avpe-unit-commands", "the grouping button is not registered once");
+					return false;
+				}
+				*queued = true;
+				return true;
+			}
+			case Action::FireMenuItem:
+			{
+				if (frame.card_shown)
+				{
+					lucent::info("avpe-unit-commands", "event {:08x} ignored while the order card is shown", m_hotkey);
+					return true;
+				}
+				u32 menu = 0;
+				const char* error = "";
+				if (!guest.read.word(frame.in_game_menu + CurrentMenuOffset, &menu) ||
+					NativeMenuItems::FindHotkeyItem(frame.entries, frame.count, menu, m_hotkey, &target, &error,
+						guest.read) != NativeMenuItems::Status::Success)
+				{
+					lucent::info("avpe-unit-commands", "no unit-menu item for event {:08x}: {}", m_hotkey, error);
+					return true;
+				}
+				*queued = guest.queue(target);
+				if (!*queued)
+					lucent::warn("avpe-unit-commands", "item {:08x} for event {:08x} was not queued", target.object, m_hotkey);
+				return true;
+			}
 		}
 		return false;
 	}
@@ -194,6 +258,7 @@ namespace AVPE
 		m_count = 0;
 		m_next = 0;
 		m_letter = 0;
+		m_hotkey = 0;
 		m_opened = false;
 		m_hide = false;
 	}

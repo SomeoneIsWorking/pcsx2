@@ -32,6 +32,17 @@ namespace AVPE
 		// GToggleMenuButton::FocusKeyActivate (R2 press) and HotKeyActivate (R2 release).
 		static inline constexpr u32 ToggleOpenFunction = 0x0027D1F0;
 		static inline constexpr u32 ToggleCloseFunction = 0x0027D1B0;
+		// L2: while held, a group item creates the group instead of selecting it.
+		static inline constexpr u32 GroupingButtonVtable = 0x0035B6A0;
+		static inline constexpr u32 GroupingPressFunction = 0x00284840;
+		static inline constexpr u32 GroupingReleaseFunction = 0x00284820;
+		// The unit menu's items by pad event, GetCRC of the event name: d-pad up, right,
+		// down and left are groups 1-4 (GAvPMenu::ItemActivated SelectGroup/CreateGroup).
+		static inline constexpr std::array<u32, 4> GroupHotkeys{0x9376DABF, 0xAC71B3CF, 0x2A13E8FB, 0x5139E023};
+		// Right_TopClusterButton_Release (Triangle): GMiniMap::GoToBattleEvent.
+		static inline constexpr u32 EventHotkey = 0x17F3FBBE;
+		// Right_LeftClusterButton_Release (Square): GAvPMenu::JumpToBase.
+		static inline constexpr u32 BaseHotkey = 0x26BA5594;
 
 		struct Guest
 		{
@@ -43,6 +54,11 @@ namespace AVPE
 		// Host thread. Each returns false while an earlier command is still running.
 		bool CardOrder(char letter);
 		bool ShowCard(bool shown);
+		// group is 0..3.
+		bool RecallGroup(u32 group);
+		bool AssignGroup(u32 group);
+		bool JumpToEvent();
+		bool JumpToBase();
 
 		// EE thread, at InputProcessPc.
 		void Step(u32 input_device, const Guest& guest);
@@ -57,6 +73,9 @@ namespace AVPE
 			OpenCard,
 			FireCardOrder,
 			CloseCard,
+			PressGrouping,
+			FireMenuItem,
+			ReleaseGrouping,
 		};
 
 		struct Frame
@@ -69,7 +88,7 @@ namespace AVPE
 
 		static constexpr size_t MaxActions = 3;
 
-		bool Begin(std::initializer_list<Action> actions, char letter);
+		bool Begin(std::initializer_list<Action> actions, char letter, u32 hotkey = 0);
 		// False when the rest of the sequence must not run.
 		bool Run(Action action, const Frame& frame, const Guest& guest, bool* queued);
 
@@ -78,6 +97,7 @@ namespace AVPE
 		size_t m_count = 0;
 		size_t m_next = 0;
 		char m_letter = 0;
+		u32 m_hotkey = 0;
 		// The card closes after the order when this command opened it or ShowCard(false) came meanwhile.
 		bool m_opened = false;
 		bool m_hide = false;
