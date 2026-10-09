@@ -2,7 +2,6 @@
 
 #include "AVPE/NativeUnitCommands.h"
 
-#include "AVPE/NativeInputDispatch.h"
 #include "AVPE/NativeMenuItems.h"
 
 #include <lucent/log.h>
@@ -246,19 +245,5 @@ namespace AVPE
 	NativeUnitCommands& NativeUnitCommands::Process()
 	{
 		return s_process_commands;
-	}
-
-	NativeUnitCommands::Guest NativeUnitCommands::LiveGuest()
-	{
-		return {
-			.read = {},
-			.dispatch_idle = NativeInputDispatch::IsIdle,
-			.queue =
-				[](const NativeInputCallbacks::Target& target) {
-					return NativeInputDispatch::QueueMenuAction(
-						{.target = target.object, .callback = target.callback, .function = target.function})
-			            .Succeeded();
-				},
-		};
 	}
 } // namespace AVPE
