@@ -15,6 +15,7 @@ namespace AVPE::NativeMenuInput
 		MissionGoalsLoad,
 		AttractCancellation,
 		MovieCancellation,
+		LoadErrorConfirmation,
 	};
 
 	enum class Action : u8
@@ -27,6 +28,11 @@ namespace AVPE::NativeMenuInput
 		Cancel,
 	};
 	inline constexpr size_t ActionCount = static_cast<size_t>(Action::Cancel) + 1;
+
+	// GLevelLoadErrorMenu, CShell::MainLoop's modal after a failed game load: its
+	// FrontEndSelect callback, Input_Exit, ends the modal.
+	inline constexpr u32 LoadErrorMenuVtable = 0x00342B50;
+	inline constexpr u32 LoadErrorExitFunction = 0x00209E50;
 
 	enum class Status : u8
 	{

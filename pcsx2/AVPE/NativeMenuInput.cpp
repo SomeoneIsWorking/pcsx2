@@ -271,6 +271,8 @@ namespace AVPE::NativeMenuInput
 				return "attract-cancellation";
 			case Source::MovieCancellation:
 				return "movie-cancellation";
+			case Source::LoadErrorConfirmation:
+				return "load-error-confirmation";
 			case Source::None:
 			default:
 				return "none";
@@ -547,6 +549,28 @@ namespace AVPE::NativeMenuInput
 		return true;
 	}
 
+	// The modal registers only a button callback, so no dispatch runs to carry an injected
+	// one; Input_Exit is a leaf that clears the modal's loop flag, safe to call directly.
+	static bool TryLoadErrorConfirmation(Result* result, EECallShuttle::Transaction& transaction)
+	{
+		CallbackRegistry registry;
+		const char* error = "";
+		if (ReadCallbackRegistry(&registry, &error) != Status::Success)
+			return false;
+		NativeInputCallbacks::Target target;
+		if (!NativeInputCallbacks::FindRegistered(
+				registry.entries, registry.count, LoadErrorMenuVtable, LoadErrorExitFunction, &target, {}))
+			return false;
+		*result = Result{.action = result->action};
+		result->source = Source::LoadErrorConfirmation;
+		result->callback_count = registry.count;
+		result->handler = target.function;
+		result->action_target = target.object;
+		if (AcceptCallResult(result, transaction.Call({.function = target.function, .arguments = {target.object, 0, 0, 0}})))
+			result->status = Status::Success;
+		return true;
+	}
+
 	static void QueueCallbackRegistryAction(Result* result, const ActiveMenu& active, const Action action)
 	{
 		if (result->source != Source::CallbackRegistry || action == Action::Cancel)
@@ -634,7 +658,7 @@ namespace AVPE::NativeMenuInput
 			ActiveMenu active;
 			InspectOnCPUThread(&result, &active);
 			if (action == Action::Activate && result.source != Source::MissionGoalsLoad &&
-				TryAttractCancellation(&result))
+				(TryAttractCancellation(&result) || TryLoadErrorConfirmation(&result, transaction)))
 				return;
 			if (result.status != Status::Success)
 				return;

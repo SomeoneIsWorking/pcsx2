@@ -33,6 +33,11 @@ namespace AVPE::NativeInputCallbacks
 			{
 				continue;
 			}
+			// One handler bound to several pad events registers once per event.
+			if (target->object == owner)
+			{
+				continue;
+			}
 			if (target->object != 0)
 			{
 				return false;
