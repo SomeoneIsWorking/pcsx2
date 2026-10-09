@@ -36,6 +36,7 @@ namespace AVPE
 
 	bool HostPointerInput::Move(const float normalized_x, const float normalized_y)
 	{
+		m_mission_position.reset();
 		const NativeMenuInput::Result menu = m_guest.inspect_menu();
 		if (menu.Succeeded())
 		{
@@ -56,6 +57,7 @@ namespace AVPE
 		const NativeInput::Result result = m_guest.move_pointer(normalized_x, normalized_y);
 		if (result.Succeeded())
 		{
+			m_mission_position = Position{normalized_x, normalized_y};
 			return true;
 		}
 		if (result.status == NativeInput::Status::PointerUnavailable)
@@ -170,5 +172,34 @@ namespace AVPE
 		}
 		lucent::warn("avpe-host-input", "native camera zoom refused: {}", result.error);
 		return true;
+	}
+
+	void HostPointerInput::Leave()
+	{
+		m_mission_position.reset();
+	}
+
+	void HostPointerInput::Tick()
+	{
+		if (!m_mission_position.has_value())
+		{
+			return;
+		}
+		const auto axis = [](const float value) {
+			return value <= EdgeBand ? -1.0f : value >= 1.0f - EdgeBand ? 1.0f :
+			                                                              0.0f;
+		};
+		const float x = axis(m_mission_position->x);
+		const float y = axis(m_mission_position->y);
+		if ((x == 0.0f && y == 0.0f) ||
+			m_guest.inspect_menu().status != NativeMenuInput::Status::MenuUnavailable)
+		{
+			return;
+		}
+		const NativeCameraInput::Result result = m_guest.camera(NativeCameraInput::Action::Move, x, y);
+		if (!result.Succeeded() && result.status != NativeCameraInput::Status::CameraUnavailable)
+		{
+			lucent::warn("avpe-host-input", "edge scroll refused: {}", result.error);
+		}
 	}
 } // namespace AVPE
