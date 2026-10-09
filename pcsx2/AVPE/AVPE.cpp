@@ -723,7 +723,8 @@ namespace AVPE
 				default:
 					break;
 			}
-			lucent::error("avpe", "EE call {:08x} failed: {}", request.function, result.error);
+			lucent::error("avpe", "EE call {:08x} failed at pc {:08x} (last avpe text pc {:08x}): {}", request.function,
+				result.stopped_pc, result.last_avpe_text_pc, result.error);
 			return lucent::http::Response::text(status, "EE Call Failed", std::string(result.error) + "\n");
 		}
 
