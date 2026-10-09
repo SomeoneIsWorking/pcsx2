@@ -145,6 +145,7 @@ set(pcsx2Sources
 	AVPE/NativeMenuItems.cpp
 	AVPE/NativeUnitCommands.cpp
 	AVPE/NativeStatPanel.cpp
+	AVPE/NativeDragSelect.cpp
 	AVPE/NativeAttractInput.cpp
 	AVPE/NativeMovieInput.cpp
 	AVPE/NativeMenuRoute.cpp
