@@ -72,7 +72,7 @@ namespace AVPE
 		{
 			const std::optional<CameraVector> camera = CameraMoveForKey(event.key());
 			if (!camera.has_value())
-				return false;
+				return HandleUnitKey(event);
 			m_camera_keys.insert(event.key());
 			return ApplyCameraMove(camera->x, camera->y);
 		}
@@ -85,6 +85,9 @@ namespace AVPE
 	bool HostInputRouter::HandleCommandKey(const QKeyEvent& event)
 	{
 		const int key = event.key();
+		if (key >= Qt::Key_1 && key <= Qt::Key_4)
+			return NativeMenuInput::Inspect().status == NativeMenuInput::Status::MenuUnavailable &&
+			       HandleUnitKey(event);
 		if (key < Qt::Key_A || key > Qt::Key_Z)
 			return false;
 		if (event.isAutoRepeat())
@@ -104,6 +107,33 @@ namespace AVPE
 		if (result.Succeeded())
 			return true;
 		lucent::warn("avpe-host-input", "prompted item {:08x} refused key {}: {}", *item, key, result.error);
+		return true;
+	}
+
+	bool HostInputRouter::HandleUnitKey(const QKeyEvent& event)
+	{
+		const int key = event.key();
+		if (event.isAutoRepeat())
+			return m_consumed_keys.contains(key);
+		NativeUnitCommands& commands = NativeUnitCommands::Process();
+		bool accepted = false;
+		// As in StarCraft: a number recalls its group, Ctrl+number assigns it, Space jumps
+		// to the latest event and Backspace to the base. The original has four groups.
+		if (key >= Qt::Key_1 && key <= Qt::Key_4)
+		{
+			const u32 group = static_cast<u32>(key - Qt::Key_1);
+			accepted = event.modifiers().testFlag(Qt::ControlModifier) ? commands.AssignGroup(group) :
+			                                                             commands.RecallGroup(group);
+		}
+		else if (key == Qt::Key_Space)
+			accepted = commands.JumpToEvent();
+		else if (key == Qt::Key_Backspace)
+			accepted = commands.JumpToBase();
+		else
+			return false;
+		if (!accepted)
+			lucent::info("avpe-host-input", "unit command is busy; key {} ignored", key);
+		m_consumed_keys.insert(key);
 		return true;
 	}
 

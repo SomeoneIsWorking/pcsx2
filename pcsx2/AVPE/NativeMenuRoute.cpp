@@ -47,8 +47,8 @@ namespace AVPE::NativeMenuRoute
 			return HandleAction(request.body);
 		if (request.method == "POST" && path == "/input/menu-item")
 			return HandleItem(request.body);
-		if (request.method == "POST" && path == "/input/command-card")
-			return HandleCommandCard(request.body);
+		if (request.method == "POST" && path == "/input/unit-command")
+			return HandleUnitCommand(request.body);
 		return std::nullopt;
 	}
 
@@ -74,19 +74,31 @@ namespace AVPE::NativeMenuRoute
 		return response;
 	}
 
-	lucent::http::Response HandleCommandCard(const std::string& body)
+	lucent::http::Response HandleUnitCommand(const std::string& body)
 	{
+		NativeUnitCommands& commands = NativeUnitCommands::Process();
 		const auto key = HttpJson::StringField(body, "key");
 		const auto show = HttpJson::StringField(body, "show");
+		const auto group = HttpJson::StringField(body, "group");
+		const auto jump = HttpJson::StringField(body, "jump");
 		bool accepted = false;
 		if (key && key->size() == 1)
-			accepted = NativeUnitCommands::Process().CardOrder((*key)[0]);
+			accepted = commands.CardOrder((*key)[0]);
 		else if (show == "true" || show == "false")
-			accepted = NativeUnitCommands::Process().ShowCard(*show == "true");
+			accepted = commands.ShowCard(*show == "true");
+		else if (group && group->size() == 1 && (*group)[0] >= '1' && (*group)[0] <= '4')
+		{
+			const u32 index = static_cast<u32>((*group)[0] - '1');
+			accepted = HttpJson::StringField(body, "assign") == "true" ? commands.AssignGroup(index) :
+			                                                             commands.RecallGroup(index);
+		}
+		else if (jump == "event" || jump == "base")
+			accepted = *jump == "event" ? commands.JumpToEvent() : commands.JumpToBase();
 		else
-			return lucent::http::Response::text(400, "Bad Request", "need key (one capital letter) or show (\"true\" or \"false\")\n");
+			return lucent::http::Response::text(400, "Bad Request",
+				"need key (a capital letter), show, group (1-4, optional assign) or jump (event or base)\n");
 		if (!accepted)
-			return lucent::http::Response::json(409, "Conflict", R"({"error":"an order card request is still running"})");
+			return lucent::http::Response::json(409, "Conflict", R"({"error":"a unit command is still running"})");
 		return lucent::http::Response::json(202, "Accepted", R"({"accepted":true})");
 	}
 

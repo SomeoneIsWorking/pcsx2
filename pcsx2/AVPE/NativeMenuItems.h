@@ -24,6 +24,10 @@ namespace AVPE::NativeMenuItems
 	Status FindAdjustmentCallback(u32 entries, u32 count, u32 menu, u32 focused,
 		NativeMenuInput::Action action, NativeInputCallbacks::Target* target,
 		const char** error, const NativeInputCallbacks::Access& read = {});
+	// The registered HotKeyActivate of the menu's item bound to this pad event (GMenuItem+0x118).
+	Status FindHotkeyItem(u32 entries, u32 count, u32 menu, u32 hotkey,
+		NativeInputCallbacks::Target* target, const char** error,
+		const NativeInputCallbacks::Access& read = {});
 	// Cancellation is the registered HotKeyActivate of the menu's Back item.
 	// FocusUnavailable means this menu keeps its existing virtual cancellation.
 	Status FindCancellationCallback(u32 entries, u32 count, u32 menu,
