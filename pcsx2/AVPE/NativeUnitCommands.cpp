@@ -111,6 +111,12 @@ namespace AVPE
 		return Begin({Action::FireMenuItem}, 0, BaseHotkey);
 	}
 
+	bool NativeUnitCommands::UseSpecial()
+	{
+		std::lock_guard lock(m_mutex);
+		return Begin({Action::FireMenuItem}, 0, SpecialHotkey);
+	}
+
 	void NativeUnitCommands::Step(const u32 input_device, const Guest& guest)
 	{
 		std::lock_guard lock(m_mutex);

@@ -43,6 +43,8 @@ namespace AVPE
 		static inline constexpr u32 EventHotkey = 0x17F3FBBE;
 		// Right_LeftClusterButton_Release (Square): GAvPMenu::JumpToBase.
 		static inline constexpr u32 BaseHotkey = 0x26BA5594;
+		// RightTopShoulderButton_Release (R1): the unit type's special (GMarineUI::ItemActivated).
+		static inline constexpr u32 SpecialHotkey = 0x6A2E2A46;
 
 		struct Guest
 		{
@@ -59,6 +61,7 @@ namespace AVPE
 		bool AssignGroup(u32 group);
 		bool JumpToEvent();
 		bool JumpToBase();
+		bool UseSpecial();
 
 		// EE thread, at InputProcessPc.
 		void Step(u32 input_device, const Guest& guest);

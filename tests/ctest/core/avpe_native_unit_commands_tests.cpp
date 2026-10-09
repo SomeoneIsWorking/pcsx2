@@ -257,7 +257,7 @@ namespace
 		EXPECT_TRUE(queued.empty());
 	}
 
-	TEST_F(NativeUnitCommandsTest, SpaceJumpsToTheEvent)
+	TEST_F(NativeUnitCommandsTest, SpaceAndQFireTheirUnitMenuItems)
 	{
 		GuestShowsUnitMenu();
 		ASSERT_TRUE(commands.JumpToEvent());
@@ -267,5 +267,10 @@ namespace
 		ASSERT_TRUE(commands.JumpToBase());
 		Step();
 		EXPECT_EQ(queued.size(), 1u);
+		words[event + 0x118] = NativeUnitCommands::SpecialHotkey;
+		ASSERT_TRUE(commands.UseSpecial());
+		Step();
+		ASSERT_EQ(queued.size(), 2u);
+		EXPECT_EQ(queued[1].object, event);
 	}
 } // namespace
