@@ -11,7 +11,6 @@ namespace AVPE::NativeInput
 {
 	static constexpr u32 SET_INPUT_TYPE = 0x001B18E0;
 	static constexpr u32 PRESS_MOUSE_PRIMARY = 0x001B52C0;
-	static constexpr u32 RELEASE_MOUSE_PRIMARY = 0x001B52D0;
 	static constexpr u32 PRESS_MOUSE_SECONDARY = 0x001B5300;
 	static constexpr u32 RELEASE_MOUSE_SECONDARY = 0x001B5310;
 	static constexpr u32 POINTER_SINGLETON = 0x00367720;
@@ -154,13 +153,34 @@ namespace AVPE::NativeInput
 	static u32 HandlerFor(const MouseButton button, const ButtonEdge edge)
 	{
 		if (button == MouseButton::Primary)
-			return edge == ButtonEdge::Press ? PRESS_MOUSE_PRIMARY : RELEASE_MOUSE_PRIMARY;
+			return edge == ButtonEdge::Press ? PRESS_MOUSE_PRIMARY : ReleaseMousePrimaryFunction;
 		return edge == ButtonEdge::Press ? PRESS_MOUSE_SECONDARY : RELEASE_MOUSE_SECONDARY;
 	}
 
-	ButtonResult ApplyButtonEdge(const MouseButton button, const ButtonEdge edge)
+	std::vector<EECallShuttle::Request> PrimaryReleaseCalls(
+		const SelectionMode mode, const u32 pointer, const u32 in_game_menu)
+	{
+		const EECallShuttle::Request refresh{.function = InGameMenuRefreshFunction, .arguments = {in_game_menu, 0, 0, 0}};
+		switch (mode)
+		{
+			case SelectionMode::Toggle:
+				return {{.function = SelectChangingFunction, .arguments = {pointer, 0, 1, 0}}, refresh};
+			case SelectionMode::SameType:
+				return {{.function = SelectChangingFunction, .arguments = {pointer, 0, 0, 0}},
+					{.function = DoubleClickSelectChangingFunction, .arguments = {pointer, 0, 0, 0}}, refresh};
+			case SelectionMode::Replace:
+			default:
+				return {{.function = ReleaseMousePrimaryFunction, .arguments = {pointer, 0, 0, 0}}};
+		}
+	}
+
+	ButtonResult ApplyButtonEdge(const MouseButton button, const ButtonEdge edge, const SelectionMode mode)
 	{
 		std::lock_guard lock(s_button_mutex);
+		if (mode != SelectionMode::Replace && (button != MouseButton::Primary || edge != ButtonEdge::Release))
+		{
+			return FailButton(Status::InvalidButtonEdge, button, edge, "only a primary release takes a selection mode");
+		}
 		bool& pressed = button == MouseButton::Primary ? s_primary_pressed : s_secondary_pressed;
 		if (pressed == (edge == ButtonEdge::Press))
 		{
@@ -169,7 +189,7 @@ namespace AVPE::NativeInput
 		}
 
 		ButtonResult result;
-		EECallShuttle::RunTransaction([&result, button, edge](EECallShuttle::Transaction& transaction) {
+		EECallShuttle::RunTransaction([&result, button, edge, mode](EECallShuttle::Transaction& transaction) {
 			result.button = button;
 			result.edge = edge;
 			result.handler = HandlerFor(button, edge);
@@ -186,18 +206,36 @@ namespace AVPE::NativeInput
 				return;
 			}
 
-			EECallShuttle::Request request{.function = result.handler};
-			request.arguments[0] = result.pointer;
-			const EECallShuttle::Result call = transaction.Call(request);
-			result.shuttle_status = call.status;
-			result.elapsed_cycles = call.elapsed_cycles;
-			if (!call.Succeeded())
+			u32 in_game_menu = 0;
+			if (mode != SelectionMode::Replace && !GuestObjects::ReadWord(InGameMenuSingleton, &in_game_menu))
 			{
-				result.status = call.status == EECallShuttle::Status::GuestMemoryError ?
-				                    Status::GuestMemoryError :
-				                    Status::ShuttleFailure;
-				result.error = call.error;
+				result.status = Status::GuestMemoryError;
+				result.error = "in-game menu singleton is unreadable";
 				return;
+			}
+			std::vector<EECallShuttle::Request> requests;
+			if (button == MouseButton::Primary && edge == ButtonEdge::Release)
+			{
+				requests = PrimaryReleaseCalls(mode, result.pointer, in_game_menu);
+			}
+			else
+			{
+				requests.push_back({.function = result.handler, .arguments = {result.pointer, 0, 0, 0}});
+			}
+			result.handler = requests.front().function;
+			for (const EECallShuttle::Request& request : requests)
+			{
+				const EECallShuttle::Result call = transaction.Call(request);
+				result.shuttle_status = call.status;
+				result.elapsed_cycles += call.elapsed_cycles;
+				if (!call.Succeeded())
+				{
+					result.status = call.status == EECallShuttle::Status::GuestMemoryError ?
+					                    Status::GuestMemoryError :
+					                    Status::ShuttleFailure;
+					result.error = call.error;
+					return;
+				}
 			}
 			if (!ReadSelection(result.pointer, &result.after))
 			{

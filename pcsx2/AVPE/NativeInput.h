@@ -4,6 +4,8 @@
 
 #include "AVPE/EECallShuttle.h"
 
+#include <vector>
+
 namespace AVPE::NativeInput
 {
 	enum class Status : u8
@@ -47,6 +49,22 @@ namespace AVPE::NativeInput
 		Release,
 	};
 
+	// How a primary release changes the selection: the PC's plain, Shift and Ctrl clicks.
+	enum class SelectionMode : u8
+	{
+		Replace,
+		// GfsPointer::Select adds the box and toggles a single clicked unit.
+		Toggle,
+		// Every on-screen unit of the clicked unit's type, as on a double click.
+		SameType,
+	};
+
+	inline constexpr u32 SelectChangingFunction = 0x001B26A0;
+	inline constexpr u32 DoubleClickSelectChangingFunction = 0x001B2790;
+	inline constexpr u32 InGameMenuRefreshFunction = 0x00279670;
+	inline constexpr u32 InGameMenuSingleton = 0x003687FC;
+	inline constexpr u32 ReleaseMousePrimaryFunction = 0x001B52D0;
+
 	struct SelectionState
 	{
 		u32 count = 0;
@@ -78,6 +96,9 @@ namespace AVPE::NativeInput
 
 	// Calls the game's original mouse handlers and rejects impossible duplicate
 	// edges. Selection and command observations are read from game-owned state.
-	ButtonResult ApplyButtonEdge(MouseButton button, ButtonEdge edge);
+	// The mode applies to a primary release only; other edges take Replace.
+	ButtonResult ApplyButtonEdge(MouseButton button, ButtonEdge edge, SelectionMode mode);
+	// The guest calls a primary release makes; each ends as Input_ReleaseMouse1 does.
+	std::vector<EECallShuttle::Request> PrimaryReleaseCalls(SelectionMode mode, u32 pointer, u32 in_game_menu);
 	void ResetAfterStateLoad();
 } // namespace AVPE::NativeInput

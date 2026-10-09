@@ -29,7 +29,8 @@ namespace AVPE
 			std::function<NativeMenuInput::PointerResult(float, float)> move_menu_pointer;
 			std::function<NativeMenuInput::PointerResult()> activate_menu_pointer;
 			std::function<NativeInput::Result(float, float)> move_pointer;
-			std::function<NativeInput::ButtonResult(NativeInput::MouseButton, NativeInput::ButtonEdge)> button_edge;
+			std::function<NativeInput::ButtonResult(NativeInput::MouseButton, NativeInput::ButtonEdge, NativeInput::SelectionMode)>
+				button_edge;
 			std::function<NativeCameraInput::Result(NativeCameraInput::Action, float, float)> camera;
 
 			static Guest Live();
@@ -40,7 +41,8 @@ namespace AVPE
 		// Coordinates are normalized to the presented guest image.
 		bool Move(float normalized_x, float normalized_y);
 		bool Press(Button button);
-		bool Release(Button button);
+		// Shift toggles and Ctrl selects the type; the mode reaches only a mission primary release.
+		bool Release(Button button, NativeInput::SelectionMode selection);
 		bool DoubleClick(Button button);
 		bool Wheel(float steps);
 		// The cursor left the window; edge scrolling stops until it returns.
