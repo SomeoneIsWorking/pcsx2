@@ -273,6 +273,8 @@ namespace AVPE::NativeMenuInput
 				return "movie-cancellation";
 			case Source::LoadErrorConfirmation:
 				return "load-error-confirmation";
+			case Source::IntroSkip:
+				return "intro-skip";
 			case Source::None:
 			default:
 				return "none";
@@ -571,6 +573,28 @@ namespace AVPE::NativeMenuInput
 		return true;
 	}
 
+	// The guest dispatches input only on pad events, so a queued callback would wait for one;
+	// HotKeyActivate ignores its input data.
+	static bool TryIntroSkip(Result* result, EECallShuttle::Transaction& transaction)
+	{
+		CallbackRegistry registry;
+		const char* error = "";
+		if (ReadCallbackRegistry(&registry, &error) != Status::Success)
+			return false;
+		NativeInputCallbacks::Target target;
+		if (!NativeInputCallbacks::FindRegistered(
+				registry.entries, registry.count, IntroSkipButtonVtable, MenuItemHotKeyActivate, &target, {}))
+			return false;
+		*result = Result{.action = result->action};
+		result->source = Source::IntroSkip;
+		result->callback_count = registry.count;
+		result->handler = target.function;
+		result->action_target = target.object;
+		if (AcceptCallResult(result, transaction.Call({.function = target.function, .arguments = {target.object, 0, 0, 0}})))
+			result->status = Status::Success;
+		return true;
+	}
+
 	static void QueueCallbackRegistryAction(Result* result, const ActiveMenu& active, const Action action)
 	{
 		if (result->source != Source::CallbackRegistry || action == Action::Cancel)
@@ -659,6 +683,9 @@ namespace AVPE::NativeMenuInput
 			InspectOnCPUThread(&result, &active);
 			if (action == Action::Activate && result.source != Source::MissionGoalsLoad &&
 				(TryAttractCancellation(&result) || TryLoadErrorConfirmation(&result, transaction)))
+				return;
+			if ((action == Action::Activate || action == Action::Cancel) &&
+				result.status == Status::MenuUnavailable && TryIntroSkip(&result, transaction))
 				return;
 			if (result.status != Status::Success)
 				return;
