@@ -15,6 +15,7 @@
 #include "AVPE/NativePromptPlacement.h"
 #include "AVPE/NativeMissionLoadTiming.h"
 #include "AVPE/NativeShellShutdownBoundary.h"
+#include "AVPE/NativeStatPanel.h"
 #include "AVPE/NativeProfileContract.h"
 #include "AVPE/NativePromptTrace.h"
 #include "AVPE/NativeSaveBackend.h"
@@ -61,7 +62,8 @@ namespace AVPE::NativeEeExecutionHooks
 		       NativeInputDispatch::ShouldInstrumentEePc(pc) || NativeMenuInput::ShouldObserveEePc(pc) ||
 		       NativeMovieInput::ShouldInstrumentEePc(pc) || NativePromptTrace::ShouldInstrumentEePc(pc) ||
 		       NativeMeshBoundsTrace::ShouldInstrumentEePc(pc) || NativePromptPlacement::ShouldInstrumentEePc(pc) ||
-		       pc == NativeTbdText::SetupPublicsExit || pc == NativeUnitCommands::InputProcessPc;
+		       pc == NativeTbdText::SetupPublicsExit || pc == NativeUnitCommands::InputProcessPc ||
+		       pc == NativeStatPanel::HoverResultPc;
 	}
 
 	void ObserveEeExecution(const u32 pc)
@@ -119,6 +121,10 @@ namespace AVPE::NativeEeExecutionHooks
 				mesh_bounds.ObserveGetMatrixRect(cpuRegs.GPR.n.s3.UL[0], cpuRegs.GPR.n.sp.UL[0],
 					GuestObjects::ReadBytes);
 			}
+		}
+		if (pc == NativeStatPanel::HoverResultPc)
+		{
+			NativeStatPanel::ObserveHoverResult(cpuRegs.GPR.n.sp.UL[0], NativeStatPanel::Access::Guest());
 		}
 		if (pc == NativeTbdText::SetupPublicsExit)
 		{

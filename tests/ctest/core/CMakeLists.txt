@@ -3,6 +3,7 @@ add_pcsx2_test(core_test
 	avpe_native_pad_readiness_tests.cpp
 	avpe_native_menu_items_tests.cpp
 	avpe_native_unit_commands_tests.cpp
+	avpe_native_stat_panel_tests.cpp
 	avpe_native_movie_input_tests.cpp
 	avpe_native_prompt_keys_tests.cpp
 	avpe_native_prompt_overlay_tests.cpp
