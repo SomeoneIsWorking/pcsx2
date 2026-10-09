@@ -86,6 +86,22 @@ namespace
 		EXPECT_EQ(edges, expected);
 	}
 
+	TEST_F(HostPointerInputTest, MissionDoubleClickIsASecondClick)
+	{
+		// The guest times the two releases itself (GAvPPointer::SelectChanging, 0.5 s).
+		input.Press(HostPointerInput::Button::Primary);
+		input.Release(HostPointerInput::Button::Primary);
+		input.DoubleClick(HostPointerInput::Button::Primary);
+		input.Release(HostPointerInput::Button::Primary);
+		const std::vector<Edge> expected{
+			{MouseButton::Primary, ButtonEdge::Press},
+			{MouseButton::Primary, ButtonEdge::Release},
+			{MouseButton::Primary, ButtonEdge::Press},
+			{MouseButton::Primary, ButtonEdge::Release},
+		};
+		EXPECT_EQ(edges, expected);
+	}
+
 	TEST_F(HostPointerInputTest, MenuDoubleClickActivatesOnce)
 	{
 		menu_open = true;
