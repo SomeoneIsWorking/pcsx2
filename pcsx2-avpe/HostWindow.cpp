@@ -184,7 +184,12 @@ namespace AVPE
 						return m_pointer_input.DoubleClick(*button);
 					if (event->type() == QEvent::MouseButtonPress)
 						return m_pointer_input.Press(*button);
-					return m_pointer_input.Release(*button);
+					NativeInput::SelectionMode selection = NativeInput::SelectionMode::Replace;
+					if (mouse_event->modifiers().testFlag(Qt::ShiftModifier))
+						selection = NativeInput::SelectionMode::Toggle;
+					else if (mouse_event->modifiers().testFlag(Qt::ControlModifier))
+						selection = NativeInput::SelectionMode::SameType;
+					return m_pointer_input.Release(*button, selection);
 				}
 			}
 			if (watched == m_surface && event->type() == QEvent::Wheel)

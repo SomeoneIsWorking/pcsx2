@@ -13,10 +13,14 @@ namespace
 	namespace NativeInput = AVPE::NativeInput;
 	namespace NativeCameraInput = AVPE::NativeCameraInput;
 
+	using AVPE::NativeInput::SelectionMode;
+	constexpr SelectionMode Replace = SelectionMode::Replace;
+
 	struct Edge
 	{
 		MouseButton button;
 		ButtonEdge edge;
+		SelectionMode selection = SelectionMode::Replace;
 		bool operator==(const Edge&) const = default;
 	};
 
@@ -48,8 +52,8 @@ namespace
 					NativeInput::Result result;
 					result.status = NativeInput::Status::Success;
 					return result; },
-				.button_edge = [this](const MouseButton button, const ButtonEdge edge) {
-					edges.push_back({button, edge});
+				.button_edge = [this](const MouseButton button, const ButtonEdge edge, const SelectionMode selection) {
+					edges.push_back({button, edge, selection});
 					NativeInput::ButtonResult result;
 					result.status = NativeInput::Status::Success;
 					return result; },
@@ -81,9 +85,9 @@ namespace
 	TEST_F(HostPointerInputTest, MissionClicksReachTheGuestPointer)
 	{
 		EXPECT_TRUE(input.Press(HostPointerInput::Button::Primary));
-		EXPECT_TRUE(input.Release(HostPointerInput::Button::Primary));
+		EXPECT_TRUE(input.Release(HostPointerInput::Button::Primary, Replace));
 		EXPECT_TRUE(input.Press(HostPointerInput::Button::Secondary));
-		EXPECT_TRUE(input.Release(HostPointerInput::Button::Secondary));
+		EXPECT_TRUE(input.Release(HostPointerInput::Button::Secondary, Replace));
 		const std::vector<Edge> expected{
 			{MouseButton::Primary, ButtonEdge::Press},
 			{MouseButton::Primary, ButtonEdge::Release},
@@ -97,9 +101,9 @@ namespace
 	{
 		// The guest times the two releases itself (GAvPPointer::SelectChanging, 0.5 s).
 		input.Press(HostPointerInput::Button::Primary);
-		input.Release(HostPointerInput::Button::Primary);
+		input.Release(HostPointerInput::Button::Primary, Replace);
 		input.DoubleClick(HostPointerInput::Button::Primary);
-		input.Release(HostPointerInput::Button::Primary);
+		input.Release(HostPointerInput::Button::Primary, Replace);
 		const std::vector<Edge> expected{
 			{MouseButton::Primary, ButtonEdge::Press},
 			{MouseButton::Primary, ButtonEdge::Release},
@@ -138,23 +142,38 @@ namespace
 		input.Move(0.8f, 0.8f);
 		input.Press(HostPointerInput::Button::Primary);
 		input.Move(0.82f, 0.8f);
-		input.Release(HostPointerInput::Button::Primary);
+		input.Release(HostPointerInput::Button::Primary, Replace);
 		EXPECT_EQ(jumps, 2);
 		EXPECT_TRUE(edges.empty());
 		on_minimap = false;
 		input.Move(0.5f, 0.5f);
 		input.Press(HostPointerInput::Button::Primary);
-		input.Release(HostPointerInput::Button::Primary);
+		input.Release(HostPointerInput::Button::Primary, Replace);
 		EXPECT_EQ(edges.size(), 2u);
+	}
+
+	TEST_F(HostPointerInputTest, ShiftAndCtrlReachOnlyTheMissionPrimaryRelease)
+	{
+		input.Press(HostPointerInput::Button::Primary);
+		input.Release(HostPointerInput::Button::Primary, SelectionMode::Toggle);
+		input.Press(HostPointerInput::Button::Secondary);
+		input.Release(HostPointerInput::Button::Secondary, SelectionMode::SameType);
+		const std::vector<Edge> expected{
+			{MouseButton::Primary, ButtonEdge::Press},
+			{MouseButton::Primary, ButtonEdge::Release, SelectionMode::Toggle},
+			{MouseButton::Secondary, ButtonEdge::Press},
+			{MouseButton::Secondary, ButtonEdge::Release},
+		};
+		EXPECT_EQ(edges, expected);
 	}
 
 	TEST_F(HostPointerInputTest, MenuDoubleClickActivatesOnce)
 	{
 		menu_open = true;
 		input.Press(HostPointerInput::Button::Primary);
-		input.Release(HostPointerInput::Button::Primary);
+		input.Release(HostPointerInput::Button::Primary, Replace);
 		input.DoubleClick(HostPointerInput::Button::Primary);
-		input.Release(HostPointerInput::Button::Primary);
+		input.Release(HostPointerInput::Button::Primary, Replace);
 		EXPECT_EQ(menu_activations, 1);
 		EXPECT_TRUE(edges.empty());
 	}

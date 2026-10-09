@@ -24,7 +24,7 @@ namespace AVPE
 			.move_menu_pointer = [](const float x, const float y) { return NativeMenuInput::MovePointerThroughDispatch(x, y); },
 			.activate_menu_pointer = [] { return NativeMenuInput::ActivatePointer(); },
 			.move_pointer = [](const float x, const float y) { return NativeInput::MoveAbsolute(x, y); },
-			.button_edge = [](const NativeInput::MouseButton button, const NativeInput::ButtonEdge edge) { return NativeInput::ApplyButtonEdge(button, edge); },
+			.button_edge = [](const NativeInput::MouseButton button, const NativeInput::ButtonEdge edge, const NativeInput::SelectionMode selection) { return NativeInput::ApplyButtonEdge(button, edge, selection); },
 			.camera = [](const NativeCameraInput::Action action, const float x, const float y) { return NativeCameraInput::Apply(action, x, y); },
 		};
 	}
@@ -106,7 +106,7 @@ namespace AVPE
 			m_minimap_buttons.insert(button);
 			return true;
 		}
-		const NativeInput::ButtonResult result = m_guest.button_edge(NativeButtonFor(button), NativeInput::ButtonEdge::Press);
+		const NativeInput::ButtonResult result = m_guest.button_edge(NativeButtonFor(button), NativeInput::ButtonEdge::Press, NativeInput::SelectionMode::Replace);
 		if (result.Succeeded())
 		{
 			m_gameplay_buttons.insert(button);
@@ -120,7 +120,7 @@ namespace AVPE
 		return true;
 	}
 
-	bool HostPointerInput::Release(const Button button)
+	bool HostPointerInput::Release(const Button button, const NativeInput::SelectionMode selection)
 	{
 		if (m_suppressed_double_click_releases.erase(button) != 0)
 		{
@@ -135,7 +135,8 @@ namespace AVPE
 			return false;
 		}
 		const NativeInput::ButtonResult result =
-			m_guest.button_edge(NativeButtonFor(button), NativeInput::ButtonEdge::Release);
+			m_guest.button_edge(NativeButtonFor(button), NativeInput::ButtonEdge::Release,
+				button == Button::Primary ? selection : NativeInput::SelectionMode::Replace);
 		if (result.Succeeded())
 		{
 			m_gameplay_buttons.erase(button);

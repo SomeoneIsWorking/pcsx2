@@ -507,7 +507,18 @@ namespace AVPE
 		else
 			return lucent::http::Response::text(400, "Bad Request", "edge must be press or release\n");
 
-		const NativeInput::ButtonResult result = NativeInput::ApplyButtonEdge(button, edge);
+		const std::string selection_name = HttpJson::StringField(body, "selection").value_or("replace");
+		NativeInput::SelectionMode selection;
+		if (selection_name == "replace")
+			selection = NativeInput::SelectionMode::Replace;
+		else if (selection_name == "toggle")
+			selection = NativeInput::SelectionMode::Toggle;
+		else if (selection_name == "type")
+			selection = NativeInput::SelectionMode::SameType;
+		else
+			return lucent::http::Response::text(400, "Bad Request", "selection must be replace, toggle or type\n");
+
+		const NativeInput::ButtonResult result = NativeInput::ApplyButtonEdge(button, edge, selection);
 		if (!result.Succeeded())
 		{
 			int status = 500;
