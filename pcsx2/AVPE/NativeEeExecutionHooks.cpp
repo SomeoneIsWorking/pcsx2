@@ -93,7 +93,7 @@ namespace AVPE::NativeEeExecutionHooks
 		if (NativeInputDispatch::ShouldInstrumentEePc(pc))
 			NativeInputDispatch::ObserveEeExecution(pc);
 		if (pc == NativeUnitCommands::InputProcessPc)
-			NativeUnitCommands::Process().Step(cpuRegs.GPR.n.a0.UL[0], NativeUnitCommands::LiveGuest());
+			NativeUnitCommands::Process().Step(cpuRegs.GPR.n.a0.UL[0], NativeInputDispatch::LiveCallbackQueue());
 		if (NativeMenuInput::ShouldObserveEePc(pc))
 			NativeMenuInput::ObserveInputProcess();
 		if (NativeMovieInput::ShouldInstrumentEePc(pc))

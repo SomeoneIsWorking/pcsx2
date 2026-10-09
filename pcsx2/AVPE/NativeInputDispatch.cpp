@@ -408,6 +408,19 @@ namespace AVPE::NativeInputDispatch
 		       !s_pending_menu_action.return_pending.load(std::memory_order_acquire);
 	}
 
+	CallbackQueue LiveCallbackQueue()
+	{
+		return {
+			.read = {},
+			.dispatch_idle = IsIdle,
+			.queue =
+				[](const NativeInputCallbacks::Target& target) {
+					return QueueMenuAction({.target = target.object, .callback = target.callback, .function = target.function})
+			            .Succeeded();
+				},
+		};
+	}
+
 	void ObserveEeExecution(const u32 pc)
 	{
 		if (pc == kInputProcessPc)

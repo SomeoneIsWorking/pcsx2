@@ -2,8 +2,10 @@
 
 #pragma once
 
+#include "AVPE/NativeInputCallbacks.h"
 #include "common/Pcsx2Defs.h"
 
+#include <functional>
 #include <string>
 
 namespace AVPE::NativeInputDispatch
@@ -51,6 +53,17 @@ namespace AVPE::NativeInputDispatch
 
 	// No callback is queued or still running, so the guest has seen the last one's effects.
 	bool IsIdle();
+
+	// What a callback owner stepping at GInputDevice::Process needs: guest reads, whether
+	// dispatch is idle, and queueing one registered callback.
+	struct CallbackQueue
+	{
+		NativeInputCallbacks::Access read;
+		std::function<bool()> dispatch_idle;
+		std::function<bool(const NativeInputCallbacks::Target&)> queue;
+	};
+
+	CallbackQueue LiveCallbackQueue();
 
 	// The recompiler uses this to make the member-callback dispatch an exact
 	// block entry. The observer performs the live title/control-test gate.

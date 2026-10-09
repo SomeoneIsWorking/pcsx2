@@ -2,10 +2,9 @@
 
 #pragma once
 
-#include "AVPE/NativeInputCallbacks.h"
+#include "AVPE/NativeInputDispatch.h"
 
 #include <array>
-#include <functional>
 #include <mutex>
 
 namespace AVPE
@@ -45,12 +44,7 @@ namespace AVPE
 		// RightTopShoulderButton_Release (R1): the unit type's special (GMarineUI::ItemActivated).
 		static inline constexpr u32 SpecialHotkey = 0x6A2E2A46;
 
-		struct Guest
-		{
-			NativeInputCallbacks::Access read;
-			std::function<bool()> dispatch_idle;
-			std::function<bool(const NativeInputCallbacks::Target&)> queue;
-		};
+		using Guest = NativeInputDispatch::CallbackQueue;
 
 		// Host thread. Each returns false while an earlier command is still running.
 		bool CardOrder(char letter);
@@ -67,7 +61,6 @@ namespace AVPE
 		void Reset();
 
 		static NativeUnitCommands& Process();
-		static Guest LiveGuest();
 
 	private:
 		enum class Action : u8
