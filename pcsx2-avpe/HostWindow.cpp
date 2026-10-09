@@ -33,7 +33,10 @@ namespace AVPE
 		resize(960, 672);
 		m_input_timer.setInterval(16);
 		m_input_timer.setTimerType(Qt::PreciseTimer);
-		connect(&m_input_timer, &QTimer::timeout, this, [this]() { m_input_router.Tick(); });
+		connect(&m_input_timer, &QTimer::timeout, this, [this]() {
+			m_input_router.Tick();
+			m_pointer_input.Tick();
+		});
 		m_input_timer.start();
 		m_backend.ConnectWindow(*this);
 	}
@@ -142,6 +145,10 @@ namespace AVPE
 				m_input_router.HandleKeyRelease(*static_cast<QKeyEvent*>(event)))
 			{
 				return true;
+			}
+			if (watched == m_surface && event->type() == QEvent::Leave)
+			{
+				m_pointer_input.Leave();
 			}
 			if (watched == m_surface && event->type() == QEvent::MouseMove)
 			{

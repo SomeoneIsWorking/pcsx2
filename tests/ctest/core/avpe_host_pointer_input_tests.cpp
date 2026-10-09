@@ -102,6 +102,29 @@ namespace
 		EXPECT_EQ(edges, expected);
 	}
 
+	TEST_F(HostPointerInputTest, CursorAtTheEdgeScrollsTheCamera)
+	{
+		input.Move(0.999f, 0.5f);
+		input.Tick();
+		input.Move(0.0f, 0.0f);
+		input.Tick();
+		input.Move(0.5f, 0.5f);
+		input.Tick();
+		const std::vector<std::pair<float, float>> expected{{1.0f, 0.0f}, {-1.0f, -1.0f}};
+		EXPECT_EQ(camera_moves, expected);
+	}
+
+	TEST_F(HostPointerInputTest, EdgeScrollStopsOutsideTheWindowAndInMenus)
+	{
+		input.Move(0.0f, 0.5f);
+		input.Leave();
+		input.Tick();
+		input.Move(0.0f, 0.5f);
+		menu_open = true;
+		input.Tick();
+		EXPECT_TRUE(camera_moves.empty());
+	}
+
 	TEST_F(HostPointerInputTest, MenuDoubleClickActivatesOnce)
 	{
 		menu_open = true;

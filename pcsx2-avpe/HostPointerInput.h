@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <unordered_set>
 
 namespace AVPE
@@ -42,9 +43,24 @@ namespace AVPE
 		bool Release(Button button);
 		bool DoubleClick(Button button);
 		bool Wheel(float steps);
+		// The cursor left the window; edge scrolling stops until it returns.
+		void Leave();
+		// Each input tick: a mission cursor at the screen edge scrolls the camera.
+		void Tick();
+
+		// Fraction of the presented image at each edge that scrolls.
+		static inline constexpr float EdgeBand = 0.02f;
 
 	private:
+		struct Position
+		{
+			float x;
+			float y;
+		};
+
 		Guest m_guest;
+		// The last mission cursor position; empty in menus and outside the window.
+		std::optional<Position> m_mission_position;
 		std::unordered_set<Button> m_menu_buttons;
 		std::unordered_set<Button> m_gameplay_buttons;
 		std::unordered_set<Button> m_suppressed_double_click_releases;
